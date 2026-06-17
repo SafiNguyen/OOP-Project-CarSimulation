@@ -28,10 +28,14 @@ public:
     // --- Graph Functions ---
     void updateRoadCondition(int roadId, double congestionLevel, bool blocked);
     std::vector<Road*> getConnectedRoads(int intersectionId) const;
+    std::vector<Road*> getNeighbors(int intersectionId) const;
+
 
     // Accessors for visualization/testing
     std::vector<Intersection*> getAllIntersections() const;
     std::vector<Road*> getAllRoads() const;
+
+    double calculateDistance(int startId, int destId) const; // for A* heuristic
 
     // --- Utility ---
     void clearGraph();
