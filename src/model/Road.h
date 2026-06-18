@@ -2,7 +2,7 @@
 #define ROAD_H
 
 #include <string>
-
+#include <vector>
 class Intersection;
 
 class Road {
@@ -14,6 +14,8 @@ private:
     double speedLimit;
     double congestionLevel;
     bool blocked; // accident status
+
+    std::vector<double> busStopPositions;   
 
 public:
     Road(int id, Intersection* start, Intersection* end, 
@@ -36,6 +38,11 @@ public:
     void updateCongestionLevel(double newLevel);
     void blockRoad();
     void unblockRoad();
+
+    void addBusStop(double position);
+    void clearBusStops();
+    const std::vector<double>& getBusStopPositions() const;
+    double getNextBusStop(double fromPosition, double toPosition) const;
 
 
     std::string toString() const;

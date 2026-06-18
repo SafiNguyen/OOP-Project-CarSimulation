@@ -109,7 +109,7 @@ void Graph::addRoad(Road* road) {
         sit->second->addOutgoingRoad(road);
         eit->second->addIncomingRoad(road);
     }
-}
+    }
 
 
 void Graph::removeRoad(int id) {
