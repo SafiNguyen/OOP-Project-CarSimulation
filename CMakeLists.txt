@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.15)
 project(UrbanTrafficSimulator CXX)
 
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -64,19 +68,42 @@ target_include_directories(imgui-sfml-lib PUBLIC
     ${sfml_SOURCE_DIR}/include
 )
 
-include_directories(src)
+file(GLOB CORE_SOURCE_FILES CONFIGURE_DEPENDS
+    "src/model/*.cpp"
+    "src/algorithm/*.cpp"
+    "src/mapload.cpp"
+)
 
-file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS "src/*.cpp")
+add_library(urban_core STATIC ${CORE_SOURCE_FILES})
 
-add_executable(${PROJECT_NAME} ${SRC_FILES})
+target_include_directories(urban_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_link_libraries(urban_core PUBLIC
+    nlohmann_json::nlohmann_json
+)
+
+add_executable(${PROJECT_NAME} src/main.cpp)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
+    urban_core
     imgui-sfml-lib
     sfml-graphics
     sfml-window
     sfml-system
-    nlohmann_json::nlohmann_json
 )
+
+add_executable(test_pathfinding
+    tests/test_pathfinding.cpp
+)
+
+target_link_libraries(test_pathfinding PRIVATE
+    urban_core
+)
+
+enable_testing()
+add_test(NAME pathfinding COMMAND test_pathfinding)
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
