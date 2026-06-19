@@ -110,3 +110,11 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         $<TARGET_FILE_DIR:sfml-system>
         $<TARGET_FILE_DIR:${PROJECT_NAME}>
 )
+
+add_executable(test_graph tests/test_graph.cpp)
+target_link_libraries(test_graph PRIVATE urban_core)
+add_test(NAME graph_test COMMAND test_graph)
+
+add_executable(test_vehicle tests/test_vehicle.cpp)
+target_link_libraries(test_vehicle PRIVATE urban_core)
+add_test(NAME vehicle_test COMMAND test_vehicle)
