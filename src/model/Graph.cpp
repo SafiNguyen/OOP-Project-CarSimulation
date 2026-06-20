@@ -9,6 +9,26 @@ Graph::~Graph() {
     clearGraph();
 }
 
+Graph::Graph(Graph&& other) noexcept
+    : intersections(std::move(other.intersections)),
+      roads(std::move(other.roads)) {
+    other.intersections.clear();
+    other.roads.clear();
+}
+
+Graph& Graph::operator=(Graph&& other) noexcept {
+    if (this != &other) {
+        clearGraph();
+        
+        intersections = std::move(other.intersections);
+        roads = std::move(other.roads);
+        
+        other.intersections.clear();
+        other.roads.clear();
+    }
+    return *this;
+}
+
 // --- Utility ---
 void Graph::clearGraph() {
     // Remove all roads via removeRoad() so intersections are updated safely

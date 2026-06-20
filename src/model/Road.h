@@ -23,6 +23,9 @@ public:
          double speedLimit, 
          double congestionLevel = 1.0);
 
+    Road(const Road&) = delete;
+    Road& operator=(const Road&) = delete;
+    
     //getters
     int getId() const;
     Intersection* getStart() const;

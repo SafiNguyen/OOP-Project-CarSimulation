@@ -19,12 +19,15 @@ private:
 public:
     Intersection(int id, double x = 0.0, double y = 0.0);
 
+    Intersection(const Intersection&) = delete;
+    Intersection& operator=(const Intersection&) = delete;
+    
     int getId() const;
     double getX() const;
     double getY() const;
-
-    std::vector<Road*> getIncomingRoads() const; 
-    std::vector<Road*> getOutgoingRoads() const; 
+    
+    const std::vector<Road*>& getIncomingRoads() const; 
+    const std::vector<Road*>& getOutgoingRoads() const;
 
     //methods
     void addIncomingRoad(Road* road);

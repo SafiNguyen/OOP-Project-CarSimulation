@@ -15,6 +15,12 @@ public:
     Graph();
     ~Graph();
 
+    Graph(const Graph&) = delete;
+    Graph& operator=(const Graph&) = delete;
+
+    Graph(Graph&& other) noexcept;
+    Graph& operator=(Graph&& other) noexcept;
+
     // --- Intersection Operations ---
     void addIntersection(Intersection* intersection);
     void removeIntersection(int id);

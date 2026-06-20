@@ -20,11 +20,11 @@ double Intersection::getY() const {
     return y;
 }
 
-std::vector<Road*> Intersection::getIncomingRoads() const {
+const std::vector<Road*>& Intersection::getIncomingRoads() const {
     return incomingRoads;
 }
 
-std::vector<Road*> Intersection::getOutgoingRoads() const {
+const std::vector<Road*>& Intersection::getOutgoingRoads() const {
     return outgoingRoads;
 }
 //method: add road 
