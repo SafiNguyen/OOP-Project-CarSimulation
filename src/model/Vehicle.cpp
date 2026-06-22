@@ -1,6 +1,7 @@
 #include "Vehicle.h"
 #include "Road.h"
 #include "Intersection.h"
+#include "../algorithm/PathFindingStrategy.h"
 
 Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
     : id(id),
@@ -105,5 +106,42 @@ void Vehicle::update(double dt) {
             // pause immediately at position 0 (e.g. first stop at road start)
             // — handled naturally by shouldPauseAt on the next loop iteration
         }
+    }
+}
+
+bool Vehicle::isRoadInUpcomingRoute(int roadId) const {
+    // Only check upcoming roads (from currentRouteIndex + 1 onwards)
+    for (size_t i = currentRouteIndex + 1; i < currentRoute.size(); ++i) {
+        if (currentRoute[i]->getId() == roadId) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy) {
+    if (currentRoad == nullptr || destination == nullptr) return;
+
+    // Start routing from the NEXT intersection (since the vehicle is already on the current road and cannot turn around instantly)
+    int startNodeId = currentRoad->getEnd()->getId();
+    int destNodeId = destination->getId();
+
+    PathResult result = strategy->findPath(graph, startNodeId, destNodeId);
+
+    if (result.found) {
+        std::vector<Road*> newRoute;
+        
+        // 1. Keep the part of the route from the start up to the current road
+        for (int i = 0; i <= currentRouteIndex; ++i) {
+            newRoute.push_back(currentRoute[i]);
+        }
+        
+        // 2. Append the new route (which avoids the blockage/accident)
+        for (Road* r : result.roadPath) {
+            newRoute.push_back(r);
+        }
+        
+        // Update the total route WITHOUT interrupting the current movement state
+        currentRoute = newRoute;
     }
 }

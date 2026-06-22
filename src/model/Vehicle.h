@@ -52,6 +52,10 @@ public:
     void addTravelHistory(Road* road) { travelHistory.push_back(road); }
     const std::vector<Road*>& getTravelHistory() const { return travelHistory; }
 
+    // --- Dynamic Routing Functions ---
+    bool isRoadInUpcomingRoute(int roadId) const;
+    void recalculateRoute(const Graph& graph, class PathFindingStrategy* strategy);
+
     private:
     /** Advance to the next road in the route.  Returns false if route ends. */
     bool advanceToNextRoad();
