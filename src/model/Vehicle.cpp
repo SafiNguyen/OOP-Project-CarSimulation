@@ -1,7 +1,7 @@
 #include "Vehicle.h"
 #include "Road.h"
 #include "Intersection.h"
-#include "../algorithm/PathFindingStrategy.h"
+#include "algorithm/PathFindingStrategy.h"
 
 Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
     : id(id),
@@ -119,8 +119,8 @@ bool Vehicle::isRoadInUpcomingRoute(int roadId) const {
     return false;
 }
 
-void Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy) {
-    if (currentRoad == nullptr || destination == nullptr) return;
+bool Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy) {
+    if (currentRoad == nullptr || destination == nullptr) return false;
 
     // Start routing from the NEXT intersection (since the vehicle is already on the current road and cannot turn around instantly)
     int startNodeId = currentRoad->getEnd()->getId();
@@ -128,20 +128,21 @@ void Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy
 
     PathResult result = strategy->findPath(graph, startNodeId, destNodeId);
 
-    if (result.found) {
-        std::vector<Road*> newRoute;
-        
-        // 1. Keep the part of the route from the start up to the current road
-        for (int i = 0; i <= currentRouteIndex; ++i) {
-            newRoute.push_back(currentRoute[i]);
-        }
-        
-        // 2. Append the new route (which avoids the blockage/accident)
-        for (Road* r : result.roadPath) {
-            newRoute.push_back(r);
-        }
-        
-        // Update the total route WITHOUT interrupting the current movement state
-        currentRoute = newRoute;
+    if (!result.found) {
+        return false; // No alternative route found
     }
+
+    std::vector<Road*> newRoute;
+    newRoute.reserve(static_cast<size_t>(currentRouteIndex) + 1 + result.roadPath.size());
+    for (int i = 0; i <= currentRouteIndex; ++i) {
+        newRoute.push_back(currentRoute[i]);
+    }
+
+    for (Road* r : result.roadPath) {
+        newRoute.push_back(r);
+    }
+
+    currentRoute = newRoute;
+    paused = false; // Reset pause state in case it was paused
+    return true;
 }
