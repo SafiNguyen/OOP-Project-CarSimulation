@@ -57,6 +57,7 @@ private:
     bool paused;
     double speedMultiplier;
     double elapsedTime;
+    long long tickCount;
 };
 
 #endif
