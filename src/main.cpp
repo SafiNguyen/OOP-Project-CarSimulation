@@ -11,6 +11,12 @@
 #include "model/Intersection.h"
 #include "model/Road.h"
 #include "visualization/VisualizationEngine.h"
+#include "visualization/VehicleSprite.h"
+#include "visualization/StatsPanel.h"
+#include "simulation/TrafficSimulator.h"
+#include "algorithm/AStarStrategy.h"
+#include "model/Car.h"
+#include <random>
 
 namespace {
 
@@ -168,27 +174,39 @@ int main(int argc, char** argv) {
 
     clampViewToMap();
 
-    std::vector<float> cumulativeLengths;
-    cumulativeLengths.reserve(routePoints.size() - 1);
-    float totalLength = 0.0f;
-    for (std::size_t i = 1; i < routePoints.size(); ++i) {
-        totalLength += std::sqrt(std::pow(routePoints[i].x - routePoints[i - 1].x, 2.0f) +
-                                  std::pow(routePoints[i].y - routePoints[i - 1].y, 2.0f));
-        cumulativeLengths.push_back(totalLength);
+    AStarStrategy aStar;
+    TrafficSimulator simulator(&graph, &aStar);
+    StatsPanel statsPanel;
+
+    auto intersections = graph.getAllIntersections();
+    if (intersections.size() >= 2) {
+        std::mt19937 rng(42);
+        std::uniform_int_distribution<size_t> dist(0, intersections.size() - 1);
+        
+        for (int i = 0; i < 50; ++i) {
+            Intersection* start = intersections[dist(rng)];
+            Intersection* end = intersections[dist(rng)];
+            while (start == end) {
+                end = intersections[dist(rng)];
+            }
+            Car* car = new Car(i, 40.0, start, end);
+            simulator.addVehicle(car);
+        }
     }
 
     sf::Clock clock;
-    float carDistance = 0.0f;
-    const float carSpeed = 110.0f;
 
     while (window.isOpen()) {
         const float dt = clock.restart().asSeconds();
-        carDistance += dt * carSpeed;
 
         sf::Event event;
         while (window.pollEvent(event)) {
             if (event.type == sf::Event::Closed) window.close();
             if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape) window.close();
+            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Space) {
+                if (simulator.isPaused()) simulator.resume();
+                else simulator.pause();
+            }
             if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Middle) {
                 isDragging = true;
                 lastMousePixel = sf::Mouse::getPosition(window);
@@ -233,26 +251,22 @@ int main(int argc, char** argv) {
             }
         }
 
+        simulator.update(dt);
+
         window.setView(view);
         window.clear(sf::Color(30, 30, 30));
         visualization.drawGraph(window, graph);
 
-        if (routePoints.size() >= 2 && totalLength > 0.0f) {
-            sf::Vector2f carPos = samplePath(routePoints, cumulativeLengths, carDistance);
+        for (Vehicle* v : simulator.getVehicles()) {
+            VehicleSprite sprite(v, &visualization);
+            sprite.update(dt);
+            sprite.draw(window);
+        }
 
-            sf::CircleShape glow(6.0f);
-            glow.setOrigin(6.0f, 6.0f);
-            glow.setPosition(carPos);
-            glow.setFillColor(sf::Color(255, 190, 80, 45));
-            window.draw(glow);
-
-            sf::RectangleShape car(sf::Vector2f(6.0f, 6.0f));
-            car.setOrigin(3.0f, 3.0f);
-            car.setPosition(carPos);
-            car.setFillColor(sf::Color(255, 245, 90));
-            car.setOutlineThickness(1.5f);
-            car.setOutlineColor(sf::Color(20, 20, 20));
-            window.draw(car);
+        window.setView(window.getDefaultView()); // reset view for UI
+        if (simulator.getStatisticsManager()) {
+            statsPanel.update(simulator.getStatisticsManager()->getSummary());
+            statsPanel.draw(window);
         }
 
         window.display();

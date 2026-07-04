@@ -1,129 +1,62 @@
-# Project Name
+# Urban Traffic Simulator
 
-> Short one-line description of the project.
+A C++ Object-Oriented software application that simulates traffic movement within a virtual city environment.
 
-![License](https://img.shields.io/badge/license-MIT-blue) ![Status](https://img.shields.io/badge/status-in--progress-yellow)
+## Architecture
 
----
-## What is it?
+The project follows a modular, object-oriented design:
 
-> What does this project do?
+1. **Model Layer (`src/model`)**: Core data structures representing the city graph.
+   - `Graph`: Contains roads and intersections.
+   - `Intersection`: Nodes in the graph.
+   - `Road`: Edges in the graph, handles speed limits, congestion, and weights.
+   - `Vehicle`, `Car`, `Bus`, `Motorbike`, `EmergencyVehicle`: Moving entities with independent logic and speed calculations.
 
-## Why was it made?
+2. **Algorithm Layer (`src/algorithm`)**: Route planning algorithms using the Strategy Pattern.
+   - `PathFindingStrategy` interface.
+   - `BFSStrategy`, `DijkstraStrategy`, `AStarStrategy`.
 
-> What problem does it solve? What motivated you to build it?
+3. **Simulation Layer (`src/simulation`)**: The engine driving the events and movement.
+   - `TrafficSimulator`: Main loop manager handling ticks and updates.
+   - `EventManager`: Triggers dynamic events (accidents, congestion) and notifies vehicles.
+   - `StatisticsManager`: Collects travel time, recalculation counts, and algorithm benchmarks.
 
-## Who can use it?
+4. **Visualization Layer (`src/visualization`)**: SFML-based UI.
+   - `VisualizationEngine`: Renders the static graph and view mapping.
+   - `VehicleSprite`: Draws dynamic vehicles on screen based on progress and type.
+   - `StatsPanel`: Displays real-time simulation statistics.
 
-> Target audience or intended users.
+## Build Instructions
 
----
-## Demo / Screenshots
+**Prerequisites:**
+- CMake 3.15 or newer
+- A C++17 compatible compiler (e.g. GCC, Clang, MSVC)
 
-> Add a screenshot, GIF, or video here.
+**Building the Project:**
+```bash
+mkdir build
+cd build
+cmake ..
+cmake --build .
+```
 
-![[screenshot.png]]
+## Running the Simulation
 
-Or link to a live demo: [Live Demo](https://your-demo-link.com)
-
----
-## Tech Stack
-
-| Tool / Library | Version | Purpose |
-| -------------- | ------- | ------- |
-| Example        | x.x.x   |         |
-|                |         |         |
-
----
-
-## Installation & Quickstart
-
-> Step-by-step to get it running locally.
-
-**Prerequisites**
-
-- Requirement 1
-- Requirement 2
-
-**Steps**
+After building, the executable `UrbanTrafficSimulator` will be generated in the `build/bin` (or `build/Debug/bin` on MSVC) directory.
 
 ```bash
-# 1. Clone the repo
-git clone https://github.com/your-username/your-repo.git
-
-# 2. Navigate into the project
-cd your-repo
-
-# 3. Install dependencies
-npm install
-
-# 4. Run the project
-npm run dev
+# Run the simulator
+./bin/UrbanTrafficSimulator
 ```
 
----
-## Usage Examples
-
-> Show the most common use cases with short code snippets.
-
-**Example 1 — Basic usage**
-
-```js
-// Example code here
+Alternatively, you can provide a JSON map file as an argument:
+```bash
+./bin/UrbanTrafficSimulator ../map.json
 ```
 
-**Example 2 — Advanced usage**
-
-```js
-// Example code here
-```
-
----
-## What can be improved?
-
----
-## Issues & Struggles
-
-> Which issue made you struggle the most?
-
----
-## Related Projects
-
-> Similar repos, inspirations, or alternatives.
-
-- [Project Name](https://github.com/link) — brief description
-- [Project Name](https://github.com/link) — brief description
-
----
-## License
-
-This project is licensed under the MIT License.
-
----
-## Contact / Support
-
-|Channel|Link|
-|---|---|
-|GitHub Issues|[Open an issue](https://github.com/your-username/your-repo/issues)|
-|Email|your@email.com|
-|Discord|[Join server](https://discord.gg/your-invite)|
-
----
-
-## Project Timeline
-
-|Phase|Start|End|Notes|
-|---|---|---|---|
-|||||
-|||||
-
----
-
-
-
-**In Progress:**
-
-
-
-**Done:**
-
+**Controls:**
+- **Middle Mouse Click + Drag**: Pan the map.
+- **Scroll Wheel** or **+/-**: Zoom in/out.
+- **Space**: Pause / Resume the simulation.
+- **R**: Reset view.
+- **Esc**: Exit.

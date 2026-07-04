@@ -1,6 +1,6 @@
 #include "TrafficSimulator.h"
-#include "Graph.h"
-#include "Vehicle.h"
+#include "model/Graph.h"
+#include "model/Vehicle.h"
 #include "algorithm/PathFindingStrategy.h"
 #include <algorithm> 
 #include <iostream>

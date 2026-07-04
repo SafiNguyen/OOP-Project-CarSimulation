@@ -38,6 +38,10 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
+if (MINGW)
+    set(SFML_USE_SYSTEM_DEPS ON CACHE BOOL "Use system deps for SFML on MinGW" FORCE)
+endif()
+
 # Populate sources only — do NOT call MakeAvailable on imgui-sfml
 FetchContent_MakeAvailable(SFML nlohmann_json imgui)
 FetchContent_Populate(imgui-sfml)   # only downloads, skips its CMakeLists
@@ -71,6 +75,7 @@ target_include_directories(imgui-sfml-lib PUBLIC
 file(GLOB CORE_SOURCE_FILES CONFIGURE_DEPENDS
     "src/model/*.cpp"
     "src/algorithm/*.cpp"
+    "src/simulation/*.cpp"
     "src/visualization/*.cpp"
     "src/mapload.cpp"
 )
