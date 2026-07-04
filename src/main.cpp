@@ -4,83 +4,15 @@
 #include <iostream>
 #include <string>
 #include <algorithm>
+#include <filesystem>
 
 #include "mapload.h"
 #include "model/Graph.h"
 #include "model/Intersection.h"
 #include "model/Road.h"
+#include "visualization/VisualizationEngine.h"
 
 namespace {
-
-sf::Color mixColor(const sf::Color& a, const sf::Color& b, float t) {
-    t = std::clamp(t, 0.0f, 1.0f);
-    auto mix = [t](sf::Uint8 x, sf::Uint8 y) -> sf::Uint8 {
-        return static_cast<sf::Uint8>(x + (y - x) * t);
-    };
-
-    return sf::Color(mix(a.r, b.r), mix(a.g, b.g), mix(a.b, b.b), mix(a.a, b.a));
-}
-
-sf::Color roadHeatColor(const Road* road) {
-    if (road == nullptr) {
-        return sf::Color(120, 120, 120);
-    }
-
-    if (road->isBlocked()) {
-        return sf::Color(180, 40, 40);
-    }
-
-    const double congestion = std::max(1.0, road->getCongestionLevel());
-    const float normalized = static_cast<float>(std::clamp((congestion - 1.0) / 4.0, 0.0, 1.0));
-
-    const sf::Color green(45, 190, 90);
-    const sf::Color yellow(245, 190, 45);
-    const sf::Color red(220, 55, 55);
-
-    if (normalized < 0.5f) {
-        return mixColor(green, yellow, normalized * 2.0f);
-    }
-
-    return mixColor(yellow, red, (normalized - 0.5f) * 2.0f);
-}
-
-double visualCongestionForRoad(const Road* road) {
-    if (road == nullptr) {
-        return 1.0;
-    }
-
-    if (road->getCongestionLevel() > 1.01) {
-        return road->getCongestionLevel();
-    }
-
-    const int seed = road->getId() * 97 + static_cast<int>(road->getDistance() * 13.0);
-    const int clamped = std::abs(seed % 400);
-    return 1.0 + static_cast<double>(clamped) / 100.0;
-}
-
-float distanceBetween(const sf::Vector2f& a, const sf::Vector2f& b) {
-    const float dx = b.x - a.x;
-    const float dy = b.y - a.y;
-    return std::sqrt(dx * dx + dy * dy);
-}
-
-void drawRoadStrip(sf::RenderWindow& window,
-                   const sf::Vector2f& a,
-                   const sf::Vector2f& b,
-                   const sf::Color& color,
-                   float thickness) {
-    const float len = distanceBetween(a, b);
-    if (len <= 0.01f) {
-        return;
-    }
-
-    sf::RectangleShape strip({len, thickness});
-    strip.setOrigin(0.0f, thickness * 0.5f);
-    strip.setPosition(a);
-    strip.setRotation(std::atan2(b.y - a.y, b.x - a.x) * 180.0f / 3.14159265f);
-    strip.setFillColor(color);
-    window.draw(strip);
-}
 
 void populateDemoGraph(Graph& graph) {
     graph.clearGraph();
@@ -146,13 +78,14 @@ sf::Vector2f samplePath(const std::vector<sf::Vector2f>& points,
 
 } // namespace
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
     const unsigned int windowW = 800;
     const unsigned int windowH = 600;
     std::string path;
     if (argc > 1) {
         path = argv[1];
+    } else if (std::filesystem::exists("map.json")) {
+        path = "map.json";
     } else {
         std::cout << "Enter path to JSON map (leave blank to skip): ";
         std::getline(std::cin, path);
@@ -161,7 +94,6 @@ int main(int argc, char** argv)
     Graph graph;
     std::string error;
 
-    // Allow retrying until user provides empty input or loading succeeds
     while (!path.empty()) {
         if (MapLoad::loadGraphFromJsonFile(path, graph, &error)) {
             std::cout << "Loaded map: " << path << std::endl;
@@ -180,57 +112,15 @@ int main(int argc, char** argv)
     sf::RenderWindow window(sf::VideoMode(windowW, windowH), "Urban Traffic Simulator - Map Test");
     window.setFramerateLimit(60);
 
+    VisualizationEngine visualization({windowW, windowH});
+    visualization.prepare(graph);
+
     sf::View view = window.getDefaultView();
     float zoomFactor = 1.0f;
     bool isDragging = false;
     sf::Vector2i lastMousePixel;
 
-    // Prepare drawable data
-    auto intersections = graph.getAllIntersections();
-    auto roads = graph.getAllRoads();
-
-    std::sort(intersections.begin(), intersections.end(), [](Intersection* lhs, Intersection* rhs) {
-        return lhs->getId() < rhs->getId();
-    });
-
-    double minX = 0, minY = 0, maxX = 0, maxY = 0;
-    if (!intersections.empty()) {
-        minX = maxX = intersections[0]->getX();
-        minY = maxY = intersections[0]->getY();
-        for (auto* it : intersections) {
-            double x = it->getX();
-            double y = it->getY();
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
-        }
-    }
-
-    const float margin = 20.0f;
-    double rangeX = (maxX - minX);
-    double rangeY = (maxY - minY);
-    double scaleX = (rangeX > 0.0) ? (windowW - 2*margin) / rangeX : 1.0;
-    double scaleY = (rangeY > 0.0) ? (windowH - 2*margin) / rangeY : 1.0;
-    double scale = std::min(scaleX, scaleY);
-
-    auto worldToScreen = [&](double x, double y) -> sf::Vector2f {
-        float sx = static_cast<float>(margin + (x - minX) * scale);
-        // invert Y so larger world Y is up on screen
-        float sy = static_cast<float>(windowH - margin - (y - minY) * scale);
-        return { sx, sy };
-    };
-
-    std::vector<sf::Vector2f> routePoints;
-    routePoints.reserve(intersections.size());
-    for (auto* intersection : intersections) {
-        routePoints.push_back(worldToScreen(intersection->getX(), intersection->getY()));
-    }
-
-    if (routePoints.size() < 2) {
-        routePoints.push_back({windowW * 0.8f, windowH * 0.2f});
-        routePoints.push_back({windowW * 0.2f, windowH * 0.8f});
-    }
+    const auto& routePoints = visualization.getRoutePoints();
 
     float mapMinX = routePoints.front().x;
     float mapMinY = routePoints.front().y;
@@ -282,7 +172,8 @@ int main(int argc, char** argv)
     cumulativeLengths.reserve(routePoints.size() - 1);
     float totalLength = 0.0f;
     for (std::size_t i = 1; i < routePoints.size(); ++i) {
-        totalLength += distanceBetween(routePoints[i - 1], routePoints[i]);
+        totalLength += std::sqrt(std::pow(routePoints[i].x - routePoints[i - 1].x, 2.0f) +
+                                  std::pow(routePoints[i].y - routePoints[i - 1].y, 2.0f));
         cumulativeLengths.push_back(totalLength);
     }
 
@@ -328,7 +219,7 @@ int main(int argc, char** argv)
                                  static_cast<float>(windowH) * zoomFactor);
                     clampViewToMap();
                 }
-                if (event.key.code == sf::Keyboard::Subtract || event.key.code == sf::Keyboard::Hyphen) {
+                if (event.type == sf::Event::KeyPressed && (event.key.code == sf::Keyboard::Subtract || event.key.code == sf::Keyboard::Hyphen)) {
                     zoomFactor = std::clamp(zoomFactor * 1.1f, 0.35f, 2.5f);
                     view.setSize(static_cast<float>(windowW) * zoomFactor,
                                  static_cast<float>(windowH) * zoomFactor);
@@ -343,42 +234,8 @@ int main(int argc, char** argv)
         }
 
         window.setView(view);
-        window.clear(sf::Color(30,30,30));
-
-        // Draw roads
-        for (auto* road : roads) {
-            Intersection* s = road->getStart();
-            Intersection* e = road->getEnd();
-            if (!s || !e) continue;
-            sf::Vector2f a = worldToScreen(s->getX(), s->getY());
-            sf::Vector2f b = worldToScreen(e->getX(), e->getY());
-            drawRoadStrip(window, a, b, sf::Color(10, 10, 10, 220), road->isBlocked() ? 15.0f : 12.0f);
-            drawRoadStrip(window, a, b, roadHeatColor(road), road->isBlocked() ? 11.0f : 8.0f);
-        }
-
-        for (std::size_t i = 1; i < routePoints.size(); ++i) {
-            drawRoadStrip(window, routePoints[i - 1], routePoints[i], sf::Color(80, 220, 255, 180), 4.0f);
-        }
-
-        sf::RectangleShape border(sf::Vector2f(mapMaxX - mapMinX, mapMaxY - mapMinY));
-        border.setPosition(mapMinX, mapMinY);
-        border.setFillColor(sf::Color::Transparent);
-        border.setOutlineThickness(2.0f);
-        border.setOutlineColor(sf::Color(235, 235, 235, 120));
-        window.draw(border);
-
-        // Draw intersections
-        const float radius = 5.5f;
-        for (auto* it : intersections) {
-            sf::Vector2f p = worldToScreen(it->getX(), it->getY());
-            sf::CircleShape circle(radius);
-            circle.setOrigin(radius, radius);
-            circle.setPosition(p);
-            circle.setFillColor(sf::Color(235, 235, 235));
-            circle.setOutlineThickness(1.5f);
-            circle.setOutlineColor(sf::Color(20, 20, 20));
-            window.draw(circle);
-        }
+        window.clear(sf::Color(30, 30, 30));
+        visualization.drawGraph(window, graph);
 
         if (routePoints.size() >= 2 && totalLength > 0.0f) {
             sf::Vector2f carPos = samplePath(routePoints, cumulativeLengths, carDistance);

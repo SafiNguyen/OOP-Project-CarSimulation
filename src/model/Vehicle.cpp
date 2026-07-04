@@ -22,10 +22,12 @@ void Vehicle::setRoute(const std::vector<Road*>& route) {
     paused = false;
     
     if (!currentRoute.empty()) {
-        currentRoad = currentRoute[0]; 
+        currentRoad = currentRoute[0];
     } else {
         currentRoad = nullptr;
     }
+
+    onRoadChanged();
 }
 
 bool Vehicle::advanceToNextRoad() {

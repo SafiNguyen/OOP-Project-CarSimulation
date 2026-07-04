@@ -71,6 +71,7 @@ target_include_directories(imgui-sfml-lib PUBLIC
 file(GLOB CORE_SOURCE_FILES CONFIGURE_DEPENDS
     "src/model/*.cpp"
     "src/algorithm/*.cpp"
+    "src/visualization/*.cpp"
     "src/mapload.cpp"
 )
 
@@ -78,6 +79,7 @@ add_library(urban_core STATIC ${CORE_SOURCE_FILES})
 
 target_include_directories(urban_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${sfml_SOURCE_DIR}/include
 )
 
 target_link_libraries(urban_core PUBLIC
@@ -118,3 +120,12 @@ add_test(NAME graph_test COMMAND test_graph)
 add_executable(test_vehicle tests/test_vehicle.cpp)
 target_link_libraries(test_vehicle PRIVATE urban_core)
 add_test(NAME vehicle_test COMMAND test_vehicle)
+
+add_executable(test_visualization tests/test_visualization.cpp)
+target_link_libraries(test_visualization PRIVATE
+    urban_core
+    sfml-graphics
+    sfml-window
+    sfml-system
+)
+add_test(NAME visualization_test COMMAND test_visualization)
