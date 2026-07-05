@@ -20,6 +20,7 @@ void Vehicle::setRoute(const std::vector<Road*>& route) {
     currentRouteIndex = 0;
     progressOnCurrentRoad = 0.0;
     paused = false;
+    routeAssigned = true;
     
     if (!currentRoute.empty()) {
         currentRoad = currentRoute[0];

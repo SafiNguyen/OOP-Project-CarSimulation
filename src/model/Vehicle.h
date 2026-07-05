@@ -20,10 +20,16 @@
         int currentRouteIndex;
         std::vector<Road*> travelHistory;
         bool paused;
+        bool routeAssigned = false;
+
 
     public:
         Vehicle(int id, double speed, Intersection* start, Intersection* dest);
-        
+        Vehicle(const Vehicle&) = delete;
+        Vehicle& operator=(const Vehicle&) = delete;
+        Vehicle(Vehicle&&) = delete;
+        Vehicle& operator=(Vehicle&&) = delete;
+
         virtual ~Vehicle() = default;
 
         virtual double calculateCurrentSpeed() const = 0;
@@ -45,9 +51,9 @@
         Road* getCurrentRoad() const { return currentRoad; }
         bool isPaused() const{ return paused; }
         bool hasReachedDestination() const {
-            return (currentRoad == nullptr
-                && !currentRoute.empty()
-                && currentRouteIndex >= (int)currentRoute.size());
+            return routeAssigned
+                && currentRoad == nullptr
+                && currentRouteIndex >= (int)currentRoute.size();
         }
         double getProgressRatio() const;
 

@@ -1,8 +1,9 @@
 #include "EventManager.h"
+#include "StatisticsManager.h"  
 #include <iostream>
 
-EventManager::EventManager(Graph* g, std::vector<Vehicle*>* v, PathFindingStrategy* strategy)
-    : graph(g), vehicles(v), routingStrategy(strategy) {}
+EventManager::EventManager(Graph* g, std::vector<Vehicle*>* v, PathFindingStrategy* strategy, StatisticsManager* stats)
+    : graph(g), vehicles(v), routingStrategy(strategy), statsManager(stats){}
 
 void EventManager::triggerEvent(std::unique_ptr<TrafficEvent> event) {
     if (!graph || !event) return;
@@ -33,7 +34,11 @@ void EventManager::notifyAffectedVehicles(int roadId) {
         if (v->isRoadInUpcomingRoute(roadId)) {
             std::cout << "[Dynamic Routing] Vehicle " << v->getId() 
                       << " is recalculating route to avoid Road " << roadId << "...\n";
-            v->recalculateRoute(*graph, routingStrategy);
+            bool success = v->recalculateRoute(*graph, routingStrategy);
+
+            if (success && statsManager){
+                statsManager->recordRecalculation(v->getId());
+            }   
         }
     }
 }

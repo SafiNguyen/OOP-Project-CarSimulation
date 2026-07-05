@@ -1,6 +1,6 @@
 #include "TrafficSimulator.h"
-#include "model/Graph.h"
-#include "model/Vehicle.h"
+#include "../model/Graph.h"
+#include "../model/Vehicle.h"
 #include "algorithm/PathFindingStrategy.h"
 #include <algorithm> 
 #include <iostream>
@@ -15,8 +15,8 @@ TrafficSimulator::TrafficSimulator(Graph* graph, PathFindingStrategy* strategy)
       elapsedTime(0.0),
       tickCount(0)
 {
-    eventManager = std::make_unique<EventManager>(graph, &vehicles, strategy);
     statisticsManager = std::make_unique<StatisticsManager>();
+    eventManager = std::make_unique<EventManager>(graph, &vehicles, strategy, statisticsManager.get());
 }
 
 TrafficSimulator::~TrafficSimulator() {
@@ -34,7 +34,12 @@ bool TrafficSimulator::addVehicle(Vehicle* vehicle) {
     int startId = vehicle->getSpawnPoint()->getId();
     int destId = vehicle->getDestination()->getId();
     
-    PathResult result = pathFindingStrategy->findPath(*graph, startId, destId);
+    PathResult result;
+    if (statisticsManager) {
+        result = statisticsManager->measurePathfinding(*pathFindingStrategy, *graph, startId, destId);
+    } else {
+        result = pathFindingStrategy->findPath(*graph, startId, destId);
+    }    
     
     if (result.found) {
         vehicle->setRoute(result.roadPath);
