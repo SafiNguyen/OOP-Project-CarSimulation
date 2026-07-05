@@ -21,6 +21,7 @@
 #include "../src/model/EmergencyVehicle.h"
 #include "../src/model/Motorbike.h"
 #include "../src/model/Bus.h"
+#include "../src/algorithm/DijkstraStrategy.h" 
 
 using TestFramework::reportResult;
 using TestFramework::nearlyEqual;
@@ -167,6 +168,51 @@ void test_Vehicle_RouteAdvancement() {
     reportResult(testName, passed, d.str());
 }
 
+void test_Vehicle_RecalculateRoute_PreservesProgressNoGrowth() {
+    std::string testName = "Vehicle: recalculateRoute() called repeatedly mid-road preserves "
+                            "progress and does not grow the route unboundedly";
+
+    Graph g;
+    g.addIntersection(new Intersection(1, 0.0, 0.0));
+    g.addIntersection(new Intersection(2, 10.0, 0.0));
+    g.addIntersection(new Intersection(3, 20.0, 0.0));
+    g.addIntersection(new Intersection(4, 30.0, 0.0));
+    g.addRoad(new Road(101, g.getIntersection(1), g.getIntersection(2), 10.0, 10.0, 1.0));
+    g.addRoad(new Road(102, g.getIntersection(2), g.getIntersection(3), 10.0, 10.0, 1.0));
+    g.addRoad(new Road(103, g.getIntersection(3), g.getIntersection(4), 10.0, 10.0, 1.0));
+
+    DijkstraStrategy strategy; 
+
+    Car car(1, 10.0, g.getIntersection(1), g.getIntersection(4));
+    car.setRoute({g.getRoad(101), g.getRoad(102), g.getRoad(103)});
+
+    car.update(0.5);
+    double progressBefore = car.getProgressRatio() * car.getCurrentRoad()->getDistance();
+
+    bool allSucceeded = true;
+    for (int i = 0; i < 5; ++i) {
+        if (!car.recalculateRoute(g, &strategy)) {
+            allSucceeded = false;
+        }
+    }
+
+    double progressAfter = car.getProgressRatio() * car.getCurrentRoad()->getDistance();
+    bool passProgressUnchanged = nearlyEqual(progressBefore, progressAfter);
+    bool passRoadUnchanged = (car.getCurrentRoad() == g.getRoad(101)); 
+
+
+    car.update(25.0);
+    bool passReachesDestination = car.hasReachedDestination();
+
+    bool passed = allSucceeded && passProgressUnchanged && passRoadUnchanged && passReachesDestination;
+
+    std::ostringstream d;
+    d << "  Expected: progress unchanged after repeated recalculate, still on road 101, "
+         "eventually reaches destination without infinite loop\n";
+    d << "  Actual:   progressBefore=" << progressBefore << " progressAfter=" << progressAfter
+      << " reached=" << passReachesDestination << "\n";
+    reportResult(testName, passed, d.str());
+}
 // ----------------------------------------------------------------------------
 // main
 // ----------------------------------------------------------------------------
@@ -180,6 +226,8 @@ int main() {
     test_EmergencyVehicle_BlockedRoad();
     test_Bus_DwellTime_StateMachine();
     test_Vehicle_RouteAdvancement();
+    test_Vehicle_RecalculateRoute_PreservesProgressNoGrowth();
+
 
     printSummary();
 
