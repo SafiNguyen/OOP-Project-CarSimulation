@@ -1,0 +1,37 @@
+scenario,algorithm,vehicleCount,pathsFound,pathsNotFound,avgTimeMs,avgNodesExplored,avgPathCost,totalTimeMs
+RealMap-Normal,BFS (Basic - fewest roads),100,100,0,0.00059363,2.2,2.11,0.074479
+RealMap-Normal,Dijkstra (Congestion-aware),100,100,0,0.00089266,3.44,4.5221,0.100101
+RealMap-Normal,A* (Speed-optimized),100,100,0,0.00094921,3.2,4.5221,0.105089
+RealMap-Heavy,BFS (Basic - fewest roads),100,55,45,0.00039598,1.88,1.65455,0.05674
+RealMap-Heavy,Dijkstra (Congestion-aware),100,55,45,0.00067244,2.59,6.8077,0.077745
+RealMap-Heavy,A* (Speed-optimized),100,55,45,0.00095613,2.43,6.8077,0.105586
+RealMap-Normal,BFS (Basic - fewest roads),500,500,0,0.000549984,2.322,2.274,0.325367
+RealMap-Normal,Dijkstra (Congestion-aware),500,500,0,0.000933196,3.556,4.85964,0.521929
+RealMap-Normal,A* (Speed-optimized),500,500,0,0.0157503,3.322,4.85964,7.93019
+RealMap-Heavy,BFS (Basic - fewest roads),500,500,0,0.000654254,2.322,2.274,0.378629
+RealMap-Heavy,Dijkstra (Congestion-aware),500,500,0,0.00089894,3.556,18.1964,0.505769
+RealMap-Heavy,A* (Speed-optimized),500,500,0,0.00102087,3.556,18.1964,0.560411
+RealMap-Normal,BFS (Basic - fewest roads),1000,1000,0,0.000615198,2.286,2.218,0.726575
+RealMap-Normal,Dijkstra (Congestion-aware),1000,1000,0,0.00089313,3.504,4.7548,0.997544
+RealMap-Normal,A* (Speed-optimized),1000,1000,0,0.0010136,3.286,4.7548,1.11194
+RealMap-Heavy,BFS (Basic - fewest roads),1000,1000,0,0.000558359,2.286,2.218,0.661432
+RealMap-Heavy,Dijkstra (Congestion-aware),1000,1000,0,0.000899549,3.479,11.6112,1.0028
+RealMap-Heavy,A* (Speed-optimized),1000,1000,0,0.00100045,3.442,11.6112,1.10287
+Grid20x20-Normal,BFS (Basic - fewest roads),100,100,0,0.108535,183.64,13.38,10.8702
+Grid20x20-Normal,Dijkstra (Congestion-aware),100,100,0,0.156734,204.1,21.408,15.6923
+Grid20x20-Normal,A* (Speed-optimized),100,100,0,0.0863395,64.31,21.408,8.65049
+Grid20x20-Heavy,BFS (Basic - fewest roads),100,100,0,0.0412918,183.77,13.46,4.1444
+Grid20x20-Heavy,Dijkstra (Congestion-aware),100,100,0,0.101264,206.29,28.4097,10.1452
+Grid20x20-Heavy,A* (Speed-optimized),100,100,0,0.0726886,83.7,28.4097,7.28486
+Grid20x20-Normal,BFS (Basic - fewest roads),500,500,0,0.0370209,176.762,12.974,18.5852
+Grid20x20-Normal,Dijkstra (Congestion-aware),500,500,0,0.083452,195.516,20.7584,41.8164
+Grid20x20-Normal,A* (Speed-optimized),500,500,0,0.0600073,63.536,20.7584,30.0824
+Grid20x20-Heavy,BFS (Basic - fewest roads),500,500,0,0.0394168,176.446,13.07,19.7841
+Grid20x20-Heavy,Dijkstra (Congestion-aware),500,500,0,0.0969974,194.724,28.2453,48.5892
+Grid20x20-Heavy,A* (Speed-optimized),500,500,0,0.0726911,83.916,28.2453,36.4515
+Grid20x20-Normal,BFS (Basic - fewest roads),1000,1000,0,0.0375623,182.237,13.295,37.7082
+Grid20x20-Normal,Dijkstra (Congestion-aware),1000,1000,0,0.0839615,200.504,21.272,84.1361
+Grid20x20-Normal,A* (Speed-optimized),1000,1000,0,0.0606033,69.717,21.272,60.7531
+Grid20x20-Heavy,BFS (Basic - fewest roads),1000,1000,0,0.0395231,182.651,13.395,39.6912
+Grid20x20-Heavy,Dijkstra (Congestion-aware),1000,1000,0,0.0996495,201.204,28.3473,99.8353
+Grid20x20-Heavy,A* (Speed-optimized),1000,1000,0,0.0738125,84.419,28.3473,73.97
