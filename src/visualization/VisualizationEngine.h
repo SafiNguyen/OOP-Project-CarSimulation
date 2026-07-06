@@ -23,6 +23,9 @@ public:
                           const sf::Vector2f& size = {24.0f, 24.0f});
     void clearSpriteTexture();
 
+    void setHeatMapEnabled(bool enabled);
+    bool isHeatMapEnabled() const;
+
 private:
     static sf::Color mixColor(const sf::Color& a, const sf::Color& b, float t);
     static float distanceBetween(const sf::Vector2f& a, const sf::Vector2f& b);
@@ -44,6 +47,7 @@ private:
     const sf::Texture* spriteTexture_;
     sf::IntRect spriteRect_;
     sf::Vector2f spriteSize_;
+    bool heatMapEnabled_;
 };
 
 #endif

@@ -23,6 +23,11 @@ int main() {
     sf::Color congested = engine.colorForRoad(&congestedRoad);
     assert(congested.r > congested.g && congested.r > congested.b);
 
+    engine.setHeatMapEnabled(false);
+    assert(!engine.isHeatMapEnabled());
+    engine.setHeatMapEnabled(true);
+    assert(engine.isHeatMapEnabled());
+
     std::cout << "Visualization tests passed" << std::endl;
     return 0;
 }

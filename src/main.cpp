@@ -1,22 +1,28 @@
 #include <SFML/Graphics.hpp>
-#include <cmath>
-#include <vector>
-#include <iostream>
-#include <string>
 #include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdio>
 #include <filesystem>
+#include <iostream>
+#include <memory>
+#include <random>
+#include <string>
+#include <vector>
 
+#include <imgui-SFML.h>
+#include <imgui.h>
+
+#include "algorithm/AStarStrategy.h"
 #include "mapload.h"
+#include "model/Car.h"
 #include "model/Graph.h"
 #include "model/Intersection.h"
 #include "model/Road.h"
-#include "visualization/VisualizationEngine.h"
-#include "visualization/VehicleSprite.h"
-#include "visualization/StatsPanel.h"
 #include "simulation/TrafficSimulator.h"
-#include "algorithm/AStarStrategy.h"
-#include "model/Car.h"
-#include <random>
+#include "visualization/StatsPanel.h"
+#include "visualization/VehicleSprite.h"
+#include "visualization/VisualizationEngine.h"
 
 namespace {
 
@@ -43,43 +49,35 @@ void populateDemoGraph(Graph& graph) {
     graph.addRoad(new Road(6, b, d, 68.0, 40.0, 4.0));
 }
 
-sf::Vector2f samplePath(const std::vector<sf::Vector2f>& points,
-                        const std::vector<float>& cumulativeLengths,
-                        float distance) {
-    if (points.empty()) {
-        return {0.0f, 0.0f};
+bool openMapFileDialog(std::string& selectedPath) {
+#if defined(__linux__)
+    const std::string command = "zenity --file-selection --title='Select map JSON' 2>/dev/null";
+    std::array<char, 2048> buffer{};
+    FILE* pipe = popen(command.c_str(), "r");
+    if (pipe == nullptr) {
+        return false;
     }
 
-    if (points.size() == 1 || cumulativeLengths.empty()) {
-        return points.front();
+    std::string result;
+    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
+        result += buffer.data();
     }
 
-    const float total = cumulativeLengths.back();
-    if (total <= 0.01f) {
-        return points.front();
+    const int status = pclose(pipe);
+    if (status != 0) {
+        return false;
     }
 
-    distance = std::fmod(distance, total);
-    if (distance < 0.0f) {
-        distance += total;
+    while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) {
+        result.pop_back();
     }
 
-    std::size_t segmentIndex = 0;
-    while (segmentIndex < cumulativeLengths.size() && cumulativeLengths[segmentIndex] < distance) {
-        ++segmentIndex;
+    if (!result.empty()) {
+        selectedPath = result;
+        return true;
     }
-
-    if (segmentIndex == 0) {
-        const float segmentLength = cumulativeLengths[0];
-        const float t = (segmentLength > 0.01f) ? (distance / segmentLength) : 0.0f;
-        return points[0] + (points[1] - points[0]) * t;
-    }
-
-    const float segmentStart = cumulativeLengths[segmentIndex - 1];
-    const float segmentEnd = cumulativeLengths[segmentIndex];
-    const float segmentLength = segmentEnd - segmentStart;
-    const float t = (segmentLength > 0.01f) ? ((distance - segmentStart) / segmentLength) : 0.0f;
-    return points[segmentIndex] + (points[segmentIndex + 1] - points[segmentIndex]) * t;
+#endif
+    return false;
 }
 
 } // namespace
@@ -97,53 +95,39 @@ int main(int argc, char** argv) {
         std::getline(std::cin, path);
     }
 
-    Graph graph;
-    std::string error;
-
-    while (!path.empty()) {
-        if (MapLoad::loadGraphFromJsonFile(path, graph, &error)) {
-            std::cout << "Loaded map: " << path << std::endl;
-            break;
-        }
-        std::cerr << "Failed to load map '" << path << "': " << error << std::endl;
-        std::cout << "Enter another path (leave blank to skip): ";
-        std::getline(std::cin, path);
-    }
-
-    if (graph.getAllIntersections().empty() || graph.getAllRoads().empty()) {
-        populateDemoGraph(graph);
-        std::cout << "Using built-in demo map for visual testing." << std::endl;
-    }
-
-    sf::RenderWindow window(sf::VideoMode(windowW, windowH), "Urban Traffic Simulator - Map Test");
+    sf::RenderWindow window(sf::VideoMode(windowW, windowH), "Urban Traffic Simulator - Debug Console");
     window.setFramerateLimit(60);
 
+    if (!ImGui::SFML::Init(window)) {
+        std::cerr << "Failed to initialize ImGui-SFML." << std::endl;
+        return 1;
+    }
+
+    ImGui::GetStyle().WindowRounding = 8.0f;
+    ImGui::GetStyle().FrameRounding = 6.0f;
+    ImGui::GetStyle().GrabRounding = 6.0f;
+
+    Graph graph;
+    std::string error;
+    std::string mapPathInput = path.empty() ? "map.json" : path;
+    std::array<char, 1024> mapPathBuffer{};
+    bool usingDemoMap = false;
+    bool heatMapEnabled = true;
+    bool showDebugBar = true;
+    bool debugBarCollapsed = false;
+
     VisualizationEngine visualization({windowW, windowH});
-    visualization.prepare(graph);
+    visualization.setHeatMapEnabled(heatMapEnabled);
 
     sf::View view = window.getDefaultView();
     float zoomFactor = 1.0f;
     bool isDragging = false;
     sf::Vector2i lastMousePixel;
 
-    const auto& routePoints = visualization.getRoutePoints();
-
-    float mapMinX = routePoints.front().x;
-    float mapMinY = routePoints.front().y;
-    float mapMaxX = routePoints.front().x;
-    float mapMaxY = routePoints.front().y;
-    for (const auto& point : routePoints) {
-        mapMinX = std::min(mapMinX, point.x);
-        mapMinY = std::min(mapMinY, point.y);
-        mapMaxX = std::max(mapMaxX, point.x);
-        mapMaxY = std::max(mapMaxY, point.y);
-    }
-
-    const float cameraPadding = 60.0f;
-    mapMinX -= cameraPadding;
-    mapMinY -= cameraPadding;
-    mapMaxX += cameraPadding;
-    mapMaxY += cameraPadding;
+    float mapMinX = 0.0f;
+    float mapMinY = 0.0f;
+    float mapMaxX = 100.0f;
+    float mapMaxY = 100.0f;
 
     auto clampViewToMap = [&]() {
         const sf::Vector2f size = view.getSize();
@@ -172,27 +156,92 @@ int main(int argc, char** argv) {
         view.setCenter(center);
     };
 
-    clampViewToMap();
+    auto refreshViewBounds = [&]() {
+        const auto& routePoints = visualization.getRoutePoints();
+        if (routePoints.empty()) {
+            mapMinX = 0.0f;
+            mapMinY = 0.0f;
+            mapMaxX = 100.0f;
+            mapMaxY = 100.0f;
+            return;
+        }
+
+        mapMinX = routePoints.front().x;
+        mapMinY = routePoints.front().y;
+        mapMaxX = routePoints.front().x;
+        mapMaxY = routePoints.front().y;
+        for (const auto& point : routePoints) {
+            mapMinX = std::min(mapMinX, point.x);
+            mapMinY = std::min(mapMinY, point.y);
+            mapMaxX = std::max(mapMaxX, point.x);
+            mapMaxY = std::max(mapMaxY, point.y);
+        }
+
+        const float cameraPadding = 60.0f;
+        mapMinX -= cameraPadding;
+        mapMinY -= cameraPadding;
+        mapMaxX += cameraPadding;
+        mapMaxY += cameraPadding;
+        clampViewToMap();
+    };
+
+    auto loadGraphFromPath = [&](const std::string& requestedPath) -> bool {
+        if (requestedPath.empty()) {
+            populateDemoGraph(graph);
+            usingDemoMap = true;
+            error = "No map path supplied, so the built-in demo map is active.";
+            return false;
+        }
+
+        std::string loadError;
+        if (MapLoad::loadGraphFromJsonFile(requestedPath, graph, &loadError)) {
+            usingDemoMap = false;
+            error.clear();
+            mapPathInput = requestedPath;
+            return true;
+        }
+
+        populateDemoGraph(graph);
+        usingDemoMap = true;
+        error = loadError;
+        return false;
+    };
 
     AStarStrategy aStar;
-    TrafficSimulator simulator(&graph, &aStar);
-    StatsPanel statsPanel;
 
-    auto intersections = graph.getAllIntersections();
-    if (intersections.size() >= 2) {
-        std::mt19937 rng(42);
-        std::uniform_int_distribution<size_t> dist(0, intersections.size() - 1);
-        
-        for (int i = 0; i < 50; ++i) {
-            Intersection* start = intersections[dist(rng)];
-            Intersection* end = intersections[dist(rng)];
-            while (start == end) {
-                end = intersections[dist(rng)];
+    auto resetSimulation = [&]() {
+        std::unique_ptr<TrafficSimulator> newSimulator;
+        newSimulator = std::make_unique<TrafficSimulator>(&graph, &aStar);
+        auto intersections = graph.getAllIntersections();
+        if (intersections.size() >= 2) {
+            std::mt19937 rng(42);
+            std::uniform_int_distribution<size_t> dist(0, intersections.size() - 1);
+            for (int i = 0; i < 40; ++i) {
+                Intersection* start = intersections[dist(rng)];
+                Intersection* end = intersections[dist(rng)];
+                while (start == end) {
+                    end = intersections[dist(rng)];
+                }
+                Car* car = new Car(i, 40.0, start, end);
+                newSimulator->addVehicle(car);
             }
-            Car* car = new Car(i, 40.0, start, end);
-            simulator.addVehicle(car);
         }
-    }
+        return newSimulator;
+    };
+
+    auto loadAndRefresh = [&](const std::string& requestedPath) {
+        loadGraphFromPath(requestedPath);
+        visualization.prepare(graph);
+        refreshViewBounds();
+        view = window.getDefaultView();
+        clampViewToMap();
+    };
+
+    std::copy_n(mapPathInput.begin(), std::min<std::size_t>(mapPathInput.size(), mapPathBuffer.size() - 1), mapPathBuffer.begin());
+    loadAndRefresh(path);
+
+    std::unique_ptr<TrafficSimulator> simulator = resetSimulation();
+    StatsPanel statsPanel;
 
     sf::Clock clock;
 
@@ -201,11 +250,23 @@ int main(int argc, char** argv) {
 
         sf::Event event;
         while (window.pollEvent(event)) {
-            if (event.type == sf::Event::Closed) window.close();
-            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape) window.close();
+            ImGui::SFML::ProcessEvent(event);
+            if (event.type == sf::Event::Closed) {
+                window.close();
+                continue;
+            }
+            if (ImGui::GetIO().WantCaptureMouse || ImGui::GetIO().WantCaptureKeyboard) {
+                continue;
+            }
+            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape) {
+                window.close();
+            }
             if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Space) {
-                if (simulator.isPaused()) simulator.resume();
-                else simulator.pause();
+                if (simulator && simulator->isPaused()) {
+                    simulator->resume();
+                } else if (simulator) {
+                    simulator->pause();
+                }
             }
             if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Middle) {
                 isDragging = true;
@@ -237,7 +298,7 @@ int main(int argc, char** argv) {
                                  static_cast<float>(windowH) * zoomFactor);
                     clampViewToMap();
                 }
-                if (event.type == sf::Event::KeyPressed && (event.key.code == sf::Keyboard::Subtract || event.key.code == sf::Keyboard::Hyphen)) {
+                if (event.key.code == sf::Keyboard::Subtract || event.key.code == sf::Keyboard::Hyphen) {
                     zoomFactor = std::clamp(zoomFactor * 1.1f, 0.35f, 2.5f);
                     view.setSize(static_cast<float>(windowW) * zoomFactor,
                                  static_cast<float>(windowH) * zoomFactor);
@@ -251,26 +312,112 @@ int main(int argc, char** argv) {
             }
         }
 
-        simulator.update(dt);
+        ImGui::SFML::Update(window, sf::seconds(dt));
+
+        if (simulator) {
+            simulator->update(dt);
+        }
 
         window.setView(view);
         window.clear(sf::Color(30, 30, 30));
         visualization.drawGraph(window, graph);
 
-        for (Vehicle* v : simulator.getVehicles()) {
-            VehicleSprite sprite(v, &visualization);
-            sprite.update(dt);
-            sprite.draw(window);
+        if (simulator) {
+            for (Vehicle* v : simulator->getVehicles()) {
+                VehicleSprite sprite(v, &visualization);
+                sprite.update(dt);
+                sprite.draw(window);
+            }
         }
 
-        window.setView(window.getDefaultView()); // reset view for UI
-        if (simulator.getStatisticsManager()) {
-            statsPanel.update(simulator.getStatisticsManager()->getSummary());
+        window.setView(window.getDefaultView());
+        if (simulator && simulator->getStatisticsManager()) {
+            statsPanel.update(simulator->getStatisticsManager()->getSummary());
             statsPanel.draw(window);
         }
 
+        ImGui::SetNextWindowPos(ImVec2(20.0f, static_cast<float>(window.getSize().y) - 140.0f), ImGuiCond_Always);
+        if (debugBarCollapsed) {
+            ImGui::SetNextWindowSize(ImVec2(220.0f, 36.0f), ImGuiCond_Always);
+        } else {
+            ImGui::SetNextWindowSize(ImVec2(static_cast<float>(window.getSize().x - 40), 0.0f), ImGuiCond_Always);
+        }
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.06f, 0.07f, 0.10f, 0.90f));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.30f, 0.35f, 0.50f, 0.85f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, debugBarCollapsed ? ImVec2(8.0f, 6.0f) : ImVec2(12.0f, 8.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, debugBarCollapsed ? ImVec2(6.0f, 4.0f) : ImVec2(8.0f, 5.0f));
+        ImGui::Begin("##debug_bar", &showDebugBar,
+                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                     ImGuiWindowFlags_NoScrollbar | (debugBarCollapsed ? 0 : ImGuiWindowFlags_AlwaysAutoResize));
+        ImGui::TextColored(ImVec4(0.90f, 0.92f, 0.98f, 1.0f), "Debug Console");
+        ImGui::SameLine();
+        if (ImGui::Button(debugBarCollapsed ? "Expand" : "Hide")) {
+            debugBarCollapsed = !debugBarCollapsed;
+        }
+        if (!debugBarCollapsed) {
+            ImGui::Separator();
+
+            std::copy_n(mapPathInput.begin(), std::min<std::size_t>(mapPathInput.size(), mapPathBuffer.size() - 1), mapPathBuffer.begin());
+            ImGui::InputText("Map path", mapPathBuffer.data(), mapPathBuffer.size());
+            mapPathInput = mapPathBuffer.data();
+            ImGui::SameLine();
+            if (ImGui::Button("Load map")) {
+                std::string chosenPath;
+                if (openMapFileDialog(chosenPath)) {
+                    mapPathInput = chosenPath;
+                    std::copy_n(mapPathInput.begin(), std::min<std::size_t>(mapPathInput.size(), mapPathBuffer.size() - 1), mapPathBuffer.begin());
+                    loadAndRefresh(mapPathInput);
+                    simulator = resetSimulation();
+                } else {
+                    loadAndRefresh(mapPathInput);
+                    simulator = resetSimulation();
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Demo map")) {
+                loadAndRefresh("");
+                simulator = resetSimulation();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(simulator && simulator->isPaused() ? "Resume" : "Pause")) {
+                if (simulator) {
+                    if (simulator->isPaused()) simulator->resume();
+                    else simulator->pause();
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Reset view")) {
+                zoomFactor = 1.0f;
+                view = window.getDefaultView();
+                clampViewToMap();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(heatMapEnabled ? "Heat: ON" : "Heat: OFF")) {
+                heatMapEnabled = !heatMapEnabled;
+                visualization.setHeatMapEnabled(heatMapEnabled);
+            }
+
+            ImGui::TextWrapped("Status: %s", usingDemoMap ? "Demo map is active." : (mapPathInput.empty() ? "No map selected." : mapPathInput.c_str()));
+            ImGui::Text("Intersections: %zu | Roads: %zu | Vehicles: %zu", graph.getAllIntersections().size(), graph.getAllRoads().size(), simulator ? simulator->getVehicles().size() : 0u);
+
+            if (!error.empty()) {
+                ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.40f, 1.0f), "Warning: %s", error.c_str());
+            }
+            if (graph.getAllIntersections().empty() || graph.getAllRoads().empty()) {
+                ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.40f, 1.0f), "The current scene is missing intersections or roads.");
+            }
+            if (simulator && simulator->getVehicles().empty()) {
+                ImGui::TextColored(ImVec4(0.90f, 0.90f, 0.65f, 1.0f), "No vehicles are currently active.");
+            }
+        }
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(2);
+
+        ImGui::SFML::Render(window);
         window.display();
     }
 
+    ImGui::SFML::Shutdown();
     return 0;
 }

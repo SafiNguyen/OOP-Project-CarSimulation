@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(FetchContent)
+find_package(OpenGL REQUIRED)
 
 FetchContent_Declare(
     SFML
@@ -64,7 +65,7 @@ target_link_libraries(imgui-sfml-lib PUBLIC
     sfml-graphics
     sfml-window
     sfml-system
-    opengl32
+    OpenGL::GL
 )
 
 # Needed for imgui-sfml to find SFML headers

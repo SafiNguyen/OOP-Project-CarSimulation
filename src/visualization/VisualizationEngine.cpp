@@ -18,7 +18,8 @@ VisualizationEngine::VisualizationEngine(sf::Vector2u windowSize, float margin)
       scale_(1.0),
       spriteTexture_(nullptr),
       spriteRect_(),
-      spriteSize_(24.0f, 24.0f) {
+      spriteSize_(24.0f, 24.0f),
+      heatMapEnabled_(true) {
 }
 
 void VisualizationEngine::prepare(const Graph& graph) {
@@ -115,7 +116,10 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
         const sf::Vector2f b = worldToScreen(end->getX(), end->getY());
 
         drawRoadStrip(target, a, b, sf::Color(10, 10, 10, 220), road->isBlocked() ? 15.0f : 12.0f);
-        drawRoadStrip(target, a, b, colorForRoad(road), road->isBlocked() ? 11.0f : 8.0f);
+        const sf::Color roadColor = heatMapEnabled_
+            ? colorForRoad(road)
+            : (road->isBlocked() ? sf::Color(180, 40, 40) : sf::Color(110, 110, 110));
+        drawRoadStrip(target, a, b, roadColor, road->isBlocked() ? 11.0f : 8.0f);
     }
 
     for (std::size_t i = 1; i < routePoints_.size(); ++i) {
@@ -174,6 +178,14 @@ void VisualizationEngine::clearSpriteTexture() {
     spriteTexture_ = nullptr;
     spriteRect_ = sf::IntRect();
     spriteSize_ = {24.0f, 24.0f};
+}
+
+void VisualizationEngine::setHeatMapEnabled(bool enabled) {
+    heatMapEnabled_ = enabled;
+}
+
+bool VisualizationEngine::isHeatMapEnabled() const {
+    return heatMapEnabled_;
 }
 
 sf::Color VisualizationEngine::mixColor(const sf::Color& a, const sf::Color& b, float t) {
