@@ -3,10 +3,17 @@
 #include <iomanip>
 
 StatsPanel::StatsPanel() : m_fontLoaded(false) {
-    if (m_font.loadFromFile("C:/Windows/Fonts/arial.ttf")) {
-        m_fontLoaded = true;
-    } else if (m_font.loadFromFile("C:/Windows/Fonts/consola.ttf")) {
-        m_fontLoaded = true;
+    std::vector<std::string> fontPaths = {
+        "C:/Windows/Fonts/arial.ttf",           // Windows
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",  // Linux
+        "/Library/Fonts/Arial.ttf"               // Mac
+    };
+    
+    for (const auto& path : fontPaths) {
+        if (m_font.loadFromFile(path)) {
+            m_fontLoaded = true;
+            break;
+        }
     }
     
     background.setFillColor(sf::Color(20, 20, 20, 200));

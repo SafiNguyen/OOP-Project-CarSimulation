@@ -7,6 +7,7 @@
 #include "../model/EmergencyVehicle.h"
 #include <cmath>
 
+
 VehicleSprite::VehicleSprite(Vehicle* v, const VisualizationEngine* eng) 
     : vehicle(v), engine(eng) {
     
@@ -47,9 +48,8 @@ void VehicleSprite::setupShape() {
 void VehicleSprite::update(float dt) {
     if (!vehicle || vehicle->getCurrentRoad() == nullptr) return;
 
-    // Hiệu ứng chớp nháy đèn cho xe cứu thương
     if (vehicleType == Type::EMERGENCY) {
-        static float flashTimer = 0.0f;
+       flashTimer = 0.0f;
         flashTimer += dt;
         if (flashTimer > 0.2f) {
             if (shape.getFillColor() == sf::Color::Red)
@@ -68,17 +68,15 @@ void VehicleSprite::draw(sf::RenderTarget& target) const {
     Intersection* start = currentRoad->getStart();
     Intersection* end = currentRoad->getEnd();
 
-    // 1. Tính toán tọa độ World dựa trên Progress Ratio
     float ratio = vehicle->getProgressRatio();
     double worldX = start->getX() + ratio * (end->getX() - start->getX());
     double worldY = start->getY() + ratio * (end->getY() - start->getY());
 
-    // 2. Dịch tọa độ World sang tọa độ Screen
     sf::Vector2f screenPos = engine->worldToScreen(worldX, worldY);
 
-    // 3. Tính góc quay của xe (hướng đầu xe về phía ngã tư đích)
-    float angle = std::atan2(end->getY() - start->getY(), end->getX() - start->getX()) * 180.0f / 3.14159265f;
-    // Do hệ tọa độ Y của SFML ngược với toán học, ta cần đổi dấu góc
+    float angle = std::atan2(end->getY() - start->getY(), 
+                         end->getX() - start->getX()) 
+                        * 180.0f / 3.14159265f;
     angle = -angle; 
 
     // 4. Vẽ xe

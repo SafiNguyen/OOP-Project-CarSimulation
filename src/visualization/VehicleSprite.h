@@ -14,6 +14,8 @@ private:
     sf::RectangleShape shape;
     sf::CircleShape bikeShape;
 
+    float flashTimer = 0.0f;
+
     // Determine the vehicle type based on dynamic_cast
     enum class Type { CAR, BUS, MOTORBIKE, EMERGENCY };
     Type vehicleType;

@@ -29,7 +29,8 @@ TrafficSimulator::~TrafficSimulator() {
 }
 
 bool TrafficSimulator::addVehicle(Vehicle* vehicle) {
-    if (!vehicle || !graph || !pathFindingStrategy) return false;
+    if (!vehicle || !graph || !pathFindingStrategy)
+    {delete vehicle; return false;}
 
     int startId = vehicle->getSpawnPoint()->getId();
     int destId = vehicle->getDestination()->getId();
@@ -41,15 +42,22 @@ bool TrafficSimulator::addVehicle(Vehicle* vehicle) {
         result = pathFindingStrategy->findPath(*graph, startId, destId);
     }    
     
-    if (result.found) {
+    if (!result.found) {
+         delete vehicle; 
+        return false;
+    } 
+    try
+    {
         vehicle->setRoute(result.roadPath);
         vehicles.push_back(vehicle);
         return true;
-    } else {
-        std::cout << "[Simulator] Khong the tim duong cho xe ID: " << vehicle->getId() << "\n";
-        delete vehicle; 
-        return false;
     }
+    catch(...)
+    {
+        delete vehicle;
+        throw;
+    }
+    
 }
 
 void TrafficSimulator::removeFinishedVehicles() {
