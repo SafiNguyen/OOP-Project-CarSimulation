@@ -81,6 +81,11 @@ public:
         return true; // resume
     }
 
+    // Buses are heavy and carry passengers: gentler acceleration/braking
+    // than a car so standing passengers aren't thrown around.
+    double getAcceleration() const override { return 8.0; }
+    double getDeceleration() const override { return 12.0; }
+
     bool   isDwelling()    const { return isPaused(); }
     double getDwellTimer() const { return dwellTimer; }
     double getDwellTime()  const { return dwellTime; }

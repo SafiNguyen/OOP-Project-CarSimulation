@@ -18,6 +18,10 @@ public:
         double maxAllowed = std::min(baseSpeed, currentRoad->getSpeedLimit());
         return maxAllowed / currentRoad->getCongestionLevel();
     }
+
+    // Ordinary passenger car: moderate, everyday acceleration/braking.
+    double getAcceleration() const override { return 18.0; }
+    double getDeceleration() const override { return 28.0; }
 };
 
 #endif 

@@ -26,6 +26,11 @@ public:
 
         return maxAllowedSpeed / effectiveCongestion;
     }
+
+    // Motorbikes are light and nimble: quick to speed up and quick to
+    // brake, letting them weave through traffic more responsively.
+    double getAcceleration() const override { return 25.0; }
+    double getDeceleration() const override { return 35.0; }
 };
 
 #endif

@@ -2,6 +2,7 @@
 #include "Road.h"
 #include "Intersection.h"
 #include "algorithm/PathFindingStrategy.h"
+#include <algorithm>
 
 Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
     : id(id),
@@ -10,6 +11,7 @@ Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
       destination(dest),
       currentRoad(nullptr),
       progressOnCurrentRoad(0.0),
+      currentSpeed(0.0),
       currentRouteIndex(0), 
       paused(false)
 {
@@ -19,6 +21,7 @@ void Vehicle::setRoute(const std::vector<Road*>& route) {
     currentRoute = route;
     currentRouteIndex = 0;
     progressOnCurrentRoad = 0.0;
+    currentSpeed = 0.0; // vehicle starts from a standstill on a fresh route
     paused = false;
     routeAssigned = true;
     
@@ -70,9 +73,23 @@ void Vehicle::update(double dt) {
  
     while (remainingTime > 0.0 && currentRoad != nullptr && !paused) {
  
-        double speed = calculateCurrentSpeed();
+        // calculateCurrentSpeed() gives the TARGET speed allowed right now
+        // (speed limit / congestion / blocked status for this road & vehicle
+        // type). The vehicle doesn't teleport to that speed - it ramps
+        // towards it using its acceleration/deceleration, so starts/stops
+        // and speed-limit changes feel gradual instead of instantaneous.
+        const double targetSpeed = calculateCurrentSpeed();
+
+        if (currentSpeed < targetSpeed) {
+            currentSpeed = std::min(targetSpeed, currentSpeed + getAcceleration() * remainingTime);
+        } else if (currentSpeed > targetSpeed) {
+            currentSpeed = std::max(targetSpeed, currentSpeed - getDeceleration() * remainingTime);
+        }
+
+        double speed = currentSpeed;
  
-        // If speed is 0 (e.g. congestion returned 0), nothing to do this tick
+        // If speed is 0 (e.g. congestion/blocked returned 0 and we've already
+        // decelerated all the way down), nothing to do this tick
         if (speed <= 0.0) break;
  
         double distanceThisTick    = speed * remainingTime;

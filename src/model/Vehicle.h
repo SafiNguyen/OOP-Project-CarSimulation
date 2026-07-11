@@ -16,6 +16,7 @@
         Intersection* destination; 
         Road* currentRoad;
         double progressOnCurrentRoad; 
+        double currentSpeed;          // actual current speed (ramps towards target via accel/decel)
         std::vector<Road*> currentRoute;
         int currentRouteIndex;
         std::vector<Road*> travelHistory;
@@ -32,8 +33,25 @@
 
         virtual ~Vehicle() = default;
 
+        // Returns the theoretical MAX/target speed for the current road & vehicle
+        // type (based on speed limit, congestion, blocked status, etc). This is
+        // NOT the instantaneous speed the vehicle is actually moving at - see
+        // getCurrentSpeed() for that.
         virtual double calculateCurrentSpeed() const = 0;
         virtual void onRoadChanged() {}
+
+        // --- Vehicle physics (acceleration / deceleration) ---
+        // Subclasses may override these to give each vehicle type its own
+        // "feel" (e.g. a Bus accelerates slower than a Motorbike, an
+        // EmergencyVehicle brakes/accelerates the fastest).
+        // Units: distance-units / second^2 (consistent with baseSpeed's
+        // distance-units / second).
+        virtual double getAcceleration() const { return 15.0; }
+        virtual double getDeceleration() const { return 25.0; }
+
+        // The vehicle's actual current speed (after ramping via
+        // acceleration/deceleration towards calculateCurrentSpeed()).
+        double getCurrentSpeed() const { return currentSpeed; }
 
         virtual bool shouldPauseAt(double currentPos,
                                     double projectedPos,

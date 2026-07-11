@@ -16,6 +16,11 @@ public:
 
         return baseSpeed;
     }
+
+    // Emergency vehicles are built/driven to accelerate and brake harder
+    // than everyday traffic.
+    double getAcceleration() const override { return 30.0; }
+    double getDeceleration() const override { return 40.0; }
 };
 
 #endif
