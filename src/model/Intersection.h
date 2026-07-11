@@ -2,12 +2,9 @@
 #define INTERSECTION_H
 
 #include <vector>
-#include <string>
-#include <unordered_map>
-#include <memory>
+#include <string>   
 
 class Road;  
-class TrafficLight;
 
 // attributes
 class Intersection {
@@ -18,8 +15,6 @@ private:
     
     std::vector<Road*> incomingRoads; 
     std::vector<Road*> outgoingRoads;
-    // key = id cua incoming road; moi road vao co dung 1 den rieng
-    std::unordered_map<int, std::unique_ptr<TrafficLight>> trafficLights;
 
 public:
     Intersection(int id, double x = 0.0, double y = 0.0);
@@ -39,12 +34,7 @@ public:
     void addOutgoingRoad(Road* road);
     void removeIncomingRoad(Road* road);
     void removeOutgoingRoad(Road* road);
-    // Traffic light management 
-    void registerIncomingLight(Road* road);
-    TrafficLight* getLightForIncomingRoad(int roadId) const;
-    TrafficLight* getLightForIncomingRoad(const Road* road) const;
-    // Goi moi tick tu TrafficSimulator::update(dt)
-    void updateTrafficLights(double dt);
+    
     std::string toString() const;  
 
     ~Intersection(); 
