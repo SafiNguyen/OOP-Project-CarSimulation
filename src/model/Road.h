@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include "Lane.h"
 class Intersection;
 
 class Road {
@@ -15,13 +16,16 @@ private:
     double congestionLevel;
     bool blocked; // accident status
 
+    int laneCount;
+    std::vector<Lane> lanes;
     std::vector<double> busStopPositions;   
 
 public:
     Road(int id, Intersection* start, Intersection* end, 
          double distance, 
          double speedLimit, 
-         double congestionLevel = 1.0);
+         double congestionLevel = 1.0,
+         int laneCount = 1);
 
     Road(const Road&) = delete;
     Road& operator=(const Road&) = delete;
@@ -33,7 +37,15 @@ public:
     double getDistance() const;
     double getSpeedLimit() const;
     double getCongestionLevel() const;
+    double getDynamicCongestionLevel() const;
     bool isBlocked() const;
+
+    int getLaneCount () const;
+    const std::vector<Lane>& getLanes() const;
+    const Lane& getLane(int laneIndex) const;
+    Lane& getLane(int laneIndex);
+
+    int getFreestLaneIndex() const;
 
     double getTravelCost() const;
     double getTravelTime() const;        

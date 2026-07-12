@@ -6,7 +6,7 @@
 #include <algorithm> 
 
 Road::Road(int id, Intersection* start, Intersection* end, 
-           double distance, double speedLimit, double congestionLevel) {
+           double distance, double speedLimit, double congestionLevel, int laneCount) {
     this->id = id;
     this->start = start;
     this->end = end;
@@ -18,6 +18,11 @@ Road::Road(int id, Intersection* start, Intersection* end,
         this->congestionLevel = congestionLevel;
     }    
     this->blocked = false; 
+    this->laneCount = (laneCount >= 1) ? laneCount : 1;
+    lanes.reserve(this -> laneCount);
+    for (int i = 0; i < this->laneCount; ++i) {
+        lanes.emplace_back(i);
+    }
 }
 
 
@@ -27,14 +32,61 @@ Intersection* Road::getEnd() const { return end; }
 double Road::getDistance() const { return distance; }
 double Road::getSpeedLimit() const { return speedLimit; }
 double Road::getCongestionLevel() const { return congestionLevel; }
-bool Road::isBlocked() const { return blocked; }
 
+double Road::getDynamicCongestionLevel() const {
+    double totalVehicles = 0.0, totalCapacity = 0.0;
+    for (const Lane& lane : lanes) {
+        totalVehicles += lane.getVehicleCount();
+        totalCapacity += lane.getCapacity();
+    }
+    if (totalCapacity <= 0.0) return congestionLevel;
+    double occupancy = totalVehicles / totalCapacity;
+    return congestionLevel * (1.0 + occupancy);
+}
+
+bool Road::isBlocked() const { return blocked; }
+int Road::getLaneCount() const { return laneCount; }
+ 
+const std::vector<Lane>& Road::getLanes() const { return lanes; }
+ 
+const Lane& Road::getLane(int laneIndex) const {
+    if (laneIndex < 0 || laneIndex >= static_cast<int>(lanes.size())) {
+        throw std::out_of_range("Road::getLane: laneIndex out of range");
+    }
+    return lanes[laneIndex];
+}
+
+Lane& Road::getLane(int laneIndex) {
+    if (laneIndex < 0 || laneIndex >= static_cast<int>(lanes.size())) {
+        throw std::out_of_range("Road::getLane: laneIndex out of range");
+    }
+    return lanes[laneIndex];
+}
+ 
+int Road::getFreestLaneIndex() const {
+    int freestIndex = lanes.front().getIndex(); 
+    double lowestOccupancy = std::numeric_limits<double>::infinity();
+ 
+    for (const Lane& lane : lanes) {
+        double capacity = lane.getCapacity();
+        double occupancy = (capacity > 0.0)
+            ? static_cast<double>(lane.getVehicleCount()) / capacity
+            : std::numeric_limits<double>::infinity();
+ 
+        if (occupancy < lowestOccupancy) {
+            lowestOccupancy = occupancy;
+            freestIndex = lane.getIndex();
+        }
+    }
+ 
+    return freestIndex;
+}
 
 double Road::getTravelTime() const {
     if (blocked) {
         return std::numeric_limits<double>::infinity(); 
     }
-    return distance / (speedLimit / congestionLevel); 
+    return distance / (speedLimit / getDynamicCongestionLevel()); 
 }
 
 double Road::getTravelCost() const {
@@ -116,7 +168,8 @@ std::string Road::toString() const {
            ", SpeedLimit: " + std::to_string(speedLimit) + 
            ", Congestion: " + std::to_string(congestionLevel) + 
            ", Blocked: " + blockStatus +
-           ", BusStops: " + stops + "]";
+           ", BusStops: " + stops +
+           ", Lanes: " + std::to_string(laneCount) + "]";
 }
 
 

@@ -91,6 +91,12 @@ void Intersection::updateTrafficLights(double dt) {
     }
 }
 
+bool Intersection::mustStopForRoad(const Road *road) const{
+    TrafficLight* light = getLightForIncomingRoad(road);
+    //không có đèn -> mặc định ko bắt dừng
+    return (light != nullptr) && light->mustStop();
+}
+
 //utility method
 std::string Intersection::toString() const {
     return "Intersection[ID: " + std::to_string(id) + 

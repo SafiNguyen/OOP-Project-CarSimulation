@@ -1,6 +1,7 @@
 #include "TrafficSimulator.h"
 #include "../model/Graph.h"
 #include "../model/Vehicle.h"
+#include "../model/Intersection.h"
 #include "algorithm/PathFindingStrategy.h"
 #include <algorithm> 
 #include <iostream>
@@ -89,6 +90,12 @@ void TrafficSimulator::update(double dt) {
 
     if(statisticsManager) {
         statisticsManager->recordTick(effectiveDt);
+    }
+    
+    if (graph) {
+        for (Intersection* intersection : graph->getAllIntersections()) {
+            intersection->updateTrafficLights(effectiveDt);
+        }
     }
 
     if (eventManager) {
