@@ -45,7 +45,7 @@ public:
     TrafficLight* getLightForIncomingRoad(const Road* road) const;
     // Goi moi tick tu TrafficSimulator::update(dt)
     void updateTrafficLights(double dt);
-    bool mustStopForRoad(const Road* road);
+    bool mustStopForRoad(const Road* road) const;
     std::string toString() const;  
 
     ~Intersection(); 

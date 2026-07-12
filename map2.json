@@ -1,0 +1,50 @@
+{
+  "intersections": [
+    { "id": 1, "x": 10.0, "y": 10.0 },
+    { "id": 2, "x": 50.0, "y": 10.0 },
+    { "id": 3, "x": 90.0, "y": 10.0 },
+    { "id": 4, "x": 10.0, "y": 50.0 },
+    { "id": 5, "x": 50.0, "y": 50.0 },
+    { "id": 6, "x": 90.0, "y": 50.0 },
+    { "id": 7, "x": 10.0, "y": 90.0 },
+    { "id": 8, "x": 50.0, "y": 90.0 },
+    { "id": 9, "x": 90.0, "y": 90.0 }
+  ],
+  "roads": [
+    { "id": 101, "start": 1, "end": 2, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 102, "start": 2, "end": 1, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+
+    { "id": 103, "start": 2, "end": 3, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+    { "id": 104, "start": 3, "end": 2, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+
+    { "id": 105, "start": 4, "end": 5, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 106, "start": 5, "end": 4, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+
+    { "id": 107, "start": 5, "end": 6, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+    { "id": 108, "start": 6, "end": 5, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+
+    { "id": 109, "start": 7, "end": 8, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 110, "start": 8, "end": 7, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+
+    { "id": 111, "start": 8, "end": 9, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+    { "id": 112, "start": 9, "end": 8, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+
+    { "id": 113, "start": 1, "end": 4, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 114, "start": 4, "end": 1, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+
+    { "id": 115, "start": 4, "end": 7, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 116, "start": 7, "end": 4, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+
+    { "id": 117, "start": 2, "end": 5, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+    { "id": 118, "start": 5, "end": 2, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+
+    { "id": 119, "start": 5, "end": 8, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 120, "start": 8, "end": 5, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+
+    { "id": 121, "start": 3, "end": 6, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+    { "id": 122, "start": 6, "end": 3, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+
+    { "id": 123, "start": 6, "end": 9, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 124, "start": 9, "end": 6, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 }
+  ]
+}

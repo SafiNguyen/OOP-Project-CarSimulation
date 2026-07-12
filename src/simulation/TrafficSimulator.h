@@ -42,6 +42,7 @@ public:
 
 
     const std::vector<Vehicle*>& getVehicles() const;
+    const std::vector<Vehicle*>& getFinishedVehicles() const;
     const Graph& getGraph() const;
     StatisticsManager* getStatisticsManager() const;
 
@@ -50,7 +51,8 @@ public:
 private:
     Graph* graph;                                   
     PathFindingStrategy* pathFindingStrategy;  
-    std::vector<Vehicle*> vehicles;      
+    std::vector<Vehicle*> vehicles;
+    std::vector<Vehicle*> finishedVehicles;      
     std::unique_ptr<EventManager> eventManager;     
     std::unique_ptr<StatisticsManager> statisticsManager;               
 

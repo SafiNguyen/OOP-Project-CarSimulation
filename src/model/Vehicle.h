@@ -31,7 +31,7 @@
         Vehicle(Vehicle&&) = delete;
         Vehicle& operator=(Vehicle&&) = delete;
 
-        virtual ~Vehicle() = default;
+        virtual ~Vehicle();
 
         // Returns the theoretical MAX/target speed for the current road & vehicle
         // type (based on speed limit, congestion, blocked status, etc). This is
@@ -79,8 +79,9 @@
         const std::vector<Road*>& getTravelHistory() const { return travelHistory; }
 
         // --- Dynamic Routing Functions ---
-        bool isRoadInUpcomingRoute(int roadId) const    ;
+        bool isRoadInUpcomingRoute(int roadId) const;
         bool recalculateRoute(const Graph& graph, PathFindingStrategy* strategy);
+        bool performUTurn(const Graph& graph, PathFindingStrategy* strategy);
 
         private:
         /** Advance to the next road in the route.  Returns false if route ends. */

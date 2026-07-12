@@ -26,7 +26,11 @@ TrafficSimulator::~TrafficSimulator() {
     for (Vehicle* v : vehicles) {
         delete v;
     }
+    for (Vehicle* v : finishedVehicles) {
+        delete v;
+    }
     vehicles.clear();
+    finishedVehicles.clear();
 }
 
 bool TrafficSimulator::addVehicle(Vehicle* vehicle) {
@@ -68,7 +72,7 @@ void TrafficSimulator::removeFinishedVehicles() {
             if (this->statisticsManager) {
                 this->statisticsManager->markVehicleCompleted(v->getId());
             }
-            delete v;
+            finishedVehicles.push_back(v); // Keep vehicle instead of deleting
             return true;
         }
         return false;
@@ -127,6 +131,7 @@ void TrafficSimulator::setSpeedMultiplier(double factor) {
 double TrafficSimulator::getSpeedMultiplier() const { return speedMultiplier; }
 
 const std::vector<Vehicle*>& TrafficSimulator::getVehicles() const { return vehicles; }
+const std::vector<Vehicle*>& TrafficSimulator::getFinishedVehicles() const { return finishedVehicles; }
 const Graph& TrafficSimulator::getGraph() const { return *graph; }
 StatisticsManager* TrafficSimulator::getStatisticsManager() const { return statisticsManager.get(); }
 double TrafficSimulator::getElapsedTime() const { return elapsedTime; }

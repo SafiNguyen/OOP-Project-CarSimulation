@@ -74,6 +74,38 @@ void VehicleSprite::draw(sf::RenderTarget& target) const {
 
     sf::Vector2f screenPos = engine->worldToScreen(worldX, worldY);
 
+    sf::Vector2f a = engine->worldToScreen(start->getX(), start->getY());
+    sf::Vector2f b = engine->worldToScreen(end->getX(), end->getY());
+    sf::Vector2f dir = b - a;
+    float length = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+    if (length > 0.01f) {
+        sf::Vector2f norm(-dir.y / length, dir.x / length); // normal vector to the right
+
+        const float laneWidth = 10.0f;
+        int laneCount = vehicle->getCurrentRoad()->getLaneCount();
+        int laneIndex = vehicle->getId() % laneCount; 
+        
+        // Find if reverse road exists to determine if it's offset from center
+        bool hasReverse = false;
+        for (Road* r : end->getOutgoingRoads()) {
+            if (r->getEnd() == start) {
+                hasReverse = true;
+                break;
+            }
+        }
+
+        if (hasReverse) {
+            // Offset from the center line A->B
+            float totalOffset = 1.0f + laneIndex * laneWidth + laneWidth * 0.5f;
+            screenPos += norm * totalOffset;
+        } else {
+            // Centered road. Leftmost edge is -totalWidth/2
+            float totalWidth = laneCount * laneWidth;
+            float laneOffset = -totalWidth * 0.5f + laneIndex * laneWidth + laneWidth * 0.5f;
+            screenPos += norm * laneOffset;
+        }
+    }
+
     float angle = std::atan2(end->getY() - start->getY(), 
                          end->getX() - start->getX()) 
                         * 180.0f / 3.14159265f;
@@ -87,6 +119,19 @@ void VehicleSprite::draw(sf::RenderTarget& target) const {
     } else {
         sf::RectangleShape tempShape = shape;
         tempShape.setPosition(screenPos);
+        tempShape.setRotation(angle);
+        target.draw(tempShape);
+    }
+}
+
+void VehicleSprite::drawAt(sf::RenderTarget& target, const sf::Vector2f& position, float angle) const {
+    if (vehicleType == Type::MOTORBIKE) {
+        sf::CircleShape tempBike = bikeShape;
+        tempBike.setPosition(position);
+        target.draw(tempBike);
+    } else {
+        sf::RectangleShape tempShape = shape;
+        tempShape.setPosition(position);
         tempShape.setRotation(angle);
         target.draw(tempShape);
     }

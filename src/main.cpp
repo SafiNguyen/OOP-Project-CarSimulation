@@ -9,6 +9,7 @@
 #include <random>
 #include <string>
 #include <vector>
+#include <map>
 
 #include <imgui-SFML.h>
 #include <imgui.h>
@@ -16,10 +17,14 @@
 #include "algorithm/AStarStrategy.h"
 #include "mapload.h"
 #include "model/Car.h"
+#include "model/Bus.h"
+#include "model/Motorbike.h"
+#include "model/EmergencyVehicle.h"
 #include "model/Graph.h"
 #include "model/Intersection.h"
 #include "model/Road.h"
 #include "simulation/TrafficSimulator.h"
+#include "simulation/TrafficEvent.h"
 #include "visualization/StatsPanel.h"
 #include "visualization/VehicleSprite.h"
 #include "visualization/VisualizationEngine.h"
@@ -193,13 +198,31 @@ int main(int argc, char** argv) {
             return false;
         }
 
-        std::string loadError;
-        if (MapLoad::loadGraphFromJsonFile(requestedPath, graph, &loadError)) {
-            usingDemoMap = false;
-            error.clear();
-            mapPathInput = requestedPath;
-            return true;
+        std::string searchPath = requestedPath;
+        if (searchPath.length() < 5 || searchPath.substr(searchPath.length() - 5) != ".json") {
+            searchPath += ".json";
         }
+
+        std::string loadError;
+        std::vector<std::string> searchPaths = {
+            searchPath,
+            "../" + searchPath,
+            "../../" + searchPath,
+            "../../../" + searchPath
+        };
+
+        bool loaded = false;
+        for (const auto& p : searchPaths) {
+            if (MapLoad::loadGraphFromJsonFile(p, graph, &loadError)) {
+                usingDemoMap = false;
+                error.clear();
+                mapPathInput = requestedPath;
+                loaded = true;
+                break;
+            }
+        }
+
+        if (loaded) return true;
 
         populateDemoGraph(graph);
         usingDemoMap = true;
@@ -222,8 +245,18 @@ int main(int argc, char** argv) {
                 while (start == end) {
                     end = intersections[dist(rng)];
                 }
-                Car* car = new Car(i, 40.0, start, end);
-                newSimulator->addVehicle(car);
+                Vehicle* v = nullptr;
+                int type = rng() % 4;
+                if (type == 0) {
+                    v = new Car(i, 20.0, start, end);
+                } else if (type == 1) {
+                    v = new Motorbike(i, 30.0, start, end);
+                } else if (type == 2) {
+                    v = new Bus(i, 15.0, start, end);
+                } else {
+                    v = new EmergencyVehicle(i, 35.0, start, end);
+                }
+                newSimulator->addVehicle(v);
             }
         }
         return newSimulator;
@@ -250,7 +283,7 @@ int main(int argc, char** argv) {
 
         sf::Event event;
         while (window.pollEvent(event)) {
-            ImGui::SFML::ProcessEvent(event);
+            ImGui::SFML::ProcessEvent(window, event);
             if (event.type == sf::Event::Closed) {
                 window.close();
                 continue;
@@ -328,6 +361,51 @@ int main(int argc, char** argv) {
                 sprite.update(dt);
                 sprite.draw(window);
             }
+
+            // Group finished vehicles by destination
+            std::map<Intersection*, std::vector<Vehicle*>> parked;
+            for (Vehicle* v : simulator->getFinishedVehicles()) {
+                if (v->getDestination()) {
+                    parked[v->getDestination()].push_back(v);
+                }
+            }
+
+            for (const auto& pair : parked) {
+                Intersection* dest = pair.first;
+                const auto& list = pair.second;
+                
+                sf::Vector2f center = visualization.worldToScreen(dest->getX(), dest->getY());
+                
+                // Draw a box near the intersection (e.g. top right)
+                float boxX = center.x + 20.0f;
+                float boxY = center.y - 40.0f;
+                
+                // Calculate box size based on number of vehicles
+                int cols = 5; // up to 5 cars per row
+                int rows = (static_cast<int>(list.size()) + cols - 1) / cols;
+                float cellWidth = 24.0f;
+                float cellHeight = 16.0f;
+                
+                sf::RectangleShape box({cols * cellWidth + 8.0f, rows * cellHeight + 8.0f});
+                box.setPosition(boxX, boxY);
+                box.setFillColor(sf::Color(40, 40, 40, 200));
+                box.setOutlineThickness(1.0f);
+                box.setOutlineColor(sf::Color(150, 150, 150));
+                window.draw(box);
+                
+                // Draw vehicles inside the box
+                for (size_t i = 0; i < list.size(); ++i) {
+                    int col = i % cols;
+                    int row = i / cols;
+                    
+                    sf::Vector2f vPos(boxX + 4.0f + col * cellWidth + cellWidth * 0.5f, 
+                                      boxY + 4.0f + row * cellHeight + cellHeight * 0.5f);
+                    
+                    VehicleSprite sprite(list[i], &visualization);
+                    // Draw pointing UP (angle = -90)
+                    sprite.drawAt(window, vPos, -90.0f);
+                }
+            }
         }
 
         window.setView(window.getDefaultView());
@@ -366,15 +444,18 @@ int main(int argc, char** argv) {
                 if (openMapFileDialog(chosenPath)) {
                     mapPathInput = chosenPath;
                     std::copy_n(mapPathInput.begin(), std::min<std::size_t>(mapPathInput.size(), mapPathBuffer.size() - 1), mapPathBuffer.begin());
+                    simulator.reset();
                     loadAndRefresh(mapPathInput);
                     simulator = resetSimulation();
                 } else {
+                    simulator.reset();
                     loadAndRefresh(mapPathInput);
                     simulator = resetSimulation();
                 }
             }
             ImGui::SameLine();
             if (ImGui::Button("Demo map")) {
+                simulator.reset();
                 loadAndRefresh("");
                 simulator = resetSimulation();
             }
@@ -395,6 +476,17 @@ int main(int argc, char** argv) {
             if (ImGui::Button(heatMapEnabled ? "Heat: ON" : "Heat: OFF")) {
                 heatMapEnabled = !heatMapEnabled;
                 visualization.setHeatMapEnabled(heatMapEnabled);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Trigger Accident")) {
+                if (simulator && !graph.getAllRoads().empty()) {
+                    std::mt19937 rng(std::random_device{}());
+                    auto roads = graph.getAllRoads();
+                    std::uniform_int_distribution<size_t> dist(0, roads.size() - 1);
+                    Road* r = roads[dist(rng)];
+                    auto te = std::make_unique<AccidentEvent>(r->getId(), 15.0); // 15 seconds
+                    simulator->triggerEvent(std::move(te));
+                }
             }
 
             ImGui::TextWrapped("Status: %s", usingDemoMap ? "Demo map is active." : (mapPathInput.empty() ? "No map selected." : mapPathInput.c_str()));

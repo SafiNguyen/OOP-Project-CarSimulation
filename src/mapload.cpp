@@ -40,6 +40,18 @@ bool getDouble(const json& obj, const char* key, double& value, std::string& err
 	return true;
 }
 
+bool getIntOptional(const json& obj, const char* key, int& value, std::string& error) {
+	if (!obj.contains(key)) {
+		return true;
+	}
+	if (!obj.at(key).is_number_integer()) {
+		error = std::string("Field must be integer: ") + key;
+		return false;
+	}
+	value = obj.at(key).get<int>();
+	return true;
+}
+
 bool getBoolOptional(const json& obj, const char* key, bool& value, std::string& error) {
 	if (!obj.contains(key)) {
 		return true;
@@ -164,6 +176,8 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 		double distance = 0.0;
 		double speedLimit = 0.0;
 		double congestionLevel = 1.0;
+		int lanes = 1;
+		bool twoWay = false;
 		bool blocked = false;
 		std::string localError;
 
@@ -179,6 +193,8 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 		}
 
 		if (!getDoubleOptional(item, "congestionLevel", congestionLevel, localError) ||
+			!getIntOptional(item, "lanes", lanes, localError) ||
+			!getBoolOptional(item, "twoWay", twoWay, localError) ||
 			!getBoolOptional(item, "blocked", blocked, localError)) {
 			if (error) {
 				*error = localError;
@@ -202,11 +218,18 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 			return false;
 		}
 
-		Road* road = new Road(id, start, end, distance, speedLimit, congestionLevel);
+		Road* road = new Road(id, start, end, distance, speedLimit, congestionLevel, lanes);
 		if (blocked) {
 			road->blockRoad();
 		}
 		graph.addRoad(road);
+
+		if (twoWay) {
+			// create reverse road with negative id (or offset)
+			Road* revRoad = new Road(-id, end, start, distance, speedLimit, congestionLevel, lanes);
+			if (blocked) revRoad->blockRoad();
+			graph.addRoad(revRoad);
+		}
 	}
 
 	return true;

@@ -30,6 +30,7 @@ public:
     
     // Draw a car on the screen
     void draw(sf::RenderTarget& target) const;
+    void drawAt(sf::RenderTarget& target, const sf::Vector2f& position, float angle) const;
 };
 
 #endif

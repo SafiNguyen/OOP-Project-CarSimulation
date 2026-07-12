@@ -1,6 +1,7 @@
 #include "Vehicle.h"
 #include "Road.h"
 #include "Intersection.h"
+#include "Graph.h"
 #include "algorithm/PathFindingStrategy.h"
 #include <algorithm>
 
@@ -17,6 +18,13 @@ Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
 {
 }
 
+Vehicle::~Vehicle() {
+    if (currentRoad != nullptr) {
+        currentRoad->getLane(0).removeVehicle(this);
+        currentRoad = nullptr;
+    }
+}
+
 void Vehicle::setRoute(const std::vector<Road*>& route) {
     currentRoute = route;
     currentRouteIndex = 0;
@@ -27,6 +35,7 @@ void Vehicle::setRoute(const std::vector<Road*>& route) {
     
     if (!currentRoute.empty()) {
         currentRoad = currentRoute[0];
+        if (currentRoad) currentRoad->getLane(0).addVehicle(this);
     } else {
         currentRoad = nullptr;
     }
@@ -39,12 +48,21 @@ bool Vehicle::advanceToNextRoad() {
     ++currentRouteIndex;
  
     if (currentRouteIndex < static_cast<int>(currentRoute.size())) {
+        if (currentRoad) {
+            currentRoad->getLane(0).removeVehicle(this);
+        }
         currentRoad = currentRoute[currentRouteIndex];
+        if (currentRoad) {
+            currentRoad->getLane(0).addVehicle(this);
+        }
         onRoadChanged(); 
         return true;
     }
  
     // Route finished
+    if (currentRoad) {
+        currentRoad->getLane(0).removeVehicle(this);
+    }
     currentRoad = nullptr;
     progressOnCurrentRoad = 0.0;
     return false;
@@ -164,5 +182,53 @@ bool Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy
 
     currentRoute = newRoute;
     paused = false; // Reset pause state in case it was paused
+    return true;
+}
+
+bool Vehicle::performUTurn(const Graph& graph, PathFindingStrategy* strategy) {
+    if (currentRoad == nullptr || destination == nullptr) return false;
+
+    // Find the reverse road
+    int startId = currentRoad->getStart()->getId();
+    int endId = currentRoad->getEnd()->getId();
+    Road* reverseRoad = nullptr;
+    
+    for (Road* r : graph.getAllRoads()) {
+        if (r->getStart()->getId() == endId && r->getEnd()->getId() == startId) {
+            reverseRoad = r;
+            break;
+        }
+    }
+
+    if (reverseRoad == nullptr) return false; // Cannot U-turn, no reverse road
+
+    // Recalculate route from the start of the reverse road (which is the current endId)
+    PathResult result = strategy->findPath(graph, startId, destination->getId());
+    if (!result.found) return false;
+
+    // Swap to reverse road
+    currentRoad = reverseRoad;
+    
+    // Invert progress
+    progressOnCurrentRoad = currentRoad->getDistance() - progressOnCurrentRoad;
+    if (progressOnCurrentRoad < 0) progressOnCurrentRoad = 0;
+    
+    // Reset speed as we stopped to turn around
+    currentSpeed = 0.0;
+    paused = false;
+
+    // Build new route: keep history, then add reverse road, then result path
+    std::vector<Road*> newRoute;
+    for (int i = 0; i < currentRouteIndex; ++i) {
+        newRoute.push_back(currentRoute[i]);
+    }
+    
+    // Now we are at currentRouteIndex
+    newRoute.push_back(currentRoad);
+    for (Road* r : result.roadPath) {
+        newRoute.push_back(r);
+    }
+
+    currentRoute = newRoute;
     return true;
 }

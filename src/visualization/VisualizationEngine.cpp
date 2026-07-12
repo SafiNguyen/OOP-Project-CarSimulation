@@ -115,16 +115,60 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
         const sf::Vector2f a = worldToScreen(start->getX(), start->getY());
         const sf::Vector2f b = worldToScreen(end->getX(), end->getY());
 
-        drawRoadStrip(target, a, b, sf::Color(10, 10, 10, 220), road->isBlocked() ? 15.0f : 12.0f);
+        const float laneWidth = 10.0f;
+        int laneCount = road->getLaneCount();
+        const float totalWidth = static_cast<float>(laneCount) * laneWidth;
+
+        // Calculate normal vector (to the right of A->B direction)
+        sf::Vector2f dir = b - a;
+        float length = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+        if (length <= 0.01f) continue;
+        sf::Vector2f norm(-dir.y / length, dir.x / length);
+
+        bool hasReverse = false;
+        for (Road* r : end->getOutgoingRoads()) {
+            if (r->getEnd() == start) {
+                hasReverse = true;
+                break;
+            }
+        }
+
+        const float offsetAmount = hasReverse ? (totalWidth * 0.5f + 1.0f) : 0.0f; // +1.0f for gap if 2-way
+        sf::Vector2f offsetA = a + norm * offsetAmount;
+        sf::Vector2f offsetB = b + norm * offsetAmount;
+
+        // Draw the main thick road strip
+        drawRoadStrip(target, offsetA, offsetB, sf::Color(10, 10, 10, 220), totalWidth + 3.0f);
+        
         const sf::Color roadColor = heatMapEnabled_
             ? colorForRoad(road)
             : (road->isBlocked() ? sf::Color(180, 40, 40) : sf::Color(110, 110, 110));
-        drawRoadStrip(target, a, b, roadColor, road->isBlocked() ? 11.0f : 8.0f);
+            
+        drawRoadStrip(target, offsetA, offsetB, roadColor, totalWidth - 1.0f);
+
+        // Draw dashed lane separators if multi-lane
+        if (laneCount > 1) {
+            // Draw a separator between each lane
+            for (int i = 1; i < laneCount; ++i) {
+                // from left edge (-totalWidth/2) towards right edge
+                float sepOffset = -totalWidth * 0.5f + i * laneWidth;
+                sf::Vector2f sepA = offsetA + norm * sepOffset;
+                sf::Vector2f sepB = offsetB + norm * sepOffset;
+
+                // draw dashed line (we can approximate by drawing many small strips)
+                float dashLen = 8.0f;
+                float gapLen = 8.0f;
+                int dashCount = static_cast<int>(length / (dashLen + gapLen));
+                sf::Vector2f dirNorm = dir / length;
+                for (int j = 0; j < dashCount; ++j) {
+                    sf::Vector2f dashStart = sepA + dirNorm * (j * (dashLen + gapLen));
+                    sf::Vector2f dashEnd = dashStart + dirNorm * dashLen;
+                    drawRoadStrip(target, dashStart, dashEnd, sf::Color(220, 220, 220, 200), 1.0f);
+                }
+            }
+        }
     }
 
-    for (std::size_t i = 1; i < routePoints_.size(); ++i) {
-        drawRoadStrip(target, routePoints_[i - 1], routePoints_[i], sf::Color(80, 220, 255, 180), 4.0f);
-    }
 
     const float borderLeft = std::min_element(routePoints_.begin(), routePoints_.end(), [](const sf::Vector2f& lhs, const sf::Vector2f& rhs) {
         return lhs.x < rhs.x;
@@ -148,12 +192,14 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
 
     for (auto* intersection : intersections) {
         const sf::Vector2f point = worldToScreen(intersection->getX(), intersection->getY());
-        sf::CircleShape circle(5.5f);
-        circle.setOrigin(5.5f, 5.5f);
+        // Draw intersection as a larger hub connecting roads
+        float hubRadius = 16.0f;
+        sf::CircleShape circle(hubRadius);
+        circle.setOrigin(hubRadius, hubRadius);
         circle.setPosition(point);
-        circle.setFillColor(sf::Color(235, 235, 235));
-        circle.setOutlineThickness(1.5f);
-        circle.setOutlineColor(sf::Color(20, 20, 20));
+        circle.setFillColor(sf::Color(100, 100, 100)); // matches road roughly
+        circle.setOutlineThickness(2.0f);
+        circle.setOutlineColor(sf::Color(180, 180, 180, 200));
         target.draw(circle);
 
         if (spriteTexture_ != nullptr) {

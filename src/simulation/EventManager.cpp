@@ -30,7 +30,6 @@ void EventManager::notifyAffectedVehicles(int roadId) {
     if (!vehicles || !routingStrategy) return;
 
     for (Vehicle* v : *vehicles) {
-        // If the blocked road is in the upcoming route of this vehicle
         if (v->isRoadInUpcomingRoute(roadId)) {
             std::cout << "[Dynamic Routing] Vehicle " << v->getId() 
                       << " is recalculating route to avoid Road " << roadId << "...\n";
@@ -39,6 +38,11 @@ void EventManager::notifyAffectedVehicles(int roadId) {
             if (success && statsManager){
                 statsManager->recordRecalculation(v->getId());
             }   
+        } else if (v->getCurrentRoad() != nullptr && v->getCurrentRoad()->getId() == roadId) {
+            std::cout << "[Dynamic Routing] Vehicle " << v->getId() 
+                      << " is trapped on Road " << roadId << ". Stopping and waiting...\n";
+            // Do NOT U-turn instantly to prevent visual teleportation.
+            // The vehicle will automatically stop because the road is blocked (speed -> 0).
         }
     }
 }
