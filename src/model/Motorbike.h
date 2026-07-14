@@ -31,6 +31,11 @@ public:
     // brake, letting them weave through traffic more responsively.
     double getAcceleration() const override { return 25.0; }
     double getDeceleration() const override { return 35.0; }
+
+    // Motorbikes are small and can tuck in much closer to the vehicle ahead
+    // than a car or bus.
+    double getLength() const override { return 2.0; }
+    double getMinGap() const override { return 1.0; }
 };
 
 #endif

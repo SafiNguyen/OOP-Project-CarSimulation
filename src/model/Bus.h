@@ -86,6 +86,11 @@ public:
     double getAcceleration() const override { return 8.0; }
     double getDeceleration() const override { return 12.0; }
 
+    // Buses are long vehicles and keep a slightly larger safety gap so
+    // passengers aren't jolted by sudden stops behind other traffic.
+    double getLength() const override { return 12.0; }
+    double getMinGap() const override { return 3.0; }
+
     bool   isDwelling()    const { return isPaused(); }
     double getDwellTimer() const { return dwellTimer; }
     double getDwellTime()  const { return dwellTime; }

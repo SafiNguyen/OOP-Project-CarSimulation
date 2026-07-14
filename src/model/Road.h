@@ -5,6 +5,7 @@
 #include <vector>
 #include "Lane.h"
 class Intersection;
+class Vehicle;
 
 class Road {
 private:
@@ -46,6 +47,12 @@ public:
     Lane& getLane(int laneIndex);
 
     int getFreestLaneIndex() const;
+
+    // Car-Following Model support: returns the vehicle immediately ahead of
+    // `self` within lane `laneIndex` on this road (i.e. the vehicle with the
+    // smallest progress-on-road strictly greater than self's), or nullptr if
+    // `self` is the lead vehicle in that lane / laneIndex is invalid.
+    Vehicle* findLeader(int laneIndex, const Vehicle* self) const;
 
     double getTravelCost() const;
     double getTravelTime() const;        

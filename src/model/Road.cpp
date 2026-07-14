@@ -1,5 +1,6 @@
 #include "Road.h"
-#include "Intersection.h" 
+#include "Intersection.h"
+#include "Vehicle.h" 
 #include <limits>
 #include <stdexcept>
 #include <cmath>    
@@ -80,6 +81,32 @@ int Road::getFreestLaneIndex() const {
     }
  
     return freestIndex;
+}
+
+Vehicle* Road::findLeader(int laneIndex, const Vehicle* self) const {
+    if (self == nullptr || laneIndex < 0 || laneIndex >= static_cast<int>(lanes.size())) {
+        return nullptr;
+    }
+
+    const Lane& lane = lanes[laneIndex];
+    const double selfProgress = self->getProgressOnRoad();
+
+    Vehicle* leader = nullptr;
+    double bestProgress = std::numeric_limits<double>::infinity();
+
+    for (Vehicle* candidate : lane.getVehicles()) {
+        if (candidate == self) {
+            continue;
+        }
+        const double candidateProgress = candidate->getProgressOnRoad();
+        // Only consider vehicles strictly ahead of self on this road.
+        if (candidateProgress > selfProgress && candidateProgress < bestProgress) {
+            bestProgress = candidateProgress;
+            leader = candidate;
+        }
+    }
+
+    return leader;
 }
 
 double Road::getTravelTime() const {

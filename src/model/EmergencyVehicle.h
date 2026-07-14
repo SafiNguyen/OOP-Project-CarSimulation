@@ -24,6 +24,9 @@ public:
     bool mustStopForTrafficLight(Intersection* nextIntersection) const override {
     return false; // xe cứu thương được ưu tiên vượt đèn đỏ
     }
+
+    // Sturdier brakes let emergency vehicles safely run a tighter gap.
+    double getMinGap() const override { return 1.5; }
 };
 
 #endif
