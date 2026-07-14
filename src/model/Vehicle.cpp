@@ -13,9 +13,10 @@ Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
       currentRoad(nullptr),
       progressOnCurrentRoad(0.0),
       currentSpeed(0.0),
-      currentRouteIndex(0), 
-      paused(false)
-{
+      currentRouteIndex(0),
+      paused(false),
+      awaitingIntersectionTransition(false),
+      intersectionTransitionTimer(0.0) {
 }
 
 Vehicle::~Vehicle() {
@@ -29,13 +30,15 @@ void Vehicle::setRoute(const std::vector<Road*>& route) {
     currentRoute = route;
     currentRouteIndex = 0;
     progressOnCurrentRoad = 0.0;
-    currentSpeed = 0.0; // vehicle starts from a standstill on a fresh route
+    currentSpeed = 0.0;
     paused = false;
     routeAssigned = true;
-    
+
     if (!currentRoute.empty()) {
         currentRoad = currentRoute[0];
-        if (currentRoad) currentRoad->getLane(currentLaneIndex).addVehicle(this);
+        if (currentRoad) {
+            currentRoad->getLane(currentLaneIndex).addVehicle(this);
+        }
     } else {
         currentRoad = nullptr;
     }
@@ -44,9 +47,11 @@ void Vehicle::setRoute(const std::vector<Road*>& route) {
 }
 
 bool Vehicle::advanceToNextRoad() {
-    addTravelHistory(currentRoad);
+    if (currentRoad != nullptr) {
+        addTravelHistory(currentRoad);
+    }
     ++currentRouteIndex;
- 
+
     if (currentRouteIndex < static_cast<int>(currentRoute.size())) {
         if (currentRoad) {
             currentRoad->getLane(currentLaneIndex).removeVehicle(this);
@@ -55,11 +60,10 @@ bool Vehicle::advanceToNextRoad() {
         if (currentRoad) {
             currentRoad->getLane(currentLaneIndex).addVehicle(this);
         }
-        onRoadChanged(); 
+        onRoadChanged();
         return true;
     }
- 
-    // Route finished
+
     if (currentRoad) {
         currentRoad->getLane(currentLaneIndex).removeVehicle(this);
     }
@@ -67,7 +71,6 @@ bool Vehicle::advanceToNextRoad() {
     progressOnCurrentRoad = 0.0;
     return false;
 }
- 
 
 double Vehicle::getProgressRatio() const {
     if (currentRoad == nullptr || currentRoad->getDistance() <= 0.0) {
@@ -77,29 +80,51 @@ double Vehicle::getProgressRatio() const {
 }
 
 bool Vehicle::mustStopForTrafficLight(Intersection* nextIntersection) const {
-    if (nextIntersection == nullptr || currentRoad == nullptr) return false;
+    if (nextIntersection == nullptr || currentRoad == nullptr) {
+        return false;
+    }
     return nextIntersection->mustStopForRoad(currentRoad);
 }
 
+Road* Vehicle::getNextRoad() const {
+    if (currentRouteIndex + 1 < static_cast<int>(currentRoute.size())) {
+        return currentRoute[currentRouteIndex + 1];
+    }
+    return nullptr;
+}
+
 void Vehicle::update(double dt) {
-    if (hasReachedDestination() || currentRoad == nullptr) return;
- 
+    if (hasReachedDestination() || currentRoad == nullptr) {
+        return;
+    }
+
     if (paused) {
         if (updatePause(dt)) {
-            paused = false; // subclass says: done waiting, resume
+            paused = false;
         }
         return;
     }
- 
-    double remainingTime = dt; // we may need to split dt across multiple roads
- 
+
+    double remainingTime = dt;
+
     while (remainingTime > 0.0 && currentRoad != nullptr && !paused) {
- 
-        // calculateCurrentSpeed() gives the TARGET speed allowed right now
-        // (speed limit / congestion / blocked status for this road & vehicle
-        // type). The vehicle doesn't teleport to that speed - it ramps
-        // towards it using its acceleration/deceleration, so starts/stops
-        // and speed-limit changes feel gradual instead of instantaneous.
+        if (awaitingIntersectionTransition) {
+            if (intersectionTransitionTimer > remainingTime) {
+                intersectionTransitionTimer -= remainingTime;
+                remainingTime = 0.0;
+                break;
+            }
+
+            remainingTime -= intersectionTransitionTimer;
+            awaitingIntersectionTransition = false;
+            intersectionTransitionTimer = 0.0;
+            progressOnCurrentRoad = 0.0;
+            if (!advanceToNextRoad()) {
+                break;
+            }
+            continue;
+        }
+
         const double targetSpeed = calculateCurrentSpeed();
 
         if (currentSpeed < targetSpeed) {
@@ -109,62 +134,59 @@ void Vehicle::update(double dt) {
         }
 
         double speed = currentSpeed;
- 
-        // If speed is 0 (e.g. congestion/blocked returned 0 and we've already
-        // decelerated all the way down), nothing to do this tick
-        if (speed <= 0.0) break;
- 
-        double distanceThisTick    = speed * remainingTime;
-        double currentPos          = progressOnCurrentRoad;
-        double projectedPos        = currentPos + distanceThisTick;
- 
+        if (speed <= 0.0) {
+            break;
+        }
+
+        double distanceThisTick = speed * remainingTime;
+        double currentPos = progressOnCurrentRoad;
+        double projectedPos = currentPos + distanceThisTick;
+
         double pausePos = -1.0;
         if (shouldPauseAt(currentPos, projectedPos, pausePos)
             && pausePos > currentPos
             && pausePos <= currentRoad->getDistance()) {
- 
             progressOnCurrentRoad = pausePos;
             paused = true;
             onPauseStarted();
-            break; // consume the rest of dt while dwelling (next ticks)
+            break;
         }
 
-
- 
         if (projectedPos < currentRoad->getDistance()) {
-            // Stay on tis road
             progressOnCurrentRoad = projectedPos;
-            remainingTime = 0.0; // all time consumed
+            remainingTime = 0.0;
         } else {
-            // Reached (or passed) the end of this road segment
             Intersection* nextIntersection = currentRoad->getEnd();
 
             if (mustStopForTrafficLight(nextIntersection)) {
-                // Đèn đỏ/vàng: xe dừng lại tại vạch kẻ đường (cuối road hiện tại),
-                // không advance sang road tiếp theo. Tick sau sẽ kiểm tra lại.
                 progressOnCurrentRoad = currentRoad->getDistance();
                 currentSpeed = 0.0;
-                remainingTime = 0.0; // tiêu thụ hết dt còn lại của tick này
+                remainingTime = 0.0;
                 break;
             }
-            double distToEnd  = currentRoad->getDistance() - currentPos;
-            double timeToEnd  = (speed > 0.0) ? distToEnd / speed : 0.0;
-            remainingTime    -= timeToEnd;
-            progressOnCurrentRoad = 0.0; // reset for next road
- 
-            if (!advanceToNextRoad()) {
-                break; // route finished
+
+            if (currentRouteIndex + 1 < static_cast<int>(currentRoute.size())) {
+                progressOnCurrentRoad = currentRoad->getDistance();
+                currentSpeed = std::max(0.0, currentSpeed * 0.5);
+                awaitingIntersectionTransition = true;
+                intersectionTransitionTimer = INTERSECTION_TRANSITION_DURATION;
+                remainingTime = 0.0;
+                break;
             }
- 
-            // After entering the new road, check if the subclass wants to
-            // pause immediately at position 0 (e.g. first stop at road start)
-            // — handled naturally by shouldPauseAt on the next loop iteration
+
+            double distToEnd = currentRoad->getDistance() - currentPos;
+            double timeToEnd = (speed > 0.0) ? distToEnd / speed : 0.0;
+            remainingTime -= timeToEnd;
+            progressOnCurrentRoad = 0.0;
+
+            if (!advanceToNextRoad()) {
+                break;
+            }
         }
     }
 }
 
 bool Vehicle::isRoadInUpcomingRoute(int roadId) const {
-    // Only check upcoming roads (from currentRouteIndex + 1 onwards)
     for (size_t i = currentRouteIndex + 1; i < currentRoute.size(); ++i) {
         if (currentRoute[i]->getId() == roadId) {
             return true;
@@ -174,16 +196,17 @@ bool Vehicle::isRoadInUpcomingRoute(int roadId) const {
 }
 
 bool Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy) {
-    if (currentRoad == nullptr || destination == nullptr) return false;
+    if (currentRoad == nullptr || destination == nullptr) {
+        return false;
+    }
 
-    // Start routing from the NEXT intersection (since the vehicle is already on the current road and cannot turn around instantly)
     int startNodeId = currentRoad->getEnd()->getId();
     int destNodeId = destination->getId();
 
     PathResult result = strategy->findPath(graph, startNodeId, destNodeId);
 
     if (!result.found) {
-        return false; // No alternative route found
+        return false;
     }
 
     std::vector<Road*> newRoute;
@@ -197,18 +220,19 @@ bool Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy
     }
 
     currentRoute = newRoute;
-    paused = false; // Reset pause state in case it was paused
+    paused = false;
     return true;
 }
 
 bool Vehicle::performUTurn(const Graph& graph, PathFindingStrategy* strategy) {
-    if (currentRoad == nullptr || destination == nullptr) return false;
+    if (currentRoad == nullptr || destination == nullptr) {
+        return false;
+    }
 
-    // Find the reverse road
     int startId = currentRoad->getStart()->getId();
     int endId = currentRoad->getEnd()->getId();
     Road* reverseRoad = nullptr;
-    
+
     for (Road* r : graph.getAllRoads()) {
         if (r->getStart()->getId() == endId && r->getEnd()->getId() == startId) {
             reverseRoad = r;
@@ -216,30 +240,29 @@ bool Vehicle::performUTurn(const Graph& graph, PathFindingStrategy* strategy) {
         }
     }
 
-    if (reverseRoad == nullptr) return false; // Cannot U-turn, no reverse road
+    if (reverseRoad == nullptr) {
+        return false;
+    }
 
-    // Recalculate route from the start of the reverse road (which is the current endId)
     PathResult result = strategy->findPath(graph, startId, destination->getId());
-    if (!result.found) return false;
+    if (!result.found) {
+        return false;
+    }
 
-    // Swap to reverse road
     currentRoad = reverseRoad;
-    
-    // Invert progress
     progressOnCurrentRoad = currentRoad->getDistance() - progressOnCurrentRoad;
-    if (progressOnCurrentRoad < 0) progressOnCurrentRoad = 0;
-    
-    // Reset speed as we stopped to turn around
+    if (progressOnCurrentRoad < 0) {
+        progressOnCurrentRoad = 0;
+    }
+
     currentSpeed = 0.0;
     paused = false;
 
-    // Build new route: keep history, then add reverse road, then result path
     std::vector<Road*> newRoute;
     for (int i = 0; i < currentRouteIndex; ++i) {
         newRoute.push_back(currentRoute[i]);
     }
-    
-    // Now we are at currentRouteIndex
+
     newRoute.push_back(currentRoad);
     for (Road* r : result.roadPath) {
         newRoute.push_back(r);

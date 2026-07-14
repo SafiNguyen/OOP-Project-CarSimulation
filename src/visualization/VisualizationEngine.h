@@ -3,9 +3,11 @@
 
 #include <SFML/Graphics.hpp>
 #include <vector>
+#include "model/TrafficLight.h"
 
 class Graph;
 class Road;
+class Intersection;
 
 class VisualizationEngine {
 public:
@@ -35,6 +37,11 @@ private:
                        const sf::Vector2f& b,
                        const sf::Color& color,
                        float thickness) const;
+    void drawTrafficLights(sf::RenderTarget& target, const Graph& graph) const;
+    void drawIntersectionNode(sf::RenderTarget& target, const Intersection* intersection) const;
+    sf::Vector2f getRoadEntryPoint(const Road* road, const Intersection* intersection) const;
+    sf::Color lightColor(LightState state) const;
+    sf::Vector2f roadNormal(const sf::Vector2f& a, const sf::Vector2f& b) const;
 
     sf::Vector2u windowSize_;
     float margin_;
