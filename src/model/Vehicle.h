@@ -22,6 +22,7 @@
         std::vector<Road*> travelHistory;
         bool paused;
         bool routeAssigned = false;
+        int currentLaneIndex = 0; 
 
 
     public:
@@ -56,6 +57,7 @@
         virtual bool shouldPauseAt(double currentPos,
                                     double projectedPos,
                                     double& pausePos) { return false; }
+        virtual bool mustStopForTrafficLight(Intersection* nextIntersection) const;
         virtual void onPauseStarted() {}
         virtual bool updatePause(double dt) { return true; }
         virtual void update(double dt);
@@ -74,6 +76,8 @@
                 && currentRouteIndex >= (int)currentRoute.size();
         }
         double getProgressRatio() const;
+        int getCurrentLaneIndex() const { return currentLaneIndex; }
+
 
         void addTravelHistory(Road* road) { travelHistory.push_back(road); }
         const std::vector<Road*>& getTravelHistory() const { return travelHistory; }

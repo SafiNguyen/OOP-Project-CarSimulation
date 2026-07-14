@@ -21,6 +21,9 @@ public:
     // than everyday traffic.
     double getAcceleration() const override { return 30.0; }
     double getDeceleration() const override { return 40.0; }
+    bool mustStopForTrafficLight(Intersection* nextIntersection) const override {
+    return false; // xe cứu thương được ưu tiên vượt đèn đỏ
+    }
 };
 
 #endif

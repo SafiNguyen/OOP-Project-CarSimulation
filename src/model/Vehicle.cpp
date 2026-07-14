@@ -20,7 +20,7 @@ Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
 
 Vehicle::~Vehicle() {
     if (currentRoad != nullptr) {
-        currentRoad->getLane(0).removeVehicle(this);
+        currentRoad->getLane(currentLaneIndex).removeVehicle(this);
         currentRoad = nullptr;
     }
 }
@@ -35,7 +35,7 @@ void Vehicle::setRoute(const std::vector<Road*>& route) {
     
     if (!currentRoute.empty()) {
         currentRoad = currentRoute[0];
-        if (currentRoad) currentRoad->getLane(0).addVehicle(this);
+        if (currentRoad) currentRoad->getLane(currentLaneIndex).addVehicle(this);
     } else {
         currentRoad = nullptr;
     }
@@ -49,11 +49,11 @@ bool Vehicle::advanceToNextRoad() {
  
     if (currentRouteIndex < static_cast<int>(currentRoute.size())) {
         if (currentRoad) {
-            currentRoad->getLane(0).removeVehicle(this);
+            currentRoad->getLane(currentLaneIndex).removeVehicle(this);
         }
         currentRoad = currentRoute[currentRouteIndex];
         if (currentRoad) {
-            currentRoad->getLane(0).addVehicle(this);
+            currentRoad->getLane(currentLaneIndex).addVehicle(this);
         }
         onRoadChanged(); 
         return true;
@@ -61,7 +61,7 @@ bool Vehicle::advanceToNextRoad() {
  
     // Route finished
     if (currentRoad) {
-        currentRoad->getLane(0).removeVehicle(this);
+        currentRoad->getLane(currentLaneIndex).removeVehicle(this);
     }
     currentRoad = nullptr;
     progressOnCurrentRoad = 0.0;
@@ -76,6 +76,10 @@ double Vehicle::getProgressRatio() const {
     return progressOnCurrentRoad / currentRoad->getDistance();
 }
 
+bool Vehicle::mustStopForTrafficLight(Intersection* nextIntersection) const {
+    if (nextIntersection == nullptr || currentRoad == nullptr) return false;
+    return nextIntersection->mustStopForRoad(currentRoad);
+}
 
 void Vehicle::update(double dt) {
     if (hasReachedDestination() || currentRoad == nullptr) return;
@@ -124,6 +128,8 @@ void Vehicle::update(double dt) {
             onPauseStarted();
             break; // consume the rest of dt while dwelling (next ticks)
         }
+
+
  
         if (projectedPos < currentRoad->getDistance()) {
             // Stay on tis road
@@ -131,6 +137,16 @@ void Vehicle::update(double dt) {
             remainingTime = 0.0; // all time consumed
         } else {
             // Reached (or passed) the end of this road segment
+            Intersection* nextIntersection = currentRoad->getEnd();
+
+            if (mustStopForTrafficLight(nextIntersection)) {
+                // Đèn đỏ/vàng: xe dừng lại tại vạch kẻ đường (cuối road hiện tại),
+                // không advance sang road tiếp theo. Tick sau sẽ kiểm tra lại.
+                progressOnCurrentRoad = currentRoad->getDistance();
+                currentSpeed = 0.0;
+                remainingTime = 0.0; // tiêu thụ hết dt còn lại của tick này
+                break;
+            }
             double distToEnd  = currentRoad->getDistance() - currentPos;
             double timeToEnd  = (speed > 0.0) ? distToEnd / speed : 0.0;
             remainingTime    -= timeToEnd;
