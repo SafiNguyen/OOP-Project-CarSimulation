@@ -58,6 +58,10 @@ public:
     Intersection* getSpawnPoint() const { return spawnPoint; }
     Intersection* getDestination() const { return destination; }
     double getBaseSpeed() const { return baseSpeed; }
+    virtual double getLength() const { return 0.0; }
+    virtual double getMiniGap() const { return 0.0; }
+    virtual double getMinGap() const { return getMiniGap(); }
+    double getProgressOnRoad() const { return progressOnCurrentRoad; }
     Road* getCurrentRoad() const { return currentRoad; }
     bool isPaused() const { return paused; }
     bool hasReachedDestination() const {
