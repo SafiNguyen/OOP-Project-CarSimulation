@@ -1,3 +1,4 @@
+#include <iostream>
 #include "Vehicle.h"
 #include "Road.h"
 #include "Intersection.h"
@@ -36,6 +37,7 @@ void Vehicle::setRoute(const std::vector<Road*>& route) {
 
     if (!currentRoute.empty()) {
         currentRoad = currentRoute[0];
+        onRoadChanged();
         if (currentRoad) {
             currentRoad->getLane(currentLaneIndex).addVehicle(this);
         }
@@ -98,6 +100,14 @@ void Vehicle::update(double dt) {
         return;
     }
 
+    if (awaitingIntersectionTransition) {
+        intersectionTransitionTimer -= dt;
+        if (intersectionTransitionTimer <= 0.0) {
+            intersectionTransitionTimer = 0.0;
+            awaitingIntersectionTransition = false;
+        }
+    }
+
     if (paused) {
         if (updatePause(dt)) {
             paused = false;
@@ -108,23 +118,6 @@ void Vehicle::update(double dt) {
     double remainingTime = dt;
 
     while (remainingTime > 0.0 && currentRoad != nullptr && !paused) {
-        if (awaitingIntersectionTransition) {
-            if (intersectionTransitionTimer > remainingTime) {
-                intersectionTransitionTimer -= remainingTime;
-                remainingTime = 0.0;
-                break;
-            }
-
-            remainingTime -= intersectionTransitionTimer;
-            awaitingIntersectionTransition = false;
-            intersectionTransitionTimer = 0.0;
-            progressOnCurrentRoad = 0.0;
-            if (!advanceToNextRoad()) {
-                break;
-            }
-            continue;
-        }
-
         const double targetSpeed = calculateCurrentSpeed();
 
         if (currentSpeed < targetSpeed) {
@@ -163,15 +156,20 @@ void Vehicle::update(double dt) {
                 currentSpeed = 0.0;
                 remainingTime = 0.0;
                 break;
-            }
+            }   
 
             if (currentRouteIndex + 1 < static_cast<int>(currentRoute.size())) {
-                progressOnCurrentRoad = currentRoad->getDistance();
-                currentSpeed = std::max(0.0, currentSpeed * 0.5);
+                double distToEnd = currentRoad->getDistance() - currentPos;
+                double timeToEnd = (speed > 0.0) ? distToEnd / speed : 0.0;
+                remainingTime -= timeToEnd;
+                if (remainingTime < 0.0) {
+                    remainingTime = 0.0;
+                }
+                progressOnCurrentRoad = 0.0;
                 awaitingIntersectionTransition = true;
                 intersectionTransitionTimer = INTERSECTION_TRANSITION_DURATION;
-                remainingTime = 0.0;
-                break;
+                if (!advanceToNextRoad()) break;
+                continue;   
             }
 
             double distToEnd = currentRoad->getDistance() - currentPos;

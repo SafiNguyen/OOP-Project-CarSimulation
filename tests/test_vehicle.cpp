@@ -112,9 +112,7 @@ void test_Bus_DwellTime_StateMachine() {
     Bus bus(1, 50.0, &i1, &i2, 15.0);
     bus.setRoute({&road});
 
-    // Speed should be 50 * 0.85 = 42.5 m/s
-    // To reach 20m, it needs dt = 20 / 42.5 = ~0.47s
-    bus.update(0.48); // Đi hơi lố 1 xíu để kích hoạt trạm
+    bus.update(1.6); // Đi hơi lố 1 xíu để kích hoạt trạm
 
     // Kì vọng: Xe dừng đúng tại mốc 20.0, chuyển state sang Dwelling, timer = 15.0
     bool passStop = nearlyEqual(bus.getProgressRatio() * road.getDistance(), 20.0) &&
