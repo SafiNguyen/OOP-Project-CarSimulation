@@ -5,6 +5,8 @@
 #include "Graph.h"
 #include "algorithm/PathFindingStrategy.h"
 #include <algorithm>
+#include <limits>
+
 
 Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
     : id(id),
@@ -37,7 +39,6 @@ void Vehicle::setRoute(const std::vector<Road*>& route) {
 
     if (!currentRoute.empty()) {
         currentRoad = currentRoute[0];
-        onRoadChanged();
         if (currentRoad) {
             currentRoad->getLane(currentLaneIndex).addVehicle(this);
         }
@@ -118,7 +119,57 @@ void Vehicle::update(double dt) {
     double remainingTime = dt;
 
     while (remainingTime > 0.0 && currentRoad != nullptr && !paused) {
-        const double targetSpeed = calculateCurrentSpeed();
+        const double freeFlowSpeed = calculateCurrentSpeed();
+        double targetSpeed = freeFlowSpeed;
+        // Tim xe ngay phia truoc trong cung lane. Neu co, gioi han
+        // targetSpeed theo khoang cach con lai (gap) so voi minGap va
+        // "khoang cach thoai mai" o toc do mong muon (desiredGap).
+        //   gap <= minGap            -> dung han (targetSpeed = 0)
+        //   gap >= desiredGap        -> chay tu do (targetSpeed = freeFlowSpeed)
+        //   minGap < gap < desiredGap -> giam toc tuyen tinh theo ty le gap
+        Vehicle* leader = currentRoad->findLeader(currentLaneIndex, this);
+        const double minGap = getMinGap();
+        double gapToLeader = std::numeric_limits<double>::infinity();
+
+        if (leader != nullptr) {
+            gapToLeader = leader->getProgressOnRoad() - progressOnCurrentRoad - leader->getLength();
+        } else {
+            // Không có ai phía trước trên road hiện tại -> thử nhìn sang road kế tiếp
+            // (Task 1.2 nâng cấp: tránh xe "phóng" hết road rồi mới phát hiện vật cản
+            // ngay khi vừa đổi road, gây tunneling/dồn xe tại nút giao).
+            Road* nextRoad = getNextRoad();
+            if (nextRoad != nullptr) {
+                int nextLaneIndex = currentLaneIndex;
+                if (nextLaneIndex >= nextRoad->getLaneCount()) {
+                    nextLaneIndex = nextRoad->getLaneCount() - 1; // clamp phong khi so lane khac nhau
+                }
+                Vehicle* nextLeader = nextRoad->getFirstVehicleInLane(nextLaneIndex);
+                if (nextLeader != nullptr) {
+                    const double distToEndOfCurrentRoad = currentRoad->getDistance() - progressOnCurrentRoad;
+                    gapToLeader = distToEndOfCurrentRoad
+                                + nextLeader->getProgressOnRoad()
+                                - nextLeader->getLength();
+                    leader = nextLeader; 
+                }
+            }
+        }
+
+        if (leader != nullptr) {
+            if (gapToLeader <= minGap) {
+                targetSpeed = 0.0;
+            } else {
+                const double desiredGap = minGap + freeFlowSpeed * getTimeHeadway();
+                if (gapToLeader < desiredGap && desiredGap > minGap) {
+                    targetSpeed = freeFlowSpeed * (gapToLeader - minGap) / (desiredGap - minGap);
+                }
+            }
+
+            const double stoppingDistance =
+                (currentSpeed * currentSpeed) / (2.0 * std::max(getDeceleration(), 1e-6));
+            if (gapToLeader - minGap < stoppingDistance) {
+                targetSpeed = 0.0;
+            }
+        }
 
         if (currentSpeed < targetSpeed) {
             currentSpeed = std::min(targetSpeed, currentSpeed + getAcceleration() * remainingTime);
@@ -132,6 +183,17 @@ void Vehicle::update(double dt) {
         }
 
         double distanceThisTick = speed * remainingTime;
+        // Hard safety clamp: bat ke toc do/dt tinh ra la bao nhieu, xe
+        // KHONG BAO GIO duoc phep tien qua (vi tri xe truoc - minGap)
+        // trong 1 lan goi update() nay. Can thiet vi cong thuc "soft" o
+        // tren gia dinh dt nho; khi speedMultiplier cao (Task 5), remainingTime
+        // co the len toi vai giay, va ap dung targetSpeed hang so cho ca
+        // khoang thoi gian lon do co the khien xe "xuyen" qua xe truoc
+        // (buoc nhay Euler qua lon so voi 1 buoc vat ly lien tuc).
+        if (leader != nullptr) {
+            const double maxAdvance = std::max(0.0, gapToLeader - minGap);
+            distanceThisTick = std::min(distanceThisTick, maxAdvance);
+        }
         double currentPos = progressOnCurrentRoad;
         double projectedPos = currentPos + distanceThisTick;
 

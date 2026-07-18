@@ -109,6 +109,26 @@ Vehicle* Road::findLeader(int laneIndex, const Vehicle* self) const {
     return leader;
 }
 
+Vehicle* Road::getFirstVehicleInLane(int laneIndex) const {
+    if (laneIndex < 0 || laneIndex >= static_cast<int>(lanes.size())) {
+        return nullptr;
+    }
+
+    const Lane& lane = lanes[laneIndex];
+    Vehicle* first = nullptr;
+    double bestProgress = std::numeric_limits<double>::infinity();
+
+    for (Vehicle* candidate : lane.getVehicles()) {
+        const double p = candidate->getProgressOnRoad();
+        if (p < bestProgress) {
+            bestProgress = p;
+            first = candidate;
+        }
+    }
+
+    return first;
+}
+
 double Road::getTravelTime() const {
     if (blocked) {
         return std::numeric_limits<double>::infinity(); 

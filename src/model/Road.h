@@ -53,6 +53,7 @@ public:
     // smallest progress-on-road strictly greater than self's), or nullptr if
     // `self` is the lead vehicle in that lane / laneIndex is invalid.
     Vehicle* findLeader(int laneIndex, const Vehicle* self) const;
+    Vehicle* getFirstVehicleInLane(int laneIndex) const;
 
     double getTravelCost() const;
     double getTravelTime() const;        
@@ -65,8 +66,7 @@ public:
     void clearBusStops();
     const std::vector<double>& getBusStopPositions() const;
     double getNextBusStop(double fromPosition, double toPosition) const;
-
-
+    
     std::string toString() const;
 
     ~Road();

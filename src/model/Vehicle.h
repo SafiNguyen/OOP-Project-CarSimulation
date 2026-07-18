@@ -40,8 +40,8 @@ public:
 
     virtual double calculateCurrentSpeed() const = 0;
     virtual void onRoadChanged() {}
-    virtual double getAcceleration() const { return 15.0; }
-    virtual double getDeceleration() const { return 25.0; }
+    virtual double getAcceleration() const { return 3.0; }
+    virtual double getDeceleration() const { return 5.0; }
 
     double getCurrentSpeed() const { return currentSpeed; }
 
@@ -59,8 +59,10 @@ public:
     Intersection* getDestination() const { return destination; }
     double getBaseSpeed() const { return baseSpeed; }
     virtual double getLength() const { return 0.0; }
-    virtual double getMiniGap() const { return 0.0; }
+    virtual double getMiniGap() const { return 2.0; }
     virtual double getMinGap() const { return getMiniGap(); }
+    virtual double getTimeHeadway() const { return 1.5; }
+
     double getProgressOnRoad() const { return progressOnCurrentRoad; }
     Road* getCurrentRoad() const { return currentRoad; }
     bool isPaused() const { return paused; }
