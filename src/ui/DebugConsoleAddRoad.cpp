@@ -74,10 +74,10 @@ void DebugConsole::drawAddRoadPanel(Graph& graph, VisualizationEngine& visualiza
                 ? graph.calculateDistance(start->getId(), end->getId())
                 : static_cast<double>(addRoadDistance_);
             const int newId = nextFreeRoadId(graph);
-            Road* road = new Road(newId, start, end, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
+            Road* road = new Road(newId, "Custom Road", start, end, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
             graph.addRoad(road);
             if (addRoadTwoWay_) {
-                Road* revRoad = new Road(-newId, end, start, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
+                Road* revRoad = new Road(-newId, "Custom Road", end, start, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
                 graph.addRoad(revRoad);
             }
             visualization.prepare(graph);

@@ -19,10 +19,10 @@ void populateDemoGraph(Graph& graph) {
     graph.addIntersection(d);
     graph.addIntersection(e);
 
-    graph.addRoad(new Road(1, a, b, 70.0, 50.0, 1.0));
-    graph.addRoad(new Road(2, b, c, 45.0, 45.0, 1.8));
-    graph.addRoad(new Road(3, c, d, 48.0, 40.0, 3.0));
-    graph.addRoad(new Road(4, d, e, 42.0, 35.0, 2.1));
-    graph.addRoad(new Road(5, e, a, 52.0, 50.0, 1.2));
-    graph.addRoad(new Road(6, b, d, 68.0, 40.0, 4.0));
+    graph.addRoad(new Road(1, "Road 1", a, b, 70.0, 50.0, 1.0));
+    graph.addRoad(new Road(2, "Road 2", b, c, 45.0, 45.0, 1.8));
+    graph.addRoad(new Road(3, "Road 3", c, d, 48.0, 40.0, 3.0));
+    graph.addRoad(new Road(4, "Road 4", d, e, 42.0, 35.0, 2.1));
+    graph.addRoad(new Road(5, "Road 5", e, a, 52.0, 50.0, 1.2));
+    graph.addRoad(new Road(6, "Road 6", b, d, 68.0, 40.0, 4.0));
 }
