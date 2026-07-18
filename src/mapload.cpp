@@ -1,6 +1,6 @@
 
-#include "mapload.h"
-
+#include "Mapload.h"
+	
 #include <cctype>
 #include <fstream>
 #include <sstream>
