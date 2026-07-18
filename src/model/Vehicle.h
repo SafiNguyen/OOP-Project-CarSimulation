@@ -7,6 +7,7 @@ class Intersection;
 class Road;
 class Graph;
 class PathFindingStrategy;
+class PointOfInterest;
 
 class Vehicle {
 public:
@@ -16,6 +17,7 @@ protected:
     int id;
     double baseSpeed; // m/s
     Intersection* spawnPoint;
+    PointOfInterest* targetPOI = nullptr; // optional POI destination
     Intersection* destination;
     Road* currentRoad;
     double progressOnCurrentRoad;
@@ -58,10 +60,18 @@ public:
     Intersection* getSpawnPoint() const { return spawnPoint; }
     Intersection* getDestination() const { return destination; }
     double getBaseSpeed() const { return baseSpeed; }
-    virtual double getLength() const { return 0.0; }
-    virtual double getMiniGap() const { return 0.0; }
-    virtual double getMinGap() const { return getMiniGap(); }
+
+    // --- Vehicle physical dimensions ---
+    virtual double getLength() const { return 4.5; }    // metres
+    virtual double getHeight() const { return 1.5; }    // metres
+    virtual double getWeight() const { return 1.5; }    // tonnes
+    virtual double getMinGap()  const { return 2.0; }   // metres
+
     double getProgressOnRoad() const { return progressOnCurrentRoad; }
+
+    // --- POI support ---
+    PointOfInterest* getTargetPOI() const { return targetPOI; }
+    void setTargetPOI(PointOfInterest* poi) { targetPOI = poi; }
     Road* getCurrentRoad() const { return currentRoad; }
     bool isPaused() const { return paused; }
     bool hasReachedDestination() const {

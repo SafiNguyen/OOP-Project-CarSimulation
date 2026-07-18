@@ -6,20 +6,15 @@
 #include <cmath>    
 #include <algorithm> 
 
-Road::Road(int id, Intersection* start, Intersection* end, 
-           double distance, double speedLimit, double congestionLevel, int laneCount) {
-    this->id = id;
-    this->start = start;
-    this->end = end;
-    this->distance = distance;
-    this->speedLimit = speedLimit;
+Road::Road(int id, const std::string& name, Intersection* start, Intersection* end, 
+           double distance, double speedLimit, double congestionLevel, int laneCount) 
+           : id(id), name(name), start(start), end(end), distance(distance), speedLimit(speedLimit), laneCount((laneCount >= 1) ? laneCount : 1) {
     if (congestionLevel < 1.0) {
         this->congestionLevel = 1.0; 
     } else {
         this->congestionLevel = congestionLevel;
     }    
     this->blocked = false; 
-    this->laneCount = (laneCount >= 1) ? laneCount : 1;
     lanes.reserve(this -> laneCount);
     for (int i = 0; i < this->laneCount; ++i) {
         lanes.emplace_back(i);
@@ -28,6 +23,8 @@ Road::Road(int id, Intersection* start, Intersection* end,
 
 
 int Road::getId() const { return id; }
+const std::string& Road::getName() const { return name; }
+void Road::setName(const std::string& newName) { name = newName; }
 Intersection* Road::getStart() const { return start; }
 Intersection* Road::getEnd() const { return end; }
 double Road::getDistance() const { return distance; }

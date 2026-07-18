@@ -68,12 +68,12 @@ Graph buildSquareGraphWithBranch() {
     g.addIntersection(new Intersection(4, 0.0, 100.0));
     g.addIntersection(new Intersection(5, 50.0, 150.0));
 
-    g.addRoad(new Road(101, g.getIntersection(1), g.getIntersection(2), 100.0, 50.0));
-    g.addRoad(new Road(102, g.getIntersection(2), g.getIntersection(3), 100.0, 50.0, 1.2));
-    g.addRoad(new Road(103, g.getIntersection(3), g.getIntersection(4), 100.0, 50.0));
-    g.addRoad(new Road(104, g.getIntersection(4), g.getIntersection(1), 100.0, 50.0));
-    g.addRoad(new Road(105, g.getIntersection(2), g.getIntersection(5), 111.8, 40.0, 1.5));
-    Road* r106 = new Road(106, g.getIntersection(5), g.getIntersection(3), 111.8, 40.0);
+    g.addRoad(new Road(101, "Test Road", g.getIntersection(1), g.getIntersection(2), 100.0, 50.0));
+    g.addRoad(new Road(102, "Test Road", g.getIntersection(2), g.getIntersection(3), 100.0, 50.0, 1.2));
+    g.addRoad(new Road(103, "Test Road", g.getIntersection(3), g.getIntersection(4), 100.0, 50.0));
+    g.addRoad(new Road(104, "Test Road", g.getIntersection(4), g.getIntersection(1), 100.0, 50.0));
+    g.addRoad(new Road(105, "Test Road", g.getIntersection(2), g.getIntersection(5), 111.8, 40.0, 1.5));
+    Road* r106 = new Road(106, "Test Road", g.getIntersection(5), g.getIntersection(3), 111.8, 40.0);
     r106->blockRoad();
     g.addRoad(r106);
 
@@ -89,9 +89,9 @@ Graph buildLineGraph() {
     g.addIntersection(new Intersection(3, 20.0, 0.0));
     g.addIntersection(new Intersection(4, 30.0, 0.0));
 
-    g.addRoad(new Road(1, g.getIntersection(1), g.getIntersection(2), 10.0, 10.0));
-    g.addRoad(new Road(2, g.getIntersection(2), g.getIntersection(3), 10.0, 10.0));
-    g.addRoad(new Road(3, g.getIntersection(3), g.getIntersection(4), 10.0, 10.0));
+    g.addRoad(new Road(1, "Test Road", g.getIntersection(1), g.getIntersection(2), 10.0, 10.0));
+    g.addRoad(new Road(2, "Test Road", g.getIntersection(2), g.getIntersection(3), 10.0, 10.0));
+    g.addRoad(new Road(3, "Test Road", g.getIntersection(3), g.getIntersection(4), 10.0, 10.0));
 
     return g;
 }
@@ -116,13 +116,13 @@ Graph buildCongestionDiamond() {
 
     // 1 -> 2 -> 4: very short distance (10 + 10 = 20) but congestionLevel 10
     // travel cost = distance / (speed / congestion) = 10 / (10/10) = 10 each => 20 total
-    g.addRoad(new Road(1, g.getIntersection(1), g.getIntersection(2), 10.0, 10.0, 10.0));
-    g.addRoad(new Road(2, g.getIntersection(2), g.getIntersection(4), 10.0, 10.0, 10.0));
+    g.addRoad(new Road(1, "Test Road", g.getIntersection(1), g.getIntersection(2), 10.0, 10.0, 10.0));
+    g.addRoad(new Road(2, "Test Road", g.getIntersection(2), g.getIntersection(4), 10.0, 10.0, 10.0));
 
     // 1 -> 3 -> 4: longer distance (40 + 40 = 80) but free-flowing (congestion 1)
     // travel cost = 40 / (40/1) = 1 each => 2 total. Much cheaper!
-    g.addRoad(new Road(3, g.getIntersection(1), g.getIntersection(3), 40.0, 40.0, 1.0));
-    g.addRoad(new Road(4, g.getIntersection(3), g.getIntersection(4), 40.0, 40.0, 1.0));
+    g.addRoad(new Road(3, "Test Road", g.getIntersection(1), g.getIntersection(3), 40.0, 40.0, 1.0));
+    g.addRoad(new Road(4, "Test Road", g.getIntersection(3), g.getIntersection(4), 40.0, 40.0, 1.0));
 
     return g;
 }
@@ -406,13 +406,13 @@ void test_AStar_ExploresFewerOrEqualNodesThanDijkstra_OnLargerMap() {
             int id = row * N + col + 1;
             if (col + 1 < N) {
                 int rightId = row * N + (col + 1) + 1;
-                g.addRoad(new Road(roadId++, g.getIntersection(id), g.getIntersection(rightId), 50.0, 50.0));
-                g.addRoad(new Road(roadId++, g.getIntersection(rightId), g.getIntersection(id), 50.0, 50.0));
+                g.addRoad(new Road(roadId++, "Test Road", g.getIntersection(id), g.getIntersection(rightId), 50.0, 50.0));
+                g.addRoad(new Road(roadId++, "Test Road", g.getIntersection(rightId), g.getIntersection(id), 50.0, 50.0));
             }
             if (row + 1 < N) {
                 int downId = (row + 1) * N + col + 1;
-                g.addRoad(new Road(roadId++, g.getIntersection(id), g.getIntersection(downId), 50.0, 50.0));
-                g.addRoad(new Road(roadId++, g.getIntersection(downId), g.getIntersection(id), 50.0, 50.0));
+                g.addRoad(new Road(roadId++, "Test Road", g.getIntersection(id), g.getIntersection(downId), 50.0, 50.0));
+                g.addRoad(new Road(roadId++, "Test Road", g.getIntersection(downId), g.getIntersection(id), 50.0, 50.0));
             }
         }
     }

@@ -37,7 +37,7 @@ void test_Polymorphic_Speed_Calculation() {
     Intersection i1(1, 0.0, 0.0);
     Intersection i2(2, 100.0, 0.0);
     // Road: distance 100, speedLimit 50, congestion 3.0
-    Road road(101, &i1, &i2, 100.0, 50.0, 3.0); 
+    Road road(101, "Test", &i1, &i2, 100.0, 50.0, 3.0); 
 
     // All vehicles have engine base speed 60.0
     Car car(1, 60.0, &i1, &i2);
@@ -83,7 +83,7 @@ void test_EmergencyVehicle_BlockedRoad() {
     
     Intersection i1(1, 0.0, 0.0);
     Intersection i2(2, 100.0, 0.0);
-    Road road(101, &i1, &i2, 100.0, 50.0);
+    Road road(101, "Test", &i1, &i2, 100.0, 50.0);
     road.blockRoad(); // Tai nạn!
 
     EmergencyVehicle ambulance(1, 60.0, &i1, &i2);
@@ -103,7 +103,7 @@ void test_Bus_DwellTime_StateMachine() {
     
     Intersection i1(1, 0.0, 0.0);
     Intersection i2(2, 100.0, 0.0);
-    Road road(101, &i1, &i2, 100.0, 50.0, 1.0);
+    Road road(101, "Test", &i1, &i2, 100.0, 50.0, 1.0);
     
     // Add a bus stop at 20 meters
     road.addBusStop(20.0);
@@ -142,8 +142,8 @@ void test_Vehicle_RouteAdvancement() {
     Intersection i2(2, 10.0, 0.0);
     Intersection i3(3, 20.0, 0.0);
     
-    Road r1(101, &i1, &i2, 10.0, 10.0, 1.0);
-    Road r2(102, &i2, &i3, 10.0, 10.0, 1.0);
+    Road r1(101, "Test", &i1, &i2, 10.0, 10.0, 1.0);
+    Road r2(102, "Test", &i2, &i3, 10.0, 10.0, 1.0);
 
     Car car(1, 10.0, &i1, &i3);
     car.setRoute({&r1, &r2});
@@ -175,9 +175,9 @@ void test_Vehicle_RecalculateRoute_PreservesProgressNoGrowth() {
     g.addIntersection(new Intersection(2, 10.0, 0.0));
     g.addIntersection(new Intersection(3, 20.0, 0.0));
     g.addIntersection(new Intersection(4, 30.0, 0.0));
-    g.addRoad(new Road(101, g.getIntersection(1), g.getIntersection(2), 10.0, 10.0, 1.0));
-    g.addRoad(new Road(102, g.getIntersection(2), g.getIntersection(3), 10.0, 10.0, 1.0));
-    g.addRoad(new Road(103, g.getIntersection(3), g.getIntersection(4), 10.0, 10.0, 1.0));
+    g.addRoad(new Road(101, "Test Road", g.getIntersection(1), g.getIntersection(2), 10.0, 10.0, 1.0));
+    g.addRoad(new Road(102, "Test Road", g.getIntersection(2), g.getIntersection(3), 10.0, 10.0, 1.0));
+    g.addRoad(new Road(103, "Test Road", g.getIntersection(3), g.getIntersection(4), 10.0, 10.0, 1.0));
 
     DijkstraStrategy strategy; 
 

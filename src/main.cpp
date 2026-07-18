@@ -45,12 +45,12 @@ void populateDemoGraph(Graph& graph) {
     graph.addIntersection(d);
     graph.addIntersection(e);
 
-    graph.addRoad(new Road(1, a, b, 70.0, 50.0, 1.0));
-    graph.addRoad(new Road(2, b, c, 45.0, 45.0, 1.8));
-    graph.addRoad(new Road(3, c, d, 48.0, 40.0, 3.0));
-    graph.addRoad(new Road(4, d, e, 42.0, 35.0, 2.1));
-    graph.addRoad(new Road(5, e, a, 52.0, 50.0, 1.2));
-    graph.addRoad(new Road(6, b, d, 68.0, 40.0, 4.0));
+    graph.addRoad(new Road(1, "Demo Road 1", a, b, 70.0, 50.0, 1.0));
+    graph.addRoad(new Road(2, "Demo Road 2", b, c, 45.0, 45.0, 1.8));
+    graph.addRoad(new Road(3, "Demo Road 3", c, d, 48.0, 40.0, 3.0));
+    graph.addRoad(new Road(4, "Demo Road 4", d, e, 42.0, 35.0, 2.1));
+    graph.addRoad(new Road(5, "Demo Road 5", e, a, 52.0, 50.0, 1.2));
+    graph.addRoad(new Road(6, "Demo Road 6", b, d, 68.0, 40.0, 4.0));
 }
 
 bool openMapFileDialog(std::string& selectedPath) {
@@ -119,6 +119,13 @@ int main(int argc, char** argv) {
 
     VisualizationEngine visualization({windowW, windowH});
     visualization.setHeatMapEnabled(heatMapEnabled);
+
+    sf::Font font;
+    if (font.loadFromFile("C:/Windows/Fonts/arial.ttf")) {
+        visualization.setFont(font);
+    } else {
+        std::cerr << "Warning: Could not load C:/Windows/Fonts/arial.ttf\n";
+    }
 
     sf::View view = window.getDefaultView();
     float zoomFactor = 1.0f;
@@ -300,18 +307,20 @@ int main(int argc, char** argv) {
                     simulator->pause();
                 }
             }
-            if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Middle) {
-                isDragging = true;
-                lastMousePixel = sf::Mouse::getPosition(window);
+            if (event.type == sf::Event::MouseButtonPressed && 
+                (event.mouseButton.button == sf::Mouse::Middle || event.mouseButton.button == sf::Mouse::Left || event.mouseButton.button == sf::Mouse::Right)) {
+                if (event.mouseButton.button == sf::Mouse::Left && debugConsole.isPicking()) {
+                    const sf::Vector2i pixel(event.mouseButton.x, event.mouseButton.y);
+                    const sf::Vector2f worldPixel = window.mapPixelToCoords(pixel, view);
+                    debugConsole.handleMapClick(graph, visualization, worldPixel);
+                } else {
+                    isDragging = true;
+                    lastMousePixel = sf::Mouse::getPosition(window);
+                }
             }
-            if (event.type == sf::Event::MouseButtonReleased && event.mouseButton.button == sf::Mouse::Middle) {
+            if (event.type == sf::Event::MouseButtonReleased && 
+                (event.mouseButton.button == sf::Mouse::Middle || event.mouseButton.button == sf::Mouse::Left || event.mouseButton.button == sf::Mouse::Right)) {
                 isDragging = false;
-            }
-            if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left
-                && debugConsole.isPicking()) {
-                const sf::Vector2i pixel(event.mouseButton.x, event.mouseButton.y);
-                const sf::Vector2f worldPixel = window.mapPixelToCoords(pixel, view);
-                debugConsole.handleMapClick(graph, visualization, worldPixel);
             }
             if (event.type == sf::Event::MouseMoved && isDragging) {
                 sf::Vector2i mousePixel = sf::Mouse::getPosition(window);

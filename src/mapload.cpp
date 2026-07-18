@@ -10,6 +10,12 @@
 #include "model/Graph.h"
 #include "model/Intersection.h"
 #include "model/Road.h"
+#include "model/Roundabout.h"
+#include "model/Bridge.h"
+#include "model/Tunnel.h"
+#include "model/PointOfInterest.h"
+#include "model/SpawnPoint.h"
+#include "model/Destination.h"
 
 using nlohmann::json;
 
@@ -217,7 +223,17 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 			return false;
 		}
 
-		graph.addIntersection(new Intersection(id, x, y));
+		// Check for intersection type (e.g. "roundabout")
+		std::string intersectionType;
+		getStringOptional(item, "type", intersectionType, localError);
+
+		if (intersectionType == "roundabout") {
+			double radius = 0.02;
+			getDoubleOptional(item, "radius", radius, localError);
+			graph.addIntersection(new Roundabout(id, x, y, radius));
+		} else {
+			graph.addIntersection(new Intersection(id, x, y));
+		}
 	}
 
 	for (const auto& item : root.at("roads")) {
@@ -279,6 +295,7 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 			return false;
 		}
 		const double distanceKm = distance * distanceUnitFactor;
+		const double distanceMeters = distanceKm * 20.0;
 
 		if (graph.getRoad(id) != nullptr) {
 			if (error) {
@@ -296,17 +313,104 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 			return false;
 		}
 
-		Road* road = new Road(id, start, end, distanceKm, speedLimit, congestionLevel, lanes);
+		std::string roadType;
+		std::string roadName;
+		getStringOptional(item, "type", roadType, localError);
+		getStringOptional(item, "name", roadName, localError);
+
+		Road* road = nullptr;
+		if (roadType == "bridge") {
+			double heightLimit = 4.5;
+			double weightLimit = 30.0;
+			getDoubleOptional(item, "heightLimit", heightLimit, localError);
+			getDoubleOptional(item, "weightLimit", weightLimit, localError);
+			road = new Bridge(id, roadName, start, end, distanceMeters, speedLimit,
+			                  congestionLevel, lanes, heightLimit, weightLimit);
+		} else if (roadType == "tunnel") {
+			double heightLimit = 3.5;
+			getDoubleOptional(item, "heightLimit", heightLimit, localError);
+			road = new Tunnel(id, roadName, start, end, distanceMeters, speedLimit,
+			                  congestionLevel, lanes, heightLimit);
+		} else {
+			road = new Road(id, roadName, start, end, distanceMeters, speedLimit, congestionLevel, lanes);
+		}
 		if (blocked) {
 			road->blockRoad();
 		}
 		graph.addRoad(road);
 
 		if (twoWay) {
-			// create reverse road with negative id (or offset)
-			Road* revRoad = new Road(-id, end, start, distanceKm, speedLimit, congestionLevel, lanes);
+			// create reverse road with negative id
+			Road* revRoad = nullptr;
+			if (roadType == "bridge") {
+				double heightLimit = 4.5, weightLimit = 30.0;
+				getDoubleOptional(item, "heightLimit", heightLimit, localError);
+				getDoubleOptional(item, "weightLimit", weightLimit, localError);
+				revRoad = new Bridge(-id, roadName, end, start, distanceMeters, speedLimit,
+				                     congestionLevel, lanes, heightLimit, weightLimit);
+			} else if (roadType == "tunnel") {
+				double heightLimit = 3.5;
+				getDoubleOptional(item, "heightLimit", heightLimit, localError);
+				revRoad = new Tunnel(-id, roadName, end, start, distanceMeters, speedLimit,
+				                     congestionLevel, lanes, heightLimit);
+			} else {
+				revRoad = new Road(-id, roadName, end, start, distanceMeters, speedLimit, congestionLevel, lanes);
+			}
 			if (blocked) revRoad->blockRoad();
 			graph.addRoad(revRoad);
+		}
+	}
+	// --- Parse POIs (optional section) ---
+	if (root.contains("pois") && root.at("pois").is_array()) {
+		for (const auto& item : root.at("pois")) {
+			if (!item.is_object()) continue;
+
+			int poiId = 0;
+			double px = 0.0, py = 0.0;
+			std::string poiName, poiTypeStr;
+			int nearestId = -1;
+			std::string localError;
+
+			if (!getInt(item, "id", poiId, localError)) continue;
+			getDoubleOptional(item, "x", px, localError);
+			getDoubleOptional(item, "y", py, localError);
+			getStringOptional(item, "name", poiName, localError);
+			getStringOptional(item, "type", poiTypeStr, localError);
+			getIntOptional(item, "nearestIntersection", nearestId, localError);
+
+			Intersection* nearest = (nearestId >= 0) ? graph.getIntersection(nearestId) : nullptr;
+			POIType poiType = PointOfInterest::typeFromString(poiTypeStr);
+
+			PointOfInterest* poi = nullptr;
+			switch (poiType) {
+				// Spawn points
+				case POIType::PARKING_LOT:
+					poi = new ParkingLot(poiId, poiName, px, py, nearest);
+					break;
+				case POIType::BUS_STATION:
+					poi = new BusStation(poiId, poiName, px, py, nearest);
+					break;
+				case POIType::HOSPITAL:
+					poi = new HospitalSpawn(poiId, poiName, px, py, nearest);
+					break;
+				// Destinations
+				case POIType::RESTAURANT:
+					poi = new Restaurant(poiId, poiName, px, py, nearest);
+					break;
+				case POIType::CINEMA:
+					poi = new Cinema(poiId, poiName, px, py, nearest);
+					break;
+				case POIType::SUPERMARKET:
+					poi = new Supermarket(poiId, poiName, px, py, nearest);
+					break;
+				case POIType::TOURIST_SPOT:
+					poi = new TouristSpot(poiId, poiName, px, py, nearest);
+					break;
+				default:
+					poi = new PointOfInterest(poiId, poiName, poiType, px, py, nearest);
+					break;
+			}
+			graph.addPOI(poi);
 		}
 	}
 

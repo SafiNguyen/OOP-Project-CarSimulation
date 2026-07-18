@@ -54,6 +54,8 @@ public:
     IntersectionType getIntersectionType() const;
     std::string getIntersectionTypeLabel() const;
 
+    virtual bool isRoundabout() const { return false; }
+
     //methods
     void addIncomingRoad(Road* road);
     void addOutgoingRoad(Road* road);

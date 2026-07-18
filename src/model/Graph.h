@@ -5,11 +5,13 @@
 #include <vector>
 #include "Intersection.h"
 #include "Road.h"
+#include "PointOfInterest.h"
 
 class Graph {
 private:
     std::unordered_map<int, Intersection*> intersections;
     std::unordered_map<int, Road*> roads;
+    std::vector<PointOfInterest*> pois;
 
 public:
     Graph();
@@ -44,6 +46,13 @@ public:
 
     // --- Utility ---
     void clearGraph();
+
+    // --- POI Operations ---
+    void addPOI(PointOfInterest* poi);
+    const std::vector<PointOfInterest*>& getAllPOIs() const;
+    PointOfInterest* getPOI(int id) const;
+    std::vector<PointOfInterest*> getSpawnPoints() const;
+    std::vector<PointOfInterest*> getDestinations() const;
 };
 
 #endif

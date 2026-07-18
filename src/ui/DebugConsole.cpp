@@ -240,12 +240,14 @@ void DebugConsole::drawTopBar(sf::RenderWindow& window,
         if (openFileDialog_ && openFileDialog_(chosenPath)) {
             mapPathInput = chosenPath;
         }
+        simulator.reset();
         loadAndRefresh_(mapPathInput);
         simulator = resetSimulation_();
         onMapChanged();
     }
     ImGui::SameLine();
     if (ImGui::Button("Demo map")) {
+        simulator.reset();
         loadAndRefresh_("");
         simulator = resetSimulation_();
         onMapChanged();
@@ -346,10 +348,10 @@ void DebugConsole::drawAddRoadPanel(Graph& graph, VisualizationEngine& visualiza
                 ? graph.calculateDistance(start->getId(), end->getId())
                 : static_cast<double>(addRoadDistance_);
             const int newId = nextFreeRoadId(graph);
-            Road* road = new Road(newId, start, end, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
+            Road* road = new Road(newId, "New Road", start, end, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
             graph.addRoad(road);
             if (addRoadTwoWay_) {
-                Road* revRoad = new Road(-newId, end, start, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
+                Road* revRoad = new Road(-newId, "New Road", end, start, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
                 graph.addRoad(revRoad);
             }
             visualization.prepare(graph);

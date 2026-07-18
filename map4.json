@@ -1,0 +1,502 @@
+{
+    "intersections": [
+        {
+            "id": 0,
+            "x": 50.0,
+            "y": 50.0
+        },
+        {
+            "id": 1,
+            "x": 150.0,
+            "y": 50.0
+        },
+        {
+            "id": 2,
+            "x": 250.0,
+            "y": 50.0,
+            "type": "roundabout",
+            "radius": 0.05
+        },
+        {
+            "id": 3,
+            "x": 350.0,
+            "y": 50.0
+        },
+        {
+            "id": 4,
+            "x": 450.0,
+            "y": 50.0
+        },
+        {
+            "id": 5,
+            "x": 50.0,
+            "y": 150.0
+        },
+        {
+            "id": 6,
+            "x": 150.0,
+            "y": 150.0
+        },
+        {
+            "id": 7,
+            "x": 250.0,
+            "y": 150.0
+        },
+        {
+            "id": 8,
+            "x": 350.0,
+            "y": 150.0
+        },
+        {
+            "id": 9,
+            "x": 450.0,
+            "y": 150.0,
+            "type": "roundabout",
+            "radius": 0.04
+        },
+        {
+            "id": 10,
+            "x": 50.0,
+            "y": 250.0
+        },
+        {
+            "id": 11,
+            "x": 150.0,
+            "y": 250.0
+        },
+        {
+            "id": 12,
+            "x": 250.0,
+            "y": 250.0
+        },
+        {
+            "id": 13,
+            "x": 350.0,
+            "y": 250.0
+        },
+        {
+            "id": 14,
+            "x": 450.0,
+            "y": 250.0
+        },
+        {
+            "id": 15,
+            "x": 50.0,
+            "y": 350.0
+        },
+        {
+            "id": 16,
+            "x": 150.0,
+            "y": 350.0,
+            "type": "roundabout",
+            "radius": 0.04
+        },
+        {
+            "id": 17,
+            "x": 250.0,
+            "y": 350.0
+        },
+        {
+            "id": 18,
+            "x": 350.0,
+            "y": 350.0
+        },
+        {
+            "id": 19,
+            "x": 450.0,
+            "y": 350.0
+        }
+    ],
+    "roads": [
+        {
+            "id": 100,
+            "name": "North St",
+            "start": 0,
+            "end": 1,
+            "distance": 10.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 101,
+            "name": "North St",
+            "start": 1,
+            "end": 2,
+            "distance": 10.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 102,
+            "name": "North St",
+            "start": 2,
+            "end": 3,
+            "distance": 10.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 103,
+            "name": "North St",
+            "start": 3,
+            "end": 4,
+            "distance": 10.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 104,
+            "name": "Mid Ave",
+            "start": 5,
+            "end": 6,
+            "distance": 10.0,
+            "speedLimit": 50.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 105,
+            "name": "River Bridge",
+            "start": 6,
+            "end": 7,
+            "distance": 10.0,
+            "speedLimit": 60.0,
+            "lanes": 3,
+            "twoWay": true,
+            "type": "bridge",
+            "weightLimit": 40.0
+        },
+        {
+            "id": 106,
+            "name": "Mid Ave",
+            "start": 7,
+            "end": 8,
+            "distance": 10.0,
+            "speedLimit": 50.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 107,
+            "name": "Mid Ave",
+            "start": 8,
+            "end": 9,
+            "distance": 10.0,
+            "speedLimit": 50.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 108,
+            "name": "Market Rd",
+            "start": 10,
+            "end": 11,
+            "distance": 10.0,
+            "speedLimit": 30.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 109,
+            "name": "Market Rd",
+            "start": 11,
+            "end": 12,
+            "distance": 10.0,
+            "speedLimit": 30.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 110,
+            "name": "Underpass",
+            "start": 12,
+            "end": 13,
+            "distance": 10.0,
+            "speedLimit": 60.0,
+            "lanes": 2,
+            "twoWay": true,
+            "type": "tunnel",
+            "heightLimit": 3.0
+        },
+        {
+            "id": 111,
+            "name": "Market Rd",
+            "start": 13,
+            "end": 14,
+            "distance": 10.0,
+            "speedLimit": 30.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 112,
+            "name": "South Blvd",
+            "start": 15,
+            "end": 16,
+            "distance": 10.0,
+            "speedLimit": 60.0,
+            "lanes": 3,
+            "twoWay": true
+        },
+        {
+            "id": 113,
+            "name": "South Blvd",
+            "start": 16,
+            "end": 17,
+            "distance": 10.0,
+            "speedLimit": 60.0,
+            "lanes": 3,
+            "twoWay": true
+        },
+        {
+            "id": 114,
+            "name": "South Blvd",
+            "start": 17,
+            "end": 18,
+            "distance": 10.0,
+            "speedLimit": 60.0,
+            "lanes": 3,
+            "twoWay": true
+        },
+        {
+            "id": 115,
+            "name": "South Blvd",
+            "start": 18,
+            "end": 19,
+            "distance": 10.0,
+            "speedLimit": 60.0,
+            "lanes": 3,
+            "twoWay": true
+        },
+        {
+            "id": 200,
+            "name": "West 1st St",
+            "start": 0,
+            "end": 5,
+            "distance": 10.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 201,
+            "name": "West 1st St",
+            "start": 5,
+            "end": 10,
+            "distance": 10.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 202,
+            "name": "West 1st St",
+            "start": 10,
+            "end": 15,
+            "distance": 10.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 203,
+            "name": "West 2nd St",
+            "start": 1,
+            "end": 6,
+            "distance": 10.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 204,
+            "name": "West 2nd St",
+            "start": 6,
+            "end": 11,
+            "distance": 10.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 205,
+            "name": "West 2nd St",
+            "start": 11,
+            "end": 16,
+            "distance": 10.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 206,
+            "name": "Center Way",
+            "start": 2,
+            "end": 7,
+            "distance": 10.0,
+            "speedLimit": 50.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 207,
+            "name": "Center Way",
+            "start": 7,
+            "end": 12,
+            "distance": 10.0,
+            "speedLimit": 50.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 208,
+            "name": "Center Way",
+            "start": 12,
+            "end": 17,
+            "distance": 10.0,
+            "speedLimit": 50.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 209,
+            "name": "East 1st St",
+            "start": 3,
+            "end": 8,
+            "distance": 10.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 210,
+            "name": "East 1st St",
+            "start": 8,
+            "end": 13,
+            "distance": 10.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 211,
+            "name": "East 1st St",
+            "start": 13,
+            "end": 18,
+            "distance": 10.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 212,
+            "name": "East 2nd St",
+            "start": 4,
+            "end": 9,
+            "distance": 10.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 213,
+            "name": "East 2nd St",
+            "start": 9,
+            "end": 14,
+            "distance": 10.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 214,
+            "name": "East 2nd St",
+            "start": 14,
+            "end": 19,
+            "distance": 10.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        }
+    ],
+    "pois": [
+        {
+            "id": 300,
+            "name": "City Hospital",
+            "x": 75.0,
+            "y": 75.0,
+            "type": "hospital"
+        },
+        {
+            "id": 301,
+            "name": "Central Mall",
+            "x": 225.0,
+            "y": 225.0,
+            "type": "supermarket"
+        },
+        {
+            "id": 302,
+            "name": "Movie Theater",
+            "x": 425.0,
+            "y": 125.0,
+            "type": "cinema"
+        },
+        {
+            "id": 303,
+            "name": "Main Bus Station",
+            "x": 125.0,
+            "y": 325.0,
+            "type": "bus_station"
+        },
+        {
+            "id": 304,
+            "name": "Downtown Parking",
+            "x": 275.0,
+            "y": 175.0,
+            "type": "parking_lot"
+        },
+        {
+            "id": 305,
+            "name": "River Park",
+            "x": 325.0,
+            "y": 75.0,
+            "type": "tourist_spot"
+        }
+    ],
+    "trafficLights": [
+        {
+            "intersectionId": 1
+        },
+        {
+            "intersectionId": 3
+        },
+        {
+            "intersectionId": 5
+        },
+        {
+            "intersectionId": 7
+        },
+        {
+            "intersectionId": 8
+        },
+        {
+            "intersectionId": 11
+        },
+        {
+            "intersectionId": 13
+        },
+        {
+            "intersectionId": 15
+        },
+        {
+            "intersectionId": 17
+        },
+        {
+            "intersectionId": 19
+        }
+    ]
+}

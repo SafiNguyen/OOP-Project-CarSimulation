@@ -6,6 +6,7 @@
 #include "model/Graph.h"
 #include "model/Intersection.h"
 #include "model/Road.h"
+#include "model/PointOfInterest.h"
 
 VisualizationEngine::VisualizationEngine(sf::Vector2u windowSize, float margin)
     : windowSize_(windowSize),
@@ -18,6 +19,7 @@ VisualizationEngine::VisualizationEngine(sf::Vector2u windowSize, float margin)
       spriteTexture_(nullptr),
       spriteRect_(),
       spriteSize_(24.0f, 24.0f),
+      font_(nullptr),
       heatMapEnabled_(true) {
 }
 
@@ -135,14 +137,38 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
         const sf::Vector2f offsetA = a + norm * offsetAmount;
         const sf::Vector2f offsetB = b + norm * offsetAmount;
 
-        drawRoadStrip(target, offsetA, offsetB, sf::Color(10, 10, 10, 220), totalWidth + 3.0f);
+        sf::Color roadColor;
+        if (road->isBridge()) {
+            roadColor = sf::Color(100, 149, 237); // CornflowerBlue
+            // Draw bridge barriers
+            drawRoadStrip(target, offsetA, offsetB, sf::Color(50, 50, 50), totalWidth + 4.0f);
+        } else if (road->isTunnel()) {
+            roadColor = sf::Color(40, 40, 40); // Dark gray
+        } else {
+            drawRoadStrip(target, offsetA, offsetB, sf::Color(10, 10, 10, 220), totalWidth + 3.0f);
+            roadColor = heatMapEnabled_
+                ? colorForRoad(road)
+                : (road->isBlocked() ? sf::Color(180, 40, 40) : sf::Color(110, 110, 110));
+        }
 
-        const sf::Color roadColor = heatMapEnabled_
-            ? colorForRoad(road)
-            : (road->isBlocked() ? sf::Color(180, 40, 40) : sf::Color(110, 110, 110));
         drawRoadStrip(target, offsetA, offsetB, roadColor, totalWidth - 1.0f);
 
-        if (laneCount > 1) {
+        if (road->isTunnel()) {
+            // draw dashed borders for tunnel
+            const float dashLen = 8.0f;
+            const float gapLen = 8.0f;
+            const int dashCount = static_cast<int>(length / (dashLen + gapLen));
+            const sf::Vector2f dirNorm = dir / length;
+            const float halfW = totalWidth * 0.5f;
+            for (int j = 0; j < dashCount; ++j) {
+                const sf::Vector2f dashStart = offsetA + dirNorm * (j * (dashLen + gapLen));
+                const sf::Vector2f dashEnd = dashStart + dirNorm * dashLen;
+                drawRoadStrip(target, dashStart + norm * halfW, dashEnd + norm * halfW, sf::Color::Yellow, 1.0f);
+                drawRoadStrip(target, dashStart - norm * halfW, dashEnd - norm * halfW, sf::Color::Yellow, 1.0f);
+            }
+        }
+
+        if (laneCount > 1 && !road->isTunnel()) {
             for (int i = 1; i < laneCount; ++i) {
                 const float sepOffset = -totalWidth * 0.5f + i * laneWidth;
                 const sf::Vector2f sepA = offsetA + norm * sepOffset;
@@ -184,7 +210,17 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
         drawIntersectionNode(target, intersection);
     }
 
+    drawPOIs(target, graph);
+    drawRoadNames(target, roads);
     drawTrafficLights(target, graph);
+}
+
+void VisualizationEngine::setFont(const sf::Font& font) {
+    font_ = &font;
+}
+
+void VisualizationEngine::clearFont() {
+    font_ = nullptr;
 }
 
 void VisualizationEngine::setSpriteTexture(const sf::Texture& texture,
@@ -216,6 +252,76 @@ sf::Color VisualizationEngine::mixColor(const sf::Color& a, const sf::Color& b, 
     };
 
     return sf::Color(mix(a.r, b.r), mix(a.g, b.g), mix(a.b, b.b), mix(a.a, b.a));
+}
+
+void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph) const {
+    const auto& pois = graph.getAllPOIs();
+    for (const auto* poi : pois) {
+        if (!poi) continue;
+        sf::Vector2f pos = worldToScreen(poi->getX(), poi->getY());
+
+        sf::Color poiColor(255, 150, 0); // Default orange
+        if (poi->getType() == POIType::PARKING_LOT) poiColor = sf::Color(100, 100, 255);
+        else if (poi->getType() == POIType::BUS_STATION) poiColor = sf::Color(50, 200, 50);
+        else if (poi->getType() == POIType::HOSPITAL) poiColor = sf::Color(255, 50, 50);
+        else if (poi->getType() == POIType::SUPERMARKET) poiColor = sf::Color(200, 200, 50);
+
+        sf::CircleShape circle(5.0f);
+        circle.setOrigin(5.0f, 5.0f);
+        circle.setPosition(pos);
+        circle.setFillColor(poiColor);
+        circle.setOutlineThickness(1.0f);
+        circle.setOutlineColor(sf::Color::White);
+        target.draw(circle);
+
+        if (font_) {
+            sf::Text text;
+            text.setFont(*font_);
+            text.setString(poi->getName());
+            text.setCharacterSize(10);
+            text.setFillColor(sf::Color::White);
+            text.setOutlineColor(sf::Color::Black);
+            text.setOutlineThickness(1.0f);
+            text.setPosition(pos.x + 8.0f, pos.y - 6.0f);
+            target.draw(text);
+        }
+    }
+}
+
+void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vector<Road*>& roads) const {
+    if (!font_) return;
+
+    for (const auto* road : roads) {
+        if (!road || road->getName().empty()) continue;
+        const Intersection* start = road->getStart();
+        const Intersection* end = road->getEnd();
+        if (!start || !end) continue;
+
+        sf::Vector2f a = worldToScreen(start->getX(), start->getY());
+        sf::Vector2f b = worldToScreen(end->getX(), end->getY());
+        sf::Vector2f mid = (a + b) * 0.5f;
+
+        float angle = std::atan2(b.y - a.y, b.x - a.x) * 180.0f / 3.14159265f;
+        // Keep text upright
+        if (angle > 90.0f || angle < -90.0f) {
+            angle += 180.0f;
+        }
+
+        sf::Text text;
+        text.setFont(*font_);
+        text.setString(road->getName());
+        text.setCharacterSize(12);
+        text.setFillColor(sf::Color::White);
+        text.setOutlineColor(sf::Color::Black);
+        text.setOutlineThickness(1.0f);
+
+        sf::FloatRect bounds = text.getLocalBounds();
+        text.setOrigin(bounds.left + bounds.width * 0.5f, bounds.top + bounds.height * 0.5f);
+        text.setPosition(mid);
+        text.setRotation(angle);
+
+        target.draw(text);
+    }
 }
 
 float VisualizationEngine::distanceBetween(const sf::Vector2f& a, const sf::Vector2f& b) {
@@ -273,19 +379,29 @@ void VisualizationEngine::drawIntersectionNode(sf::RenderTarget& target, const I
     }
 
     const sf::Vector2f point = worldToScreen(intersection->getX(), intersection->getY());
-    sf::CircleShape hub(16.0f);
-    hub.setOrigin(16.0f, 16.0f);
-    hub.setPosition(point);
-    hub.setFillColor(sf::Color(85, 85, 85));
-    hub.setOutlineThickness(2.0f);
-    hub.setOutlineColor(sf::Color(210, 210, 210, 180));
-    target.draw(hub);
+    if (intersection->isRoundabout()) {
+        sf::CircleShape hub(20.0f);
+        hub.setOrigin(20.0f, 20.0f);
+        hub.setPosition(point);
+        hub.setFillColor(sf::Color(100, 150, 100)); // green center island
+        hub.setOutlineThickness(8.0f);
+        hub.setOutlineColor(sf::Color(110, 110, 110)); // road strip around
+        target.draw(hub);
+    } else {
+        sf::CircleShape hub(16.0f);
+        hub.setOrigin(16.0f, 16.0f);
+        hub.setPosition(point);
+        hub.setFillColor(sf::Color(85, 85, 85));
+        hub.setOutlineThickness(2.0f);
+        hub.setOutlineColor(sf::Color(210, 210, 210, 180));
+        target.draw(hub);
 
-    sf::CircleShape core(6.0f);
-    core.setOrigin(6.0f, 6.0f);
-    core.setPosition(point);
-    core.setFillColor(sf::Color(230, 230, 230));
-    target.draw(core);
+        sf::CircleShape core(6.0f);
+        core.setOrigin(6.0f, 6.0f);
+        core.setPosition(point);
+        core.setFillColor(sf::Color(230, 230, 230));
+        target.draw(core);
+    }
 
     if (spriteTexture_ != nullptr) {
         sf::Sprite sprite(*spriteTexture_, spriteRect_);
