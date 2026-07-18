@@ -26,9 +26,6 @@ public:
 
     bool addVehicle(Vehicle* vehicle);
 
-   
-    void removeFinishedVehicles();
-
     void triggerEvent(std::unique_ptr<TrafficEvent> event);
 
     void update(double dt);
@@ -63,7 +60,15 @@ public:
     const std::set<int>& getFailedRecalcIds() const;
 
 private:
+    static constexpr double MAX_RAW_DT = 0.1;
+    static constexpr double MAX_SUBSTEP = 0.05;
+    static constexpr int MAX_SUBSTEPS_PER_CALL = 200;
+    static constexpr double MAX_LEFTOVER_DT = 5.0;
+
+
     void recalculateAllVehicleRoutes();
+    void removeFinishedVehicles();
+
 
     Graph* graph;                                   
     PathFindingStrategy* pathFindingStrategy;  
@@ -76,6 +81,8 @@ private:
     double speedMultiplier;
     double elapsedTime;
     long long tickCount;
+    double leftoverDt = 0.0;
+
 
     std::set<int> failedRecalcIds;
 };

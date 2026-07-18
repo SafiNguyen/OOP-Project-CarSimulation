@@ -14,7 +14,7 @@ public:
 
 protected:
     int id;
-    double baseSpeed;
+    double baseSpeed; // m/s
     Intersection* spawnPoint;
     Intersection* destination;
     Road* currentRoad;

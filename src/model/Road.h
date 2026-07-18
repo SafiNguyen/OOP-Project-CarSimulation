@@ -12,8 +12,8 @@ private:
     int id;
     Intersection* start;
     Intersection* end;
-    double distance;
-    double speedLimit;
+    double distance;  //met (m)
+    double speedLimit;  // m/s
     double congestionLevel;
     bool blocked; // accident status
 

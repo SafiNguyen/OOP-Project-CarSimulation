@@ -27,6 +27,8 @@ public:
     
     // Observer Pattern: Notify affected vehicles
     void notifyAffectedVehicles(int roadId);
+    void setRoutingStrategy(PathFindingStrategy* strategy);
+
 };
 
 #endif

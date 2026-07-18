@@ -90,32 +90,47 @@ void TrafficSimulator::triggerEvent(std::unique_ptr<TrafficEvent> event) {
 void TrafficSimulator::update(double dt) {
     if (paused) return;
 
-    double effectiveDt = dt * speedMultiplier;
-    elapsedTime += effectiveDt;
+    double safeDt = std::clamp(dt, 0.0, MAX_RAW_DT);     
+    double remaining = leftoverDt + safeDt * speedMultiplier;
+    leftoverDt = 0.0;
+    int stepsRun = 0;
+    while (remaining > 0.0 && stepsRun < MAX_SUBSTEPS_PER_CALL) {
+        double step = std::min(remaining, MAX_SUBSTEP);
 
-    if(statisticsManager) {
-        statisticsManager->recordTick(effectiveDt);
-    }
-    
-    if (graph) {
-        for (Intersection* intersection : graph->getAllIntersections()) {
-            intersection->updateTrafficLights(effectiveDt);
-        }
-    }
-
-    if (eventManager) {
-        eventManager->update(effectiveDt);
-    }
-
-    for (Vehicle* v : vehicles) {
-        v->update(effectiveDt);
+        elapsedTime += step;
 
         if (statisticsManager) {
-            statisticsManager->recordVehicleTravel(v->getId(), effectiveDt);
+            statisticsManager->recordTick(step);
         }
-    }
 
-    removeFinishedVehicles();
+        if (graph) {
+            for (Intersection* intersection : graph->getAllIntersections()) {
+                intersection->updateTrafficLights(step);
+            }
+        }
+
+        if (eventManager) {
+            eventManager->update(step);
+        }
+
+        for (Vehicle* v : vehicles) {
+            v->update(step);
+
+            if (statisticsManager) {
+                statisticsManager->recordVehicleTravel(v->getId(), step);
+            }
+        }
+
+        // Don xe da den dich ngay sau moi sub-step, khong doi den cuoi
+        // update(): voi speedMultiplier cao, nhieu xe co the hoan thanh
+        // route ngay giua chung cac sub-step.
+        removeFinishedVehicles();
+
+        remaining -= step;
+        ++stepsRun;
+    }
+    leftoverDt = std::min(remaining, MAX_LEFTOVER_DT); // Save any leftover time for the next update call
+
     tickCount++;
     if (statisticsManager && tickCount % 10 == 0) {
         statisticsManager->printPeriodicReport(tickCount, 10);
@@ -126,6 +141,9 @@ void TrafficSimulator::setPathFindingStrategy(PathFindingStrategy* strategy) {
     if (strategy == nullptr) return;
     pathFindingStrategy = strategy;
     std::cout << "[Simulator] Switched pathfinding algorithm to: " << strategy->name() << "\n";
+    if (eventManager) {
+        eventManager->setRoutingStrategy(strategy);  
+    }
     recalculateAllVehicleRoutes();
 }
 

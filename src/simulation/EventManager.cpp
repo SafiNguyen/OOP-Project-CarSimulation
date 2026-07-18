@@ -61,3 +61,9 @@ void EventManager::update(double dt) {
         }
     }
 }
+
+void EventManager::setRoutingStrategy(PathFindingStrategy* strategy) {
+    if (strategy != nullptr) {
+        routingStrategy = strategy;
+    }
+}
