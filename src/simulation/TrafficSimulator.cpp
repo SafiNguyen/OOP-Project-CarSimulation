@@ -72,6 +72,7 @@ void TrafficSimulator::removeFinishedVehicles() {
             if (this->statisticsManager) {
                 this->statisticsManager->markVehicleCompleted(v->getId());
             }
+            failedRecalcIds.erase(v->getId());
             finishedVehicles.push_back(v); // Keep vehicle instead of deleting
             return true;
         }
@@ -118,6 +119,44 @@ void TrafficSimulator::update(double dt) {
     tickCount++;
     if (statisticsManager && tickCount % 10 == 0) {
         statisticsManager->printPeriodicReport(tickCount, 10);
+    }
+}
+
+void TrafficSimulator::setPathFindingStrategy(PathFindingStrategy* strategy) {
+    if (strategy == nullptr) return;
+    pathFindingStrategy = strategy;
+    std::cout << "[Simulator] Switched pathfinding algorithm to: " << strategy->name() << "\n";
+    recalculateAllVehicleRoutes();
+}
+
+PathFindingStrategy* TrafficSimulator::getPathFindingStrategy() const {
+    return pathFindingStrategy;
+}
+
+const std::set<int>& TrafficSimulator::getFailedRecalcIds() const {
+    return failedRecalcIds;
+}
+
+void TrafficSimulator::recalculateAllVehicleRoutes() {
+    if (!graph || !pathFindingStrategy) return;
+
+    for (Vehicle* v : vehicles) {
+        if (v->getCurrentRoad() == nullptr) {
+            continue; // vehicle not actively on a road, nothing to recompute
+        }
+
+        bool success = v->recalculateRoute(*graph, pathFindingStrategy);
+        if (success) {
+            failedRecalcIds.erase(v->getId());
+            if (statisticsManager) {
+                statisticsManager->recordRecalculation(v->getId());
+            }
+        } else {
+            std::cout << "[Simulator] WARNING: Vehicle " << v->getId()
+                      << " could not recalculate route with the new algorithm. "
+                      << "Keeping its previous route.\n";
+            failedRecalcIds.insert(v->getId());
+        }
     }
 }
 

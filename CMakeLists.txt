@@ -79,6 +79,7 @@ file(GLOB CORE_SOURCE_FILES CONFIGURE_DEPENDS
     "src/simulation/*.cpp"
     "src/visualization/*.cpp"
     "src/mapload.cpp"
+    "src/ui/*.cpp"
 )
 
 add_library(urban_core STATIC ${CORE_SOURCE_FILES})
@@ -86,6 +87,8 @@ add_library(urban_core STATIC ${CORE_SOURCE_FILES})
 target_include_directories(urban_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${sfml_SOURCE_DIR}/include
+    ${imgui_SOURCE_DIR}
+    ${imgui-sfml_SOURCE_DIR}
 )
 
 target_link_libraries(urban_core PUBLIC

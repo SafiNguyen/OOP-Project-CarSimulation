@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <memory>
+#include <set>
 
 class Graph;
 class Vehicle;
@@ -48,7 +49,22 @@ public:
 
     double getElapsedTime() const;
 
+    // --- Task 4: runtime pathfinding algorithm switching (UI dropdown) ---
+    // Swaps the strategy used for all FUTURE routing decisions (new vehicles,
+    // event-triggered recalculations, etc) and immediately recalculates the
+    // route of every vehicle currently on the road so the change is visible
+    // right away. Vehicles for which no new route could be found keep their
+    // old route (so they don't vanish/teleport) but their id is recorded in
+    // failedRecalcIds so the UI can draw a warning marker above them.
+    void setPathFindingStrategy(PathFindingStrategy* strategy);
+    PathFindingStrategy* getPathFindingStrategy() const;
+
+    // Ids of vehicles whose most recent recalculation attempt failed.
+    const std::set<int>& getFailedRecalcIds() const;
+
 private:
+    void recalculateAllVehicleRoutes();
+
     Graph* graph;                                   
     PathFindingStrategy* pathFindingStrategy;  
     std::vector<Vehicle*> vehicles;
@@ -60,6 +76,8 @@ private:
     double speedMultiplier;
     double elapsedTime;
     long long tickCount;
+
+    std::set<int> failedRecalcIds;
 };
 
 #endif
