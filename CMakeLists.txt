@@ -78,7 +78,8 @@ file(GLOB CORE_SOURCE_FILES CONFIGURE_DEPENDS
     "src/algorithm/*.cpp"
     "src/simulation/*.cpp"
     "src/visualization/*.cpp"
-    "src/mapload.cpp"
+    "src/Mapload.cpp"
+    "src/*.cpp"
     "src/ui/*.cpp"
 )
 

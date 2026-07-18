@@ -38,8 +38,21 @@ class PathFindingStrategy;
  * position/size are a fraction of the window size, applied only once
  * via ImGuiCond_FirstUseEver, so it starts in a sensible place on any
  * resolution but never fights the user's own dragging/resizing
- * afterward. A scrollable child region holds the body so content is
- * always reachable even if the window is made short.
+ * afterward. Collapsing uses ImGui's own titlebar arrow (click the arrow
+ * or double-click the titlebar) - the same mechanism StatsPanel uses -
+ * rather than a separate custom button, so there's exactly one
+ * collapse/expand control instead of two competing ones. A scrollable
+ * child region holds the body so content is always reachable even if
+ * the window is made short.
+ *
+ * Implementation is split across several .cpp files, one per panel
+ * (DebugConsole.cpp holds the shared/core logic; DebugConsoleTopBar.cpp,
+ * DebugConsoleAddRoad.cpp, DebugConsoleSpawnVehicle.cpp,
+ * DebugConsoleAccident.cpp and DebugConsoleAlgorithm.cpp each define one
+ * of the private draw*Panel methods below). They're all still ordinary
+ * member functions of this one class - splitting definitions across
+ * multiple translation units is standard C++ and requires no change to
+ * how the class is used.
  */
 class DebugConsole {
 public:
@@ -123,8 +136,6 @@ private:
     ResetSimulationFn resetSimulation_;
     ClampViewFn clampViewToMap_;
     FileDialogFn openFileDialog_;
-
-    bool collapsed_ = false;
 
     PickTarget pickTarget_ = PickTarget::NONE;
 
