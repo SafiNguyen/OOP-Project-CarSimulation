@@ -89,6 +89,8 @@ public:
     // Buses are long vehicles and keep a slightly larger safety gap so
     // passengers aren't jolted by sudden stops behind other traffic.
     double getLength() const override { return 12.0; }
+    double getHeight() const override { return 3.5; }  // metres — tall vehicle
+    double getWeight() const override { return 12.0; } // tonnes — heavy vehicle
     double getMinGap() const override { return 3.0; }
 
     bool   isDwelling()    const { return isPaused(); }

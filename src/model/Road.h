@@ -10,6 +10,7 @@ class Vehicle;
 class Road {
 private:
     int id;
+    std::string name;
     Intersection* start;
     Intersection* end;
     double distance;  //met (m)
@@ -22,7 +23,7 @@ private:
     std::vector<double> busStopPositions;   
 
 public:
-    Road(int id, Intersection* start, Intersection* end, 
+    Road(int id, const std::string& name, Intersection* start, Intersection* end, 
          double distance, 
          double speedLimit, 
          double congestionLevel = 1.0,
@@ -33,6 +34,8 @@ public:
     
     //getters
     int getId() const;
+    const std::string& getName() const;
+    void setName(const std::string& newName);
     Intersection* getStart() const;
     Intersection* getEnd() const;
     double getDistance() const;
@@ -40,6 +43,8 @@ public:
     double getCongestionLevel() const;
     double getDynamicCongestionLevel() const;
     bool isBlocked() const;
+    virtual bool isBridge() const { return false; }
+    virtual bool isTunnel() const { return false; }
 
     int getLaneCount () const;
     const std::vector<Lane>& getLanes() const;

@@ -35,6 +35,8 @@ public:
     // Motorbikes are small and can tuck in much closer to the vehicle ahead
     // than a car or bus.
     double getLength() const override { return 2.0; }
+    double getHeight() const override { return 1.1; }  // metres — low profile
+    double getWeight() const override { return 0.2; }  // tonnes — very light
     double getMinGap() const override { return 1.0; }
 };
 

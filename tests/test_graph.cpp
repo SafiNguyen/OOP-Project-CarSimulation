@@ -31,7 +31,7 @@ void test_Road_TravelCost_And_Congestion() {
     Intersection i1(1, 0.0, 0.0);
     Intersection i2(2, 100.0, 0.0);
     // Quãng đường 100m, tốc độ tối đa 50m/s, kẹt xe mức 2.0
-    Road road(101, &i1, &i2, 100.0, 50.0, 2.0); 
+    Road road(101, "Test", &i1, &i2, 100.0, 50.0, 2.0); 
 
     // Tốc độ thực tế = 50 / 2.0 = 25m/s. Thời gian = 100 / 25 = 4.0s
     bool passNormal = nearlyEqual(road.getTravelTime(), 4.0);
@@ -58,7 +58,7 @@ void test_Road_BusStopLogic() {
     
     Intersection i1(1, 0.0, 0.0);
     Intersection i2(2, 100.0, 0.0);
-    Road road(101, &i1, &i2, 100.0, 50.0);
+    Road road(101, "Test", &i1, &i2, 100.0, 50.0);
 
     // Cố tình add lộn xộn và add trùng lặp để test độ "lì" của logic
     road.addBusStop(50.0);
@@ -97,7 +97,7 @@ void test_Graph_AddAndRetrieve() {
     
     bool passNodes = (g.getIntersection(1) != nullptr) && (g.getIntersection(2) != nullptr);
 
-    g.addRoad(new Road(101, g.getIntersection(1), g.getIntersection(2), 14.14, 50.0));
+    g.addRoad(new Road(101, "Test Road", g.getIntersection(1), g.getIntersection(2), 14.14, 50.0));
     
     bool passRoads = (g.getRoad(101) != nullptr);
     bool passTopology = g.getIntersection(1)->getOutgoingRoads().size() == 1 &&
@@ -119,8 +119,8 @@ void test_Graph_CascadingRemoval() {
     g.addIntersection(new Intersection(2, 10.0, 0.0));
     g.addIntersection(new Intersection(3, 20.0, 0.0));
 
-    g.addRoad(new Road(101, g.getIntersection(1), g.getIntersection(2), 10.0, 50.0));
-    g.addRoad(new Road(102, g.getIntersection(2), g.getIntersection(3), 10.0, 50.0));
+    g.addRoad(new Road(101, "Test Road", g.getIntersection(1), g.getIntersection(2), 10.0, 50.0));
+    g.addRoad(new Road(102, "Test Road", g.getIntersection(2), g.getIntersection(3), 10.0, 50.0));
 
     // Xóa nút 2 ở giữa -> Đường 101 và 102 phải bay màu theo
     g.removeIntersection(2);

@@ -25,6 +25,9 @@ public:
                           const sf::Vector2f& size = {24.0f, 24.0f});
     void clearSpriteTexture();
 
+    void setFont(const sf::Font& font);
+    void clearFont();
+
     void setHeatMapEnabled(bool enabled);
     bool isHeatMapEnabled() const;
 
@@ -43,6 +46,9 @@ private:
     sf::Color lightColor(LightState state) const;
     sf::Vector2f roadNormal(const sf::Vector2f& a, const sf::Vector2f& b) const;
 
+    void drawPOIs(sf::RenderTarget& target, const Graph& graph) const;
+    void drawRoadNames(sf::RenderTarget& target, const std::vector<Road*>& roads) const;
+
     sf::Vector2u windowSize_;
     float margin_;
     double minX_;
@@ -54,6 +60,7 @@ private:
     const sf::Texture* spriteTexture_;
     sf::IntRect spriteRect_;
     sf::Vector2f spriteSize_;
+    const sf::Font* font_;
     bool heatMapEnabled_;
 };
 

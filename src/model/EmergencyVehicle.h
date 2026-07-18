@@ -26,6 +26,9 @@ public:
     }
 
     // Sturdier brakes let emergency vehicles safely run a tighter gap.
+    double getLength() const override { return 6.0; }  // metres — ambulance/fire truck
+    double getHeight() const override { return 2.5; }  // metres — tall with equipment
+    double getWeight() const override { return 3.5; }  // tonnes
     double getMinGap() const override { return 1.5; }
 };
 

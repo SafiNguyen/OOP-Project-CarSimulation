@@ -11,9 +11,11 @@ Graph::~Graph() {
 
 Graph::Graph(Graph&& other) noexcept
     : intersections(std::move(other.intersections)),
-      roads(std::move(other.roads)) {
+      roads(std::move(other.roads)),
+      pois(std::move(other.pois)) {
     other.intersections.clear();
     other.roads.clear();
+    other.pois.clear();
 }
 
 Graph& Graph::operator=(Graph&& other) noexcept {
@@ -22,9 +24,11 @@ Graph& Graph::operator=(Graph&& other) noexcept {
         
         intersections = std::move(other.intersections);
         roads = std::move(other.roads);
+        pois = std::move(other.pois);
         
         other.intersections.clear();
         other.roads.clear();
+        other.pois.clear();
     }
     return *this;
 }
@@ -40,6 +44,12 @@ void Graph::clearGraph() {
     for (int id : roadIds) {
         removeRoad(id);
     }
+
+    // Delete all POIs
+    for (auto* poi : pois) {
+        delete poi;
+    }
+    pois.clear();
 
     // Now delete all intersections
     for (auto &p : intersections) {
@@ -229,4 +239,38 @@ double Graph::calculateDistance(int startId, int destId) const {
     double dx = dest->getX() - start->getX();
     double dy = dest->getY() - start->getY();
     return std::sqrt(dx * dx + dy * dy);
+}
+
+// --- POI Operations ---
+void Graph::addPOI(PointOfInterest* poi) {
+    if (poi) {
+        pois.push_back(poi);
+    }
+}
+
+const std::vector<PointOfInterest*>& Graph::getAllPOIs() const {
+    return pois;
+}
+
+PointOfInterest* Graph::getPOI(int id) const {
+    for (auto* poi : pois) {
+        if (poi->getId() == id) return poi;
+    }
+    return nullptr;
+}
+
+std::vector<PointOfInterest*> Graph::getSpawnPoints() const {
+    std::vector<PointOfInterest*> result;
+    for (auto* poi : pois) {
+        if (poi->isSpawnPoint()) result.push_back(poi);
+    }
+    return result;
+}
+
+std::vector<PointOfInterest*> Graph::getDestinations() const {
+    std::vector<PointOfInterest*> result;
+    for (auto* poi : pois) {
+        if (poi->isDestination()) result.push_back(poi);
+    }
+    return result;
 }

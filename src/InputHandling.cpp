@@ -20,14 +20,19 @@ void handleEvent(const sf::Event& event, AppContext& ctx, DebugConsole& debugCon
     // 1. Process camera dragging BEFORE ImGui checks, so dragging is never interrupted or stuck,
     // and use exact event-based coordinates to eliminate mouse lag/jitter.
     if (event.type == sf::Event::MouseButtonPressed && 
-        (event.mouseButton.button == sf::Mouse::Middle || event.mouseButton.button == sf::Mouse::Right)) {
+        (event.mouseButton.button == sf::Mouse::Middle || event.mouseButton.button == sf::Mouse::Right || event.mouseButton.button == sf::Mouse::Left)) {
         if (!ImGui::GetIO().WantCaptureMouse) {
-            ctx.isDragging = true;
-            ctx.lastMousePixel = sf::Vector2i(event.mouseButton.x, event.mouseButton.y);
+            // Only allow left click drag if not picking
+            if (event.mouseButton.button == sf::Mouse::Left && debugConsole.isPicking()) {
+                // Do nothing here, it's handled below
+            } else {
+                ctx.isDragging = true;
+                ctx.lastMousePixel = sf::Vector2i(event.mouseButton.x, event.mouseButton.y);
+            }
         }
     }
     if (event.type == sf::Event::MouseButtonReleased && 
-        (event.mouseButton.button == sf::Mouse::Middle || event.mouseButton.button == sf::Mouse::Right)) {
+        (event.mouseButton.button == sf::Mouse::Middle || event.mouseButton.button == sf::Mouse::Right || event.mouseButton.button == sf::Mouse::Left)) {
         ctx.isDragging = false;
     }
     if (event.type == sf::Event::MouseMoved && ctx.isDragging) {
