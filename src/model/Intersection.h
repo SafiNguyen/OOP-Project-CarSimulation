@@ -9,6 +9,14 @@
 class Road;  
 class TrafficLight;
 
+
+enum class IntersectionType {
+    PASS_THROUGH, // 0-2 incoming roads: nothing to arbitrate between
+    THREE_WAY,    // nga ba
+    FOUR_WAY,     // nga tu
+    COMPLEX       // 5+ incoming roads
+};
+
 // attributes
 class Intersection {
 private:
@@ -20,6 +28,13 @@ private:
     std::vector<Road*> outgoingRoads;
     // key = id cua incoming road; moi road vao co dung 1 den rieng
     std::unordered_map<int, std::unique_ptr<TrafficLight>> trafficLights;
+
+    
+    std::vector<std::vector<Road*>> phaseGroups;
+    std::size_t activePhaseGroup;
+    double phaseElapsedTime;
+
+    void rebuildPhaseGroups();
 
 public:
     Intersection(int id, double x = 0.0, double y = 0.0);
@@ -34,6 +49,11 @@ public:
     const std::vector<Road*>& getIncomingRoads() const; 
     const std::vector<Road*>& getOutgoingRoads() const;
 
+    //intersection shape, derived from the number of incoming
+    // approaches (nga ba / nga tu / etc).
+    IntersectionType getIntersectionType() const;
+    std::string getIntersectionTypeLabel() const;
+
     //methods
     void addIncomingRoad(Road* road);
     void addOutgoingRoad(Road* road);
@@ -46,6 +66,15 @@ public:
     // Goi moi tick tu TrafficSimulator::update(dt)
     void updateTrafficLights(double dt);
     bool mustStopForRoad(const Road* road) const;
+
+    // Number of independent signal phases this intersection cycles
+    // through (e.g. 2 for a typical nga tu with opposing through-roads
+    // paired up, 1 if there is nothing to arbitrate).
+    std::size_t getPhaseGroupCount() const { return phaseGroups.size(); }
+    // True if `a` and `b` are allowed to move at the same time (either
+    // they are the same phase group, or one/both have no light at all).
+    bool areRoadsInSamePhase(const Road* a, const Road* b) const;
+
     std::string toString() const;  
 
     ~Intersection(); 
