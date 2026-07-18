@@ -24,7 +24,7 @@
 #include "model/Intersection.h"
 #include "model/Road.h"
 #include "simulation/TrafficSimulator.h"
-#include "visualization/StatsPanel.h"
+#include "ui/StatsPanel.h"
 #include "visualization/VehicleSprite.h"
 #include "visualization/VisualizationEngine.h"
 
@@ -234,9 +234,7 @@ int main(int argc, char** argv) {
         clampViewToMap();
     };
 
-    // Declared before DebugConsole so the console can capture it by reference
-    // even though its actual implementation (which needs debugConsole itself,
-    // to seed the initial strategy) is assigned just below.
+
     std::function<std::unique_ptr<TrafficSimulator>()> resetSimulation;
 
     DebugConsole debugConsole(graph, visualization, loadAndRefresh,
@@ -416,10 +414,8 @@ int main(int argc, char** argv) {
             }
         }
 
-        window.setView(window.getDefaultView());
         if (simulator && simulator->getStatisticsManager()) {
-            statsPanel.update(simulator->getStatisticsManager()->getSummary());
-            statsPanel.draw(window);
+            statsPanel.draw(simulator->getStatisticsManager()->getSummary(), window.getSize());
         }
 
         debugConsole.draw(window, simulator, view, zoomFactor, heatMapEnabled, mapPathInput, usingDemoMap, loadError);
