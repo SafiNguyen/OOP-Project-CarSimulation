@@ -31,6 +31,11 @@ protected:
     bool awaitingIntersectionTransition = false;
     double intersectionTransitionTimer = 0.0;
 
+    // Intersection whose box-reservation slot this vehicle currently holds
+    // (nullptr if it isn't holding one). Released automatically once the
+    // intersection-transition animation finishes, or on destruction.
+    Intersection* reservedIntersection_ = nullptr;
+
 public:
     Vehicle(int id, double speed, Intersection* start, Intersection* dest);
     Vehicle(const Vehicle&) = delete;
@@ -49,7 +54,7 @@ public:
 
     virtual bool shouldPauseAt(double currentPos,
                                 double projectedPos,
-                                double& pausePos) { return false; }
+                                double& pausePos);
     virtual bool mustStopForTrafficLight(Intersection* nextIntersection) const;
     virtual void onPauseStarted() {}
     virtual bool updatePause(double dt) { return true; }

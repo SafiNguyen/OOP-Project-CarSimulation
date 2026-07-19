@@ -8,8 +8,17 @@ namespace {
 constexpr double PI = 3.14159265358979323846;
 // How far from exactly opposite (180 degrees) two approaches may be and
 // still be considered "the same through movement" for phase grouping.
-// Generous enough to tolerate maps whose roads aren't perfectly aligned.
-constexpr double OPPOSITE_TOLERANCE_RAD = PI / 4.0; // 45 degrees
+// Kept tight on purpose: two approaches must be genuinely a straight-through
+// pair (e.g. North vs South) to safely share a green phase. A wider
+// tolerance (the old value was 45 degrees) can merge two approaches that
+// are only ~135 degrees apart into a single "safe" group - i.e. two roads
+// that actually cross paths inside the intersection end up green at the
+// same time. Worse, if an intersection only has two incoming roads and
+// they get merged this way, rebuildPhaseGroups() produces a single phase
+// group, so that intersection's light never has anything to hand off to
+// and stays GREEN/YELLOW forever - it can never turn RED, so vehicles on
+// either approach never get stopped at all.
+constexpr double OPPOSITE_TOLERANCE_RAD = PI / 9.0; // 20 degrees
 }
 
 Intersection::Intersection(int id, double x, double y)
@@ -183,16 +192,31 @@ void Intersection::updateTrafficLights(double dt) {
 
     static constexpr double GREEN_DURATION = 30.0;
     static constexpr double YELLOW_DURATION = 3.0;
-    static constexpr double CYCLE_DURATION = GREEN_DURATION + YELLOW_DURATION;
+    // Clearance gap between one phase group's YELLOW ending and the next
+    // group's GREEN starting. Without this, the previously-active approach
+    // turns RED on the exact same tick the next approach turns GREEN, i.e.
+    // zero time to clear the intersection before conflicting traffic gets a
+    // green light. Only applies when there is more than one phase group -
+    // a single-group (pass-through) intersection has no conflicting traffic
+    // to protect against and doesn't need to pause.
+    const double allRedDuration = (phaseGroups.size() > 1) ? 2.0 : 0.0;
+    const double cycleDuration = GREEN_DURATION + YELLOW_DURATION + allRedDuration;
 
     phaseElapsedTime += dt;
-    while (phaseElapsedTime >= CYCLE_DURATION) {
-        phaseElapsedTime -= CYCLE_DURATION;
+    while (phaseElapsedTime >= cycleDuration) {
+        phaseElapsedTime -= cycleDuration;
         activePhaseGroup = (activePhaseGroup + 1) % phaseGroups.size();
     }
 
-    const LightState activeState =
-        (phaseElapsedTime < GREEN_DURATION) ? LightState::GREEN : LightState::YELLOW;
+    LightState activeState;
+    if (phaseElapsedTime < GREEN_DURATION) {
+        activeState = LightState::GREEN;
+    } else if (phaseElapsedTime < GREEN_DURATION + YELLOW_DURATION) {
+        activeState = LightState::YELLOW;
+    } else {
+        // All-red clearance window: even the "active" group shows RED here.
+        activeState = LightState::RED;
+    }
 
 
     for (size_t g = 0; g < phaseGroups.size(); ++g) {
@@ -210,6 +234,36 @@ bool Intersection::mustStopForRoad(const Road *road) const{
     TrafficLight* light = getLightForIncomingRoad(road);
     //không có đèn -> mặc định ko bắt dừng
     return (light != nullptr) && light->mustStop();
+}
+
+// --- Intersection-box reservation ---
+// Deliberately independent from the traffic-light phase logic above: a
+// green light only means "your approach's turn according to the signal
+// cycle", it says nothing about whether the physical box in the middle of
+// the junction is currently occupied by a vehicle arriving from another
+// approach. This is the missing piece that stops vehicles from different
+// roads/lanes rendering on top of each other inside the junction.
+bool Intersection::tryEnter(int vehicleId) {
+    if (occupants_.count(vehicleId) > 0) {
+        return true; // already holding a slot, nothing to do
+    }
+    if (static_cast<int>(occupants_.size()) >= capacity_) {
+        return false; // box full, caller must keep waiting at the stop line
+    }
+    occupants_.insert(vehicleId);
+    return true;
+}
+
+void Intersection::exit(int vehicleId) {
+    occupants_.erase(vehicleId);
+}
+
+bool Intersection::isFull() const {
+    return static_cast<int>(occupants_.size()) >= capacity_;
+}
+
+void Intersection::setCapacity(int cap) {
+    capacity_ = std::max(1, cap);
 }
 
 //utility method

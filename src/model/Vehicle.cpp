@@ -2,6 +2,7 @@
 #include "Vehicle.h"
 #include "Road.h"
 #include "Intersection.h"
+#include "TrafficLight.h"
 #include "Graph.h"
 #include "algorithm/PathFindingStrategy.h"
 #include <algorithm>
@@ -23,10 +24,48 @@ Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
 }
 
 Vehicle::~Vehicle() {
+    if (reservedIntersection_ != nullptr) {
+        reservedIntersection_->exit(getId());
+        reservedIntersection_ = nullptr;
+    }
     if (currentRoad != nullptr) {
         currentRoad->getLane(currentLaneIndex).removeVehicle(this);
         currentRoad = nullptr;
     }
+}
+
+bool Vehicle::shouldPauseAt(double currentPos,
+                            double projectedPos,
+                            double& pausePos) {
+    if (currentRoad == nullptr) return false;
+
+    Intersection* nextIntersection = currentRoad->getEnd();
+    if (nextIntersection == nullptr) return false;
+
+    // Only consider traffic-light enforced stops here.
+    if (!mustStopForTrafficLight(nextIntersection)) return false;
+
+    // Position of the nominal stop line a short distance before the road end.
+    constexpr double STOP_LINE_OFFSET = 1.5; // metres before road end
+    const double roadEnd = currentRoad->getDistance();
+    double stopLinePos = std::max(0.0, roadEnd - STOP_LINE_OFFSET);
+
+    // If there's a paused leader ahead on this lane, queue behind it
+    Vehicle* leader = currentRoad->findLeader(currentLaneIndex, this);
+    if (leader != nullptr && leader->isPaused()) {
+        double leaderBack = leader->getProgressOnRoad() - leader->getLength();
+        double desiredPos = leaderBack - getMinGap();
+        // Don't allow desiredPos to go past the nominal stop line further upstream
+        if (desiredPos < stopLinePos) {
+            stopLinePos = desiredPos;
+        }
+    }
+
+    if (stopLinePos <= currentPos) return false;
+
+    // We only pause if our projected position reaches or passes the pausePos
+    pausePos = std::min(stopLinePos, projectedPos);
+    return pausePos > currentPos;
 }
 
 void Vehicle::setRoute(const std::vector<Road*>& route) {
@@ -106,6 +145,10 @@ void Vehicle::update(double dt) {
         if (intersectionTransitionTimer <= 0.0) {
             intersectionTransitionTimer = 0.0;
             awaitingIntersectionTransition = false;
+            if (reservedIntersection_ != nullptr) {
+                reservedIntersection_->exit(getId());
+                reservedIntersection_ = nullptr;
+            }
         }
     }
 
@@ -121,6 +164,34 @@ void Vehicle::update(double dt) {
     while (remainingTime > 0.0 && currentRoad != nullptr && !paused) {
         const double freeFlowSpeed = calculateCurrentSpeed();
         double targetSpeed = freeFlowSpeed;
+        // Early braking for traffic lights: if the upcoming intersection
+        // has a light requiring stop (RED or YELLOW) and the vehicle
+        // cannot safely clear the stop line given current speed and
+        // braking capability, begin braking now (set targetSpeed=0).
+        if (currentRoad != nullptr) {
+            Intersection* nextIntersectionForLight = currentRoad->getEnd();
+            if (nextIntersectionForLight != nullptr) {
+                TrafficLight* upcomingLight = nextIntersectionForLight->getLightForIncomingRoad(currentRoad);
+                bool lightRequiresStop = (upcomingLight != nullptr && upcomingLight->mustStop());
+
+                // Intersection-box reservation: even on a green light, if the
+                // physical box is already occupied by a vehicle coming from
+                // another road/lane, we still have to brake for it - this is
+                // what stops vehicles from different approaches rendering on
+                // top of each other inside the junction.
+                bool boxRequiresStop = (reservedIntersection_ != nextIntersectionForLight)
+                                       && nextIntersectionForLight->isFull();
+
+                if (lightRequiresStop || boxRequiresStop) {
+                    const double distToStopLine = currentRoad->getDistance() - progressOnCurrentRoad;
+                    const double stoppingDistance = (currentSpeed * currentSpeed) / (2.0 * std::max(getDeceleration(), 1e-6));
+                    const double safetyBuffer = 1.0; // metres: small margin
+                    if (distToStopLine <= stoppingDistance + safetyBuffer) {
+                        targetSpeed = 0.0;
+                    }
+                }
+            }
+        }
         // Tim xe ngay phia truoc trong cung lane. Neu co, gioi han
         // targetSpeed theo khoang cach con lai (gap) so voi minGap va
         // "khoang cach thoai mai" o toc do mong muon (desiredGap).
@@ -213,12 +284,29 @@ void Vehicle::update(double dt) {
         } else {
             Intersection* nextIntersection = currentRoad->getEnd();
 
-            if (mustStopForTrafficLight(nextIntersection)) {
+            // Same idea as the two intersections up above: a green light is
+            // not enough on its own, the box itself must have a free slot
+            // too (unless we already reserved one for this intersection).
+            bool boxBlocked = (nextIntersection != nullptr)
+                              && (reservedIntersection_ != nextIntersection)
+                              && nextIntersection->isFull();
+
+            if (mustStopForTrafficLight(nextIntersection) || boxBlocked) {
                 progressOnCurrentRoad = currentRoad->getDistance();
                 currentSpeed = 0.0;
                 remainingTime = 0.0;
                 break;
-            }   
+            }
+
+            // Clear to cross: claim a slot in the box before leaving this
+            // road, so no other vehicle can be granted the same slot in the
+            // same tick. Released once the intersection-transition animation
+            // finishes (see the awaitingIntersectionTransition block above)
+            // or in the destructor if the vehicle is removed mid-transition.
+            if (nextIntersection != nullptr && reservedIntersection_ != nextIntersection) {
+                nextIntersection->tryEnter(getId());
+                reservedIntersection_ = nextIntersection;
+            }
 
             if (currentRouteIndex + 1 < static_cast<int>(currentRoute.size())) {
                 double distToEnd = currentRoad->getDistance() - currentPos;
@@ -238,6 +326,14 @@ void Vehicle::update(double dt) {
             double timeToEnd = (speed > 0.0) ? distToEnd / speed : 0.0;
             remainingTime -= timeToEnd;
             progressOnCurrentRoad = 0.0;
+
+            // Journey ends at this intersection - there is no further road
+            // to turn onto, so there is no transition animation to wait
+            // out. Release the box slot right away instead of leaking it.
+            if (reservedIntersection_ != nullptr) {
+                reservedIntersection_->exit(getId());
+                reservedIntersection_ = nullptr;
+            }
 
             if (!advanceToNextRoad()) {
                 break;

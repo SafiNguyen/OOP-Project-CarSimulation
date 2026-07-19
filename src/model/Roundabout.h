@@ -20,7 +20,11 @@ private:
 
 public:
     Roundabout(int id, double x = 0.0, double y = 0.0, double radius = 0.02)
-        : Intersection(id, x, y), radius(radius) {}
+        : Intersection(id, x, y), radius(radius) {
+        // Small circular junction: only 1 vehicle allowed inside the
+        // central box at a time, regardless of how many approaches exist.
+        setCapacity(1);
+    }
 
     double getRadius() const { return radius; }
 
