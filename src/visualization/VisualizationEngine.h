@@ -14,6 +14,7 @@ public:
     VisualizationEngine(sf::Vector2u windowSize = {800u, 600u}, float margin = 24.0f);
 
     void prepare(const Graph& graph);
+    void setWindowSize(sf::Vector2u windowSize);
     sf::Vector2f worldToScreen(double x, double y) const;
     const std::vector<sf::Vector2f>& getRoutePoints() const;
     sf::Color colorForRoad(const Road* road) const;

@@ -21,6 +21,7 @@
 #include "../src/model/EmergencyVehicle.h"
 #include "../src/model/Motorbike.h"
 #include "../src/model/Bus.h"
+#include "../src/model/TrafficLight.h"
 #include "../src/algorithm/DijkstraStrategy.h" 
 
 using TestFramework::reportResult;
@@ -211,6 +212,43 @@ void test_Vehicle_RecalculateRoute_PreservesProgressNoGrowth() {
       << " reached=" << passReachesDestination << "\n";
     reportResult(testName, passed, d.str());
 }
+
+void test_Vehicle_StopsAtRedTrafficLight() {
+    std::string testName = "Vehicle: stops at a red traffic light before entering the intersection";
+
+    Graph g;
+    g.addIntersection(new Intersection(1, 0.0, 0.0));
+    g.addIntersection(new Intersection(2, 80.0, 0.0));
+    g.addIntersection(new Intersection(3, 80.0, -80.0));
+
+    // Add the crossing road first so it becomes the active phase group.
+    g.addRoad(new Road(100, "Cross Road", g.getIntersection(3), g.getIntersection(2), 80.0, 20.0, 1.0));
+    g.addRoad(new Road(101, "Test Road", g.getIntersection(1), g.getIntersection(2), 80.0, 20.0, 1.0));
+
+    Road* road = g.getRoad(101);
+    TrafficLight* light = g.getIntersection(2)->getLightForIncomingRoad(road);
+    bool hasRedLight = (light != nullptr) && light->mustStop();
+
+    Car car(1, 30.0, g.getIntersection(1), g.getIntersection(2));
+    car.setRoute({road});
+
+    car.update(6.0);
+
+    const bool passed = hasRedLight &&
+                        (car.getCurrentRoad() == road) &&
+                        !car.hasReachedDestination() &&
+                        nearlyEqual(car.getCurrentSpeed(), 0.0) &&
+                        nearlyEqual(car.getProgressRatio() * road->getDistance(), road->getDistance());
+
+    std::ostringstream d;
+    d << "  Expected: vehicle remains on the road and stops at the red light near the stop line.\n";
+    d << "  Light was red: " << hasRedLight << "\n";
+    d << "  Actual:   currentRoad=" << (car.getCurrentRoad() ? std::to_string(car.getCurrentRoad()->getId()) : "null")
+      << ", speed=" << car.getCurrentSpeed()
+      << ", reached=" << car.hasReachedDestination()
+      << ", progress=" << (car.getProgressRatio() * road->getDistance()) << "\n";
+    reportResult(testName, passed, d.str());
+}
 // ----------------------------------------------------------------------------
 // main
 // ----------------------------------------------------------------------------
@@ -225,6 +263,7 @@ int main() {
     test_Bus_DwellTime_StateMachine();
     test_Vehicle_RouteAdvancement();
     test_Vehicle_RecalculateRoute_PreservesProgressNoGrowth();
+    test_Vehicle_StopsAtRedTrafficLight();
 
 
     printSummary();

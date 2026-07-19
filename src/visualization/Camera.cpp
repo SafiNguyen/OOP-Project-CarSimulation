@@ -5,6 +5,7 @@
 #include <imgui.h>
 
 #include "AppContext.h"
+#include "model/Graph.h"
 #include "visualization/VisualizationEngine.h"
 
 void clampViewToMap(AppContext& ctx) {
@@ -12,50 +13,49 @@ void clampViewToMap(AppContext& ctx) {
     const float halfWidth = size.x * 0.5f;
     const float halfHeight = size.y * 0.5f;
 
-    const float minCenterX = ctx.mapMinX + halfWidth;
-    const float maxCenterX = ctx.mapMaxX - halfWidth;
-    const float minCenterY = ctx.mapMinY + halfHeight;
-    const float maxCenterY = ctx.mapMaxY - halfHeight;
-
     sf::Vector2f center = ctx.view.getCenter();
+    const float mapWidth = ctx.mapMaxX - ctx.mapMinX;
+    const float mapHeight = ctx.mapMaxY - ctx.mapMinY;
 
-    if (minCenterX <= maxCenterX) {
+    if (mapWidth > size.x) {
+        const float minCenterX = ctx.mapMinX + halfWidth;
+        const float maxCenterX = ctx.mapMaxX - halfWidth;
         center.x = std::clamp(center.x, minCenterX, maxCenterX);
-    } else {
-        center.x = (ctx.mapMinX + ctx.mapMaxX) * 0.5f;
     }
 
-    if (minCenterY <= maxCenterY) {
+    if (mapHeight > size.y) {
+        const float minCenterY = ctx.mapMinY + halfHeight;
+        const float maxCenterY = ctx.mapMaxY - halfHeight;
         center.y = std::clamp(center.y, minCenterY, maxCenterY);
-    } else {
-        center.y = (ctx.mapMinY + ctx.mapMaxY) * 0.5f;
     }
 
     ctx.view.setCenter(center);
 }
 
 void refreshViewBounds(AppContext& ctx) {
-    const auto& routePoints = ctx.visualization.getRoutePoints();
-    if (routePoints.empty()) {
+    const auto intersections = ctx.graph.getAllIntersections();
+    if (intersections.empty()) {
         ctx.mapMinX = 0.0f;
         ctx.mapMinY = 0.0f;
         ctx.mapMaxX = 100.0f;
         ctx.mapMaxY = 100.0f;
+        clampViewToMap(ctx);
         return;
     }
 
-    ctx.mapMinX = routePoints.front().x;
-    ctx.mapMinY = routePoints.front().y;
-    ctx.mapMaxX = routePoints.front().x;
-    ctx.mapMaxY = routePoints.front().y;
-    for (const auto& point : routePoints) {
-        ctx.mapMinX = std::min(ctx.mapMinX, point.x);
-        ctx.mapMinY = std::min(ctx.mapMinY, point.y);
-        ctx.mapMaxX = std::max(ctx.mapMaxX, point.x);
-        ctx.mapMaxY = std::max(ctx.mapMaxY, point.y);
+    ctx.mapMinX = static_cast<float>(intersections.front()->getX());
+    ctx.mapMinY = static_cast<float>(intersections.front()->getY());
+    ctx.mapMaxX = static_cast<float>(intersections.front()->getX());
+    ctx.mapMaxY = static_cast<float>(intersections.front()->getY());
+
+    for (const auto* intersection : intersections) {
+        ctx.mapMinX = std::min(ctx.mapMinX, static_cast<float>(intersection->getX()));
+        ctx.mapMinY = std::min(ctx.mapMinY, static_cast<float>(intersection->getY()));
+        ctx.mapMaxX = std::max(ctx.mapMaxX, static_cast<float>(intersection->getX()));
+        ctx.mapMaxY = std::max(ctx.mapMaxY, static_cast<float>(intersection->getY()));
     }
 
-    const float cameraPadding = 60.0f;
+    const float cameraPadding = 160.0f;
     ctx.mapMinX -= cameraPadding;
     ctx.mapMinY -= cameraPadding;
     ctx.mapMaxX += cameraPadding;
@@ -70,24 +70,33 @@ void resetView(AppContext& ctx) {
 }
 
 void zoomBy(AppContext& ctx, float factor) {
-    ctx.zoomFactor = std::clamp(ctx.zoomFactor * factor, 0.35f, 2.5f);
+    const float oldZoomFactor = ctx.zoomFactor;
+    const float newZoomFactor = std::clamp(oldZoomFactor * factor, 0.35f, 2.5f);
+    if (std::abs(newZoomFactor - oldZoomFactor) < 0.0001f) {
+        return;
+    }
+
+    ctx.zoomFactor = newZoomFactor;
     ctx.view.setSize(static_cast<float>(ctx.windowW) * ctx.zoomFactor,
                       static_cast<float>(ctx.windowH) * ctx.zoomFactor);
-    clampViewToMap(ctx);
 }
 
 void zoomBy(AppContext& ctx, float factor, sf::Vector2f zoomCenter) {
     const float oldZoomFactor = ctx.zoomFactor;
-    ctx.zoomFactor = std::clamp(ctx.zoomFactor * factor, 0.35f, 2.5f);
-    const float actualFactor = ctx.zoomFactor / oldZoomFactor;
+    const float newZoomFactor = std::clamp(oldZoomFactor * factor, 0.35f, 2.5f);
+    if (std::abs(newZoomFactor - oldZoomFactor) < 0.0001f) {
+        return;
+    }
 
+    const float actualFactor = (oldZoomFactor > 0.0001f) ? (newZoomFactor / oldZoomFactor) : 1.0f;
+    const sf::Vector2f previousCenter = ctx.view.getCenter();
+
+    ctx.zoomFactor = newZoomFactor;
     ctx.view.setSize(static_cast<float>(ctx.windowW) * ctx.zoomFactor,
                       static_cast<float>(ctx.windowH) * ctx.zoomFactor);
 
-    sf::Vector2f center = ctx.view.getCenter();
-    center = zoomCenter - (zoomCenter - center) * actualFactor;
-    ctx.view.setCenter(center);
-    clampViewToMap(ctx);
+    const sf::Vector2f newCenter = zoomCenter - (zoomCenter - previousCenter) * actualFactor;
+    ctx.view.setCenter(newCenter);
 }
 
 void updateCamera(AppContext& ctx, float dt) {
@@ -148,6 +157,5 @@ void updateCamera(AppContext& ctx, float dt) {
         float actualSpeed = panSpeed * ctx.zoomFactor * dt;
 
         ctx.view.move(movement * actualSpeed);
-        clampViewToMap(ctx);
     }
 }

@@ -5,6 +5,7 @@
 
 #include "AppContext.h"
 #include "visualization/Camera.h"
+#include "visualization/VisualizationEngine.h"
 #include "simulation/TrafficSimulator.h"
 #include "ui/DebugConsole.h"
 
@@ -14,6 +15,22 @@ void handleEvent(const sf::Event& event, AppContext& ctx, DebugConsole& debugCon
 
     if (event.type == sf::Event::Closed) {
         ctx.window.close();
+        return;
+    }
+
+    if (event.type == sf::Event::Resized) {
+        ctx.windowW = event.size.width;
+        ctx.windowH = event.size.height;
+
+        ctx.visualization.setWindowSize({ctx.windowW, ctx.windowH});
+        ctx.visualization.prepare(ctx.graph);
+
+        const sf::Vector2f center = ctx.view.getCenter();
+        ctx.view.setSize(static_cast<float>(ctx.windowW) * ctx.zoomFactor,
+                         static_cast<float>(ctx.windowH) * ctx.zoomFactor);
+        ctx.view.setCenter(center);
+        clampViewToMap(ctx);
+        ctx.window.setView(ctx.view);
         return;
     }
 
@@ -41,8 +58,7 @@ void handleEvent(const sf::Event& event, AppContext& ctx, DebugConsole& debugCon
         ctx.lastMousePixel = mousePixel;
 
         ctx.view.move(-static_cast<float>(delta.x) * ctx.zoomFactor,
-                       -static_cast<float>(delta.y) * ctx.zoomFactor);
-        clampViewToMap(ctx);
+                      -static_cast<float>(delta.y) * ctx.zoomFactor);
         return; // Consumed
     }
 

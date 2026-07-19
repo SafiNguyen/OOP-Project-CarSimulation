@@ -48,6 +48,23 @@ void DebugConsole::drawTopBar(sf::RenderWindow& window,
         }
     }
 
+    ImGui::SameLine();
+    if (ImGui::Button("Speed x2")) {
+        if (simulator) {
+            simulator->setSpeedMultiplier(std::min(simulator->getSpeedMultiplier() * 2.0, 16.0));
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Normal speed")) {
+        if (simulator) {
+            simulator->setSpeedMultiplier(1.0);
+        }
+    }
+    if (simulator) {
+        ImGui::SameLine();
+        ImGui::Text("Speed: %.1fx", simulator->getSpeedMultiplier());
+    }
+
     if (ImGui::Button("Reset view")) {
         zoomFactor = 1.0f;
         view = window.getDefaultView();
