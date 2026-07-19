@@ -58,6 +58,12 @@ public:
     // smallest progress-on-road strictly greater than self's), or nullptr if
     // `self` is the lead vehicle in that lane / laneIndex is invalid.
     Vehicle* findLeader(int laneIndex, const Vehicle* self) const;
+    // Doi xung voi findLeader — tra ve xe gan nhat PHIA SAU self trong lane
+    // nay (progress nho hon self, lon nhat trong so do), hoac nullptr neu
+    // self la xe cuoi cung trong lane / laneIndex khong hop le. Can thiet
+    // cho lane-changing: truoc khi tat dau vao 1 lane, phai biet xe phia
+    // sau o lane do co bi buoc phanh gap khong.
+    Vehicle* findFollower(int laneIndex, const Vehicle* self) const;
     Vehicle* getFirstVehicleInLane(int laneIndex) const;
 
     double getTravelCost() const;
@@ -74,7 +80,7 @@ public:
     
     std::string toString() const;
 
-    ~Road();
+    virtual ~Road();
 };
 
 #endif

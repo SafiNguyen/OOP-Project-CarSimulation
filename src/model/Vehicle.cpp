@@ -79,6 +79,7 @@ void Vehicle::setRoute(const std::vector<Road*>& route) {
     if (!currentRoute.empty()) {
         currentRoad = currentRoute[0];
         if (currentRoad) {
+            currentLaneIndex = currentRoad->getFreestLaneIndex();
             currentRoad->getLane(currentLaneIndex).addVehicle(this);
         }
     } else {
@@ -100,6 +101,10 @@ bool Vehicle::advanceToNextRoad() {
         }
         currentRoad = currentRoute[currentRouteIndex];
         if (currentRoad) {
+            const int maxLaneIndex = currentRoad->getLaneCount() - 1;
+            if (currentLaneIndex > maxLaneIndex) {
+                currentLaneIndex = maxLaneIndex;
+            }
             currentRoad->getLane(currentLaneIndex).addVehicle(this);
         }
         onRoadChanged();
@@ -119,6 +124,74 @@ double Vehicle::getProgressRatio() const {
         return 0.0;
     }
     return progressOnCurrentRoad / currentRoad->getDistance();
+}
+
+void Vehicle::tryLaneChange(double freeFlowSpeed) {
+    if (currentRoad == nullptr || !canChangeLanes()) {
+        return;
+    }
+    if (currentRoad->getLaneCount() <= 1) {
+        return; // chi co 1 lane, khong co gi de doi
+    }
+
+    // 1) Chi xet doi lane khi dang THUC SU bi can tro o lane hien tai -
+    //    tuc la gap phia truoc nho hon "khoang cach thoai mai" mong muon.
+    //    Neu dang chay tu do, khong co ly do gi de doi lane.
+    Vehicle* currentLeader = currentRoad->findLeader(currentLaneIndex, this);
+    double currentGapAhead = std::numeric_limits<double>::infinity();
+    if (currentLeader != nullptr) {
+        currentGapAhead = currentLeader->getProgressOnRoad() - progressOnCurrentRoad - currentLeader->getLength();
+    }
+
+    const double minGap = getMinGap();
+    const double desiredGap = minGap + freeFlowSpeed * getTimeHeadway();
+
+    if (currentGapAhead >= desiredGap) {
+        return; // khong bi can tro dang ke, khong can doi lane
+    }
+
+    // 2) Xet 2 lane lan can (trai/phai). Chon lane tot nhat trong so cac
+    //    lane thoa dieu kien "tot hon dang ke" (LANE_CHANGE_GAP_IMPROVEMENT_FACTOR)
+    //    VA an toan cho xe phia sau o lane do.
+    int bestLaneIndex = -1;
+    double bestGapAhead = currentGapAhead;
+
+    const int candidateLanes[2] = { currentLaneIndex - 1, currentLaneIndex + 1 };
+    for (int candidateLane : candidateLanes) {
+        if (candidateLane < 0 || candidateLane >= currentRoad->getLaneCount()) {
+            continue;
+        }
+
+        Vehicle* candidateLeader = currentRoad->findLeader(candidateLane, this);
+        double gapAhead = std::numeric_limits<double>::infinity();
+        if (candidateLeader != nullptr) {
+            gapAhead = candidateLeader->getProgressOnRoad() - progressOnCurrentRoad - candidateLeader->getLength();
+        }
+
+        if (gapAhead <= bestGapAhead * LANE_CHANGE_GAP_IMPROVEMENT_FACTOR) {
+            continue;
+        }
+
+        Vehicle* candidateFollower = currentRoad->findFollower(candidateLane, this);
+        if (candidateFollower != nullptr) {
+            const double gapBehind = progressOnCurrentRoad - candidateFollower->getProgressOnRoad() - getLength();
+            const double followerSpeed = candidateFollower->getCurrentSpeed();
+            const double requiredGapBehind = minGap + followerSpeed * LANE_CHANGE_REAR_SAFETY_TIME;
+            if (gapBehind < requiredGapBehind) {
+                continue; 
+            }
+        }
+
+        bestLaneIndex = candidateLane;
+        bestGapAhead = gapAhead;
+    }
+
+    if (bestLaneIndex != -1 && bestGapAhead > minGap ) {
+        currentRoad->getLane(currentLaneIndex).removeVehicle(this);
+        currentLaneIndex = bestLaneIndex;
+        currentRoad->getLane(currentLaneIndex).addVehicle(this);
+        laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN;
+    }
 }
 
 bool Vehicle::mustStopForTrafficLight(Intersection* nextIntersection) const {
@@ -152,6 +225,13 @@ void Vehicle::update(double dt) {
         }
     }
 
+    if (laneChangeCooldownTimer > 0.0) {
+        laneChangeCooldownTimer -= dt;
+        if (laneChangeCooldownTimer < 0.0) {
+            laneChangeCooldownTimer = 0.0;
+        }
+    }
+
     if (paused) {
         if (updatePause(dt)) {
             paused = false;
@@ -164,21 +244,11 @@ void Vehicle::update(double dt) {
     while (remainingTime > 0.0 && currentRoad != nullptr && !paused) {
         const double freeFlowSpeed = calculateCurrentSpeed();
         double targetSpeed = freeFlowSpeed;
-        // Early braking for traffic lights: if the upcoming intersection
-        // has a light requiring stop (RED or YELLOW) and the vehicle
-        // cannot safely clear the stop line given current speed and
-        // braking capability, begin braking now (set targetSpeed=0).
         if (currentRoad != nullptr) {
             Intersection* nextIntersectionForLight = currentRoad->getEnd();
             if (nextIntersectionForLight != nullptr) {
                 TrafficLight* upcomingLight = nextIntersectionForLight->getLightForIncomingRoad(currentRoad);
                 bool lightRequiresStop = (upcomingLight != nullptr && upcomingLight->mustStop());
-
-                // Intersection-box reservation: even on a green light, if the
-                // physical box is already occupied by a vehicle coming from
-                // another road/lane, we still have to brake for it - this is
-                // what stops vehicles from different approaches rendering on
-                // top of each other inside the junction.
                 bool boxRequiresStop = (reservedIntersection_ != nextIntersectionForLight)
                                        && nextIntersectionForLight->isFull();
 
@@ -192,12 +262,12 @@ void Vehicle::update(double dt) {
                 }
             }
         }
-        // Tim xe ngay phia truoc trong cung lane. Neu co, gioi han
-        // targetSpeed theo khoang cach con lai (gap) so voi minGap va
-        // "khoang cach thoai mai" o toc do mong muon (desiredGap).
-        //   gap <= minGap            -> dung han (targetSpeed = 0)
-        //   gap >= desiredGap        -> chay tu do (targetSpeed = freeFlowSpeed)
-        //   minGap < gap < desiredGap -> giam toc tuyen tinh theo ty le gap
+
+        if (laneChangeCooldownTimer <= 0.0) {
+            tryLaneChange(freeFlowSpeed);
+        }
+
+
         Vehicle* leader = currentRoad->findLeader(currentLaneIndex, this);
         const double minGap = getMinGap();
         double gapToLeader = std::numeric_limits<double>::infinity();
@@ -205,9 +275,6 @@ void Vehicle::update(double dt) {
         if (leader != nullptr) {
             gapToLeader = leader->getProgressOnRoad() - progressOnCurrentRoad - leader->getLength();
         } else {
-            // Không có ai phía trước trên road hiện tại -> thử nhìn sang road kế tiếp
-            // (Task 1.2 nâng cấp: tránh xe "phóng" hết road rồi mới phát hiện vật cản
-            // ngay khi vừa đổi road, gây tunneling/dồn xe tại nút giao).
             Road* nextRoad = getNextRoad();
             if (nextRoad != nullptr) {
                 int nextLaneIndex = currentLaneIndex;
@@ -226,14 +293,17 @@ void Vehicle::update(double dt) {
         }
 
         if (leader != nullptr) {
+            double leaderTargetSpeed = freeFlowSpeed;
             if (gapToLeader <= minGap) {
                 targetSpeed = 0.0;
             } else {
                 const double desiredGap = minGap + freeFlowSpeed * getTimeHeadway();
                 if (gapToLeader < desiredGap && desiredGap > minGap) {
-                    targetSpeed = freeFlowSpeed * (gapToLeader - minGap) / (desiredGap - minGap);
+                    leaderTargetSpeed = freeFlowSpeed * (gapToLeader - minGap) / (desiredGap - minGap);
                 }
             }
+
+            targetSpeed = std::min(targetSpeed, leaderTargetSpeed);
 
             const double stoppingDistance =
                 (currentSpeed * currentSpeed) / (2.0 * std::max(getDeceleration(), 1e-6));
@@ -242,10 +312,11 @@ void Vehicle::update(double dt) {
             }
         }
 
+        const double subDt = std::min(remainingTime, MAX_PHYSICS_SUBSTEP);
         if (currentSpeed < targetSpeed) {
-            currentSpeed = std::min(targetSpeed, currentSpeed + getAcceleration() * remainingTime);
+            currentSpeed = std::min(targetSpeed, currentSpeed + getAcceleration() * subDt);
         } else if (currentSpeed > targetSpeed) {
-            currentSpeed = std::max(targetSpeed, currentSpeed - getDeceleration() * remainingTime);
+            currentSpeed = std::max(targetSpeed, currentSpeed - getDeceleration() * subDt);
         }
 
         double speed = currentSpeed;
@@ -254,13 +325,6 @@ void Vehicle::update(double dt) {
         }
 
         double distanceThisTick = speed * remainingTime;
-        // Hard safety clamp: bat ke toc do/dt tinh ra la bao nhieu, xe
-        // KHONG BAO GIO duoc phep tien qua (vi tri xe truoc - minGap)
-        // trong 1 lan goi update() nay. Can thiet vi cong thuc "soft" o
-        // tren gia dinh dt nho; khi speedMultiplier cao (Task 5), remainingTime
-        // co the len toi vai giay, va ap dung targetSpeed hang so cho ca
-        // khoang thoi gian lon do co the khien xe "xuyen" qua xe truoc
-        // (buoc nhay Euler qua lon so voi 1 buoc vat ly lien tuc).
         if (leader != nullptr) {
             const double maxAdvance = std::max(0.0, gapToLeader - minGap);
             distanceThisTick = std::min(distanceThisTick, maxAdvance);
@@ -279,14 +343,11 @@ void Vehicle::update(double dt) {
         }
 
         if (projectedPos < currentRoad->getDistance()) {
-            progressOnCurrentRoad = projectedPos;
-            remainingTime = 0.0;
+            progressOnCurrentRoad = projectedPos;n.
+            remainingTime -= subDt;
         } else {
             Intersection* nextIntersection = currentRoad->getEnd();
 
-            // Same idea as the two intersections up above: a green light is
-            // not enough on its own, the box itself must have a free slot
-            // too (unless we already reserved one for this intersection).
             bool boxBlocked = (nextIntersection != nullptr)
                               && (reservedIntersection_ != nextIntersection)
                               && nextIntersection->isFull();
@@ -298,45 +359,34 @@ void Vehicle::update(double dt) {
                 break;
             }
 
-            // Clear to cross: claim a slot in the box before leaving this
-            // road, so no other vehicle can be granted the same slot in the
-            // same tick. Released once the intersection-transition animation
-            // finishes (see the awaitingIntersectionTransition block above)
-            // or in the destructor if the vehicle is removed mid-transition.
             if (nextIntersection != nullptr && reservedIntersection_ != nextIntersection) {
                 nextIntersection->tryEnter(getId());
                 reservedIntersection_ = nextIntersection;
             }
+            double distToEnd = currentRoad->getDistance() - currentPos;
+            double timeToEnd = (speed > 0.0) ? distToEnd / speed : 0.0;
+
+            remainingTime -= timeToEnd;
+            if (remainingTime < 0.0) {
+                remainingTime = 0.0;
+            }
+            progressOnCurrentRoad = 0.0;
+
 
             if (currentRouteIndex + 1 < static_cast<int>(currentRoute.size())) {
-                double distToEnd = currentRoad->getDistance() - currentPos;
-                double timeToEnd = (speed > 0.0) ? distToEnd / speed : 0.0;
-                remainingTime -= timeToEnd;
-                if (remainingTime < 0.0) {
-                    remainingTime = 0.0;
-                }
-                progressOnCurrentRoad = 0.0;
                 awaitingIntersectionTransition = true;
                 intersectionTransitionTimer = INTERSECTION_TRANSITION_DURATION;
                 if (!advanceToNextRoad()) break;
-                continue;   
-            }
+                continue;
+            } else {
+                if (reservedIntersection_ != nullptr) {
+                    reservedIntersection_->exit(getId());
+                    reservedIntersection_ = nullptr;
+                }
 
-            double distToEnd = currentRoad->getDistance() - currentPos;
-            double timeToEnd = (speed > 0.0) ? distToEnd / speed : 0.0;
-            remainingTime -= timeToEnd;
-            progressOnCurrentRoad = 0.0;
-
-            // Journey ends at this intersection - there is no further road
-            // to turn onto, so there is no transition animation to wait
-            // out. Release the box slot right away instead of leaking it.
-            if (reservedIntersection_ != nullptr) {
-                reservedIntersection_->exit(getId());
-                reservedIntersection_ = nullptr;
-            }
-
-            if (!advanceToNextRoad()) {
-                break;
+                if (!advanceToNextRoad()) {
+                    break;
+                }
             }
         }
     }

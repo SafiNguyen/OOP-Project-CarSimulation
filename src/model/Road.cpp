@@ -106,6 +106,32 @@ Vehicle* Road::findLeader(int laneIndex, const Vehicle* self) const {
     return leader;
 }
 
+Vehicle* Road::findFollower(int laneIndex, const Vehicle* self) const {
+    if (self == nullptr || laneIndex < 0 || laneIndex >= static_cast<int>(lanes.size())) {
+        return nullptr;
+    }
+ 
+    const Lane& lane = lanes[laneIndex];
+    const double selfProgress = self->getProgressOnRoad();
+ 
+    Vehicle* follower = nullptr;
+    double bestProgress = -std::numeric_limits<double>::infinity();
+ 
+    for (Vehicle* candidate : lane.getVehicles()) {
+        if (candidate == self) {
+            continue;
+        }
+        const double candidateProgress = candidate->getProgressOnRoad();
+        // Only consider vehicles strictly behind self on this road.
+        if (candidateProgress < selfProgress && candidateProgress > bestProgress) {
+            bestProgress = candidateProgress;
+            follower = candidate;
+        }
+    }
+ 
+    return follower;
+}
+
 Vehicle* Road::getFirstVehicleInLane(int laneIndex) const {
     if (laneIndex < 0 || laneIndex >= static_cast<int>(lanes.size())) {
         return nullptr;

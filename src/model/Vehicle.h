@@ -12,6 +12,10 @@ class PointOfInterest;
 class Vehicle {
 public:
     static constexpr double INTERSECTION_TRANSITION_DURATION = 0.12;
+    static constexpr double LANE_CHANGE_COOLDOWN = 3.0;
+    static constexpr double LANE_CHANGE_GAP_IMPROVEMENT_FACTOR = 1.3;
+    static constexpr double LANE_CHANGE_REAR_SAFETY_TIME = 2.0;
+    static constexpr double MAX_PHYSICS_SUBSTEP = 0.05;
 
 protected:
     int id;
@@ -35,6 +39,7 @@ protected:
     // (nullptr if it isn't holding one). Released automatically once the
     // intersection-transition animation finishes, or on destruction.
     Intersection* reservedIntersection_ = nullptr;
+    double laneChangeCooldownTimer = 0.0;
 
 public:
     Vehicle(int id, double speed, Intersection* start, Intersection* dest);
@@ -49,6 +54,7 @@ public:
     virtual void onRoadChanged() {}
     virtual double getAcceleration() const { return 3.0; }
     virtual double getDeceleration() const { return 5.0; }
+    virtual bool canChangeLanes() const { return true; }
 
     double getCurrentSpeed() const { return currentSpeed; }
 
@@ -106,6 +112,7 @@ public:
 
 private:
     bool advanceToNextRoad();
+    void tryLaneChange(double freeFlowSpeedHint);
 };
 
 #endif
