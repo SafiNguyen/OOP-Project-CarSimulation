@@ -125,6 +125,30 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
         }
 
         drawRoadStrip(target, offsetA, offsetB, roadColor, totalWidth - 1.0f);
+
+        // Draw lane divider lines for multi-lane roads
+        if (laneCount > 1) {
+            dir /= length; // normalize direction
+            for (int i = 1; i < laneCount; ++i) {
+                // Offset from road center to lane boundary
+                const float laneBoundaryOffset = -totalWidth * 0.5f + static_cast<float>(i) * laneWidth;
+                const sf::Vector2f laneLineA = offsetA + norm * laneBoundaryOffset;
+                const sf::Vector2f laneLineB = offsetB + norm * laneBoundaryOffset;
+
+                // Draw dashed line
+                const float dashLength = 6.0f;
+                const float gapLength = 4.0f;
+                const float segmentLength = dashLength + gapLength;
+                float traveled = 0.0f;
+                while (traveled < length) {
+                    const float dashEnd = std::min(traveled + dashLength, length);
+                    const sf::Vector2f dashA = laneLineA + dir * traveled;
+                    const sf::Vector2f dashB = laneLineA + dir * dashEnd;
+                    drawRoadStrip(target, dashA, dashB, sf::Color(255, 255, 255, 100), 0.8f);
+                    traveled += segmentLength;
+                }
+            }
+        }
     }
 
     const float borderLeft = std::min_element(routePoints_.begin(), routePoints_.end(), [](const sf::Vector2f& lhs, const sf::Vector2f& rhs) {

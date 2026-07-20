@@ -70,6 +70,8 @@ public:
     void removeOutgoingRoad(Road* road);
     // Traffic light management 
     void registerIncomingLight(Road* road);
+    void unregisterIncomingLight(Road* road);
+    bool hasTrafficLights() const;
     TrafficLight* getLightForIncomingRoad(int roadId) const;
     TrafficLight* getLightForIncomingRoad(const Road* road) const;
     // Goi moi tick tu TrafficSimulator::update(dt)

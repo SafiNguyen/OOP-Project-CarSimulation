@@ -70,8 +70,8 @@ std::string Intersection::getIntersectionTypeLabel() const {
 void Intersection::addIncomingRoad(Road* road) {
     if (road!= nullptr) {
         incomingRoads.push_back(road);
-        registerIncomingLight(road);
-        rebuildPhaseGroups();
+        // Traffic lights are NOT auto-registered. Use registerIncomingLight()
+        // explicitly or through the debug console to add lights.
     }
 }
 
@@ -125,6 +125,16 @@ TrafficLight* Intersection::getLightForIncomingRoad(int roadId) const {
 TrafficLight* Intersection::getLightForIncomingRoad(const Road* road) const {
     if (road == nullptr) return nullptr;
     return getLightForIncomingRoad(road->getId());
+}
+
+void Intersection::unregisterIncomingLight(Road* road) {
+    if (road == nullptr) return;
+    trafficLights.erase(road->getId());
+    rebuildPhaseGroups();
+}
+
+bool Intersection::hasTrafficLights() const {
+    return !trafficLights.empty();
 }
 
 

@@ -147,7 +147,8 @@ void DebugConsole::draw(sf::RenderWindow& window,
         drawAccidentPanel(simulator);
         ImGui::Separator();
         drawAlgorithmPanel(simulator);
-
+        ImGui::Separator();
+        drawTrafficLightPanel();
         ImGui::EndChild();
     }
     ImGui::End();

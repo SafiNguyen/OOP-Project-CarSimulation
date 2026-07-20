@@ -128,6 +128,7 @@ private:
     void drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simulator);
     void drawAccidentPanel(std::unique_ptr<TrafficSimulator>& simulator);
     void drawAlgorithmPanel(std::unique_ptr<TrafficSimulator>& simulator);
+    void drawTrafficLightPanel();
     PathFindingStrategy* currentStrategy();
 
     Graph& graph_;
@@ -165,6 +166,9 @@ private:
     BFSStrategy bfsStrategy_;
     DijkstraStrategy dijkstraStrategy_;
     int selectedAlgorithmIdx_ = 2; // 0=BFS,1=Dijkstra,2=A*
+
+    // Traffic light panel state
+    int trafficLightIntersectionIdx_ = -1; // index into intersectionsSnapshot_
 
     // Cached dropdown data - only rebuilt when the graph's intersection/road
     // counts change (or onMapChanged() is called), not every frame.

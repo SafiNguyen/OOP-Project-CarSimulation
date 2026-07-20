@@ -16,67 +16,84 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                 continue;
             }
 
-            const sf::Vector2f point = getRoadEntryPoint(const_cast<Road*>(road), intersection);
             const sf::Vector2f intersectionPoint = worldToScreen(intersection->getX(), intersection->getY());
             const sf::Vector2f roadStart = worldToScreen(road->getStart()->getX(), road->getStart()->getY());
-            sf::Vector2f approachDirection = intersectionPoint - roadStart;
-            const float approachLength = std::sqrt(approachDirection.x * approachDirection.x + approachDirection.y * approachDirection.y);
+
+            // Compute approach direction (from road start towards intersection)
+            sf::Vector2f approachDir = intersectionPoint - roadStart;
+            const float approachLength = std::sqrt(approachDir.x * approachDir.x + approachDir.y * approachDir.y);
             if (approachLength > 0.01f) {
-                approachDirection /= approachLength;
+                approachDir /= approachLength;
             } else {
-                approachDirection = {0.0f, -1.0f};
+                approachDir = {0.0f, -1.0f};
             }
+
+            // Perpendicular to approach direction
             const sf::Vector2f approachNormal = roadNormal(roadStart, intersectionPoint);
+
+            // Compute road width and offset
             const int laneCount = std::max(1, road->getLaneCount());
-            const float laneSpacing = 4.5f;
-            const float laneBarLength = std::max(16.0f, static_cast<float>(laneCount - 1) * laneSpacing + 10.0f);
-            const sf::Vector2f laneIndicatorCenter = point + approachNormal * 12.0f - approachDirection * 16.0f;
-            const float laneIndicatorAngle = std::atan2(approachDirection.y, approachDirection.x) * 180.0f / 3.14159265f;
+            const float laneWidth = 10.0f;
+            const float totalWidth = static_cast<float>(laneCount) * laneWidth;
 
-            sf::RectangleShape laneBar({laneBarLength, 2.8f});
-            laneBar.setOrigin(laneBarLength * 0.5f, 1.4f);
-            laneBar.setPosition(laneIndicatorCenter);
-            laneBar.setRotation(laneIndicatorAngle);
-            laneBar.setFillColor(sf::Color(230, 230, 230, 200));
-            target.draw(laneBar);
-
-            const float laneStartOffset = -((laneCount - 1) * laneSpacing) * 0.5f;
-            for (int laneIndex = 0; laneIndex < laneCount; ++laneIndex) {
-                const float laneOffset = laneStartOffset + laneIndex * laneSpacing;
-                const sf::Vector2f markerPosition = laneIndicatorCenter + approachDirection * laneOffset;
-                sf::RectangleShape laneMarker({2.0f, 8.0f});
-                laneMarker.setOrigin(1.0f, 4.0f);
-                laneMarker.setPosition(markerPosition);
-                laneMarker.setRotation(laneIndicatorAngle + 90.0f);
-                laneMarker.setFillColor(sf::Color(40, 40, 40, 220));
-                target.draw(laneMarker);
+            bool hasReverse = false;
+            auto* endIntersection = road->getEnd();
+            auto* startIntersection = road->getStart();
+            if (endIntersection && startIntersection) {
+                for (Road* r : endIntersection->getOutgoingRoads()) {
+                    if (r->getEnd() == startIntersection) {
+                        hasReverse = true;
+                        break;
+                    }
+                }
             }
+            const float offsetAmount = hasReverse ? (totalWidth * 0.5f + 1.0f) : 0.0f;
 
-            sf::RectangleShape approachArrow({16.0f, 2.5f});
-            approachArrow.setOrigin(0.0f, 1.25f);
-            approachArrow.setPosition(point.x + approachDirection.x * 2.0f, point.y + approachDirection.y * 2.0f);
-            approachArrow.setRotation(laneIndicatorAngle);
-            approachArrow.setFillColor(sf::Color(255, 255, 255, 180));
-            target.draw(approachArrow);
+            // Stop line position: on the road, pulled back from intersection
+            const sf::Vector2f stopLineCenter = intersectionPoint - approachDir * 20.0f + approachNormal * offsetAmount;
 
-            sf::RectangleShape housing({12.0f, 28.0f});
-            housing.setOrigin(6.0f, 24.0f);
-            housing.setPosition(point);
+            const float approachAngle = std::atan2(approachDir.y, approachDir.x) * 180.0f / 3.14159265f;
+
+            // --- Stop line across the road ---
+            sf::RectangleShape stopLine({totalWidth, 2.0f});
+            stopLine.setOrigin(totalWidth * 0.5f, 1.0f);
+            stopLine.setPosition(stopLineCenter);
+            stopLine.setRotation(approachAngle + 90.0f);
+            stopLine.setFillColor(sf::Color(255, 255, 255, 160));
+            target.draw(stopLine);
+
+            // --- Traffic light housing: on the SIDE of the road ---
+            // Place it at the road edge, offset outward from the road center
+            const sf::Vector2f roadEdgePoint = stopLineCenter + approachNormal * (totalWidth * 0.5f + 4.0f);
+            const sf::Vector2f housingDir = approachNormal; // outward from road
+            const sf::Vector2f housingCenter = roadEdgePoint + housingDir * 12.0f;
+
+            const float housingAngle = std::atan2(housingDir.y, housingDir.x) * 180.0f / 3.14159265f;
+
+            // Housing background
+            sf::RectangleShape housing({28.0f, 12.0f});
+            housing.setOrigin(14.0f, 6.0f);
+            housing.setPosition(housingCenter);
+            housing.setRotation(housingAngle);
             housing.setFillColor(sf::Color(25, 25, 25, 235));
             housing.setOutlineThickness(1.0f);
             housing.setOutlineColor(sf::Color(90, 90, 90));
             target.draw(housing);
 
-            sf::RectangleShape pole({3.0f, 14.0f});
-            pole.setFillColor(sf::Color(40, 40, 40));
-            pole.setPosition(point.x - 1.5f, point.y - 14.0f);
+            // Pole connecting road edge to housing
+            sf::RectangleShape pole({12.0f, 2.5f});
+            pole.setOrigin(0.0f, 1.25f);
+            pole.setPosition(roadEdgePoint);
+            pole.setRotation(housingAngle);
+            pole.setFillColor(sf::Color(50, 50, 50));
             target.draw(pole);
 
+            // --- Lamps ---
             const LightState state = light->getState();
             const sf::Color offColor(55, 55, 55);
-            const sf::Color red = (state == LightState::RED) ? lightColor(LightState::RED) : offColor;
-            const sf::Color yellow = (state == LightState::YELLOW) ? lightColor(LightState::YELLOW) : offColor;
-            const sf::Color green = (state == LightState::GREEN) ? lightColor(LightState::GREEN) : offColor;
+            const sf::Color redColor = (state == LightState::RED) ? lightColor(LightState::RED) : offColor;
+            const sf::Color yellowColor = (state == LightState::YELLOW) ? lightColor(LightState::YELLOW) : offColor;
+            const sf::Color greenColor = (state == LightState::GREEN) ? lightColor(LightState::GREEN) : offColor;
 
             auto drawLamp = [&target](const sf::Vector2f& center, const sf::Color& color) {
                 sf::CircleShape lamp(3.5f);
@@ -88,9 +105,10 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                 target.draw(lamp);
             };
 
-            drawLamp({point.x, point.y - 19.0f}, red);
-            drawLamp({point.x, point.y - 11.0f}, yellow);
-            drawLamp({point.x, point.y - 3.0f}, green);
+            // Lamps along the housing direction: Red -> Yellow -> Green
+            drawLamp(housingCenter - housingDir * 8.0f, redColor);
+            drawLamp(housingCenter, yellowColor);
+            drawLamp(housingCenter + housingDir * 8.0f, greenColor);
         }
     }
 }
@@ -110,18 +128,13 @@ void VisualizationEngine::drawIntersectionNode(sf::RenderTarget& target, const I
         hub.setOutlineColor(sf::Color(110, 110, 110));
         target.draw(hub);
     } else {
-        sf::CircleShape hub(16.0f);
-        hub.setOrigin(16.0f, 16.0f);
-        hub.setPosition(point);
-        hub.setFillColor(sf::Color(85, 85, 85));
-        hub.setOutlineThickness(2.0f);
-        hub.setOutlineColor(sf::Color(210, 210, 210, 180));
-        target.draw(hub);
-
-        sf::CircleShape core(6.0f);
-        core.setOrigin(6.0f, 6.0f);
+        // Simple small white dot to mark intersection without cluttering the view
+        sf::CircleShape core(5.0f);
+        core.setOrigin(5.0f, 5.0f);
         core.setPosition(point);
-        core.setFillColor(sf::Color(230, 230, 230));
+        core.setFillColor(sf::Color(230, 230, 230, 200));
+        core.setOutlineThickness(1.0f);
+        core.setOutlineColor(sf::Color(255, 255, 255, 120));
         target.draw(core);
     }
 
@@ -148,7 +161,29 @@ sf::Vector2f VisualizationEngine::getRoadEntryPoint(const Road* road, const Inte
     }
     direction /= length;
     const sf::Vector2f normal = roadNormal(roadStart, intersectionPoint);
-    return intersectionPoint - direction * 18.0f + normal * 8.0f;
+
+    // Compute road offset the same way drawGraph does
+    const float laneWidth = 10.0f;
+    const int laneCount = std::max(1, road->getLaneCount());
+    const float totalWidth = static_cast<float>(laneCount) * laneWidth;
+
+    bool hasReverse = false;
+    auto* endIntersection = road->getEnd();
+    auto* startIntersection = road->getStart();
+    if (endIntersection && startIntersection) {
+        for (Road* r : endIntersection->getOutgoingRoads()) {
+            if (r->getEnd() == startIntersection) {
+                hasReverse = true;
+                break;
+            }
+        }
+    }
+
+    const float offsetAmount = hasReverse ? (totalWidth * 0.5f + 1.0f) : 0.0f;
+
+    // Position the entry point at the intersection end of the offset road centerline,
+    // pulled back along the direction by a small amount so it sits right at the road edge
+    return intersectionPoint - direction * 18.0f + normal * offsetAmount;
 }
 
 sf::Color VisualizationEngine::lightColor(LightState state) const {
