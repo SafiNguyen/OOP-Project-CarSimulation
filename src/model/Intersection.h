@@ -103,7 +103,7 @@ public:
 
     std::string toString() const;  
 
-    ~Intersection(); 
+    virtual ~Intersection(); 
 };
 
 #endif

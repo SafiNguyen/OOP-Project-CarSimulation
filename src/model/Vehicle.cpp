@@ -247,8 +247,7 @@ void Vehicle::update(double dt) {
         if (currentRoad != nullptr) {
             Intersection* nextIntersectionForLight = currentRoad->getEnd();
             if (nextIntersectionForLight != nullptr) {
-                TrafficLight* upcomingLight = nextIntersectionForLight->getLightForIncomingRoad(currentRoad);
-                bool lightRequiresStop = (upcomingLight != nullptr && upcomingLight->mustStop());
+                bool lightRequiresStop = mustStopForTrafficLight(nextIntersectionForLight);
                 bool boxRequiresStop = (reservedIntersection_ != nextIntersectionForLight)
                                        && nextIntersectionForLight->isFull();
 
@@ -324,7 +323,7 @@ void Vehicle::update(double dt) {
             break;
         }
 
-        double distanceThisTick = speed * remainingTime;
+        double distanceThisTick = speed * subDt;
         if (leader != nullptr) {
             const double maxAdvance = std::max(0.0, gapToLeader - minGap);
             distanceThisTick = std::min(distanceThisTick, maxAdvance);
