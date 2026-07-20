@@ -343,7 +343,7 @@ void Vehicle::update(double dt) {
         }
 
         if (projectedPos < currentRoad->getDistance()) {
-            progressOnCurrentRoad = projectedPos;n.
+            progressOnCurrentRoad = projectedPos;
             remainingTime -= subDt;
         } else {
             Intersection* nextIntersection = currentRoad->getEnd();
