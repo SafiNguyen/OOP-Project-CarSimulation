@@ -16,6 +16,8 @@ public:
     static constexpr double LANE_CHANGE_GAP_IMPROVEMENT_FACTOR = 1.3;
     static constexpr double LANE_CHANGE_REAR_SAFETY_TIME = 2.0;
     static constexpr double MAX_PHYSICS_SUBSTEP = 0.05;
+    static constexpr double YIELD_COOLDOWN_DURATION = 2.0;  
+    static constexpr double YIELD_SPEED_FACTOR = 0.4; 
 
 protected:
     int id;
@@ -40,6 +42,8 @@ protected:
     // intersection-transition animation finishes, or on destruction.
     Intersection* reservedIntersection_ = nullptr;
     double laneChangeCooldownTimer = 0.0;
+    bool yielding = false;              // yielding state for ambulance priority
+    double yieldCooldownTimer = 0.0;    
 
 public:
     Vehicle(int id, double speed, Intersection* start, Intersection* dest);
@@ -65,6 +69,13 @@ public:
     virtual void onPauseStarted() {}
     virtual bool updatePause(double dt) { return true; }
     virtual void update(double dt);
+    virtual double getYieldSpeedFactor() const { return YIELD_SPEED_FACTOR; }
+    virtual void notifyEmergencyApproaching() {
+        yielding = true;
+        yieldCooldownTimer = YIELD_COOLDOWN_DURATION; // refresh the cooldown timer whenever notified
+     }
+    bool isYielding() const { return yielding; }
+
     void setRoute(const std::vector<Road*>& route);
 
     int getId() const { return id; }

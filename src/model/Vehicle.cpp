@@ -232,6 +232,14 @@ void Vehicle::update(double dt) {
         }
     }
 
+    if (yielding) {
+        yieldCooldownTimer -= dt;
+        if (yieldCooldownTimer <= 0.0) {
+            yieldCooldownTimer = 0.0;
+            yielding = false;
+        }
+    }
+
     if (paused) {
         if (updatePause(dt)) {
             paused = false;
@@ -244,6 +252,13 @@ void Vehicle::update(double dt) {
     while (remainingTime > 0.0 && currentRoad != nullptr && !paused) {
         const double freeFlowSpeed = calculateCurrentSpeed();
         double targetSpeed = freeFlowSpeed;
+        const double freeFlowSpeed = calculateCurrentSpeed();
+        double targetSpeed = freeFlowSpeed;
+
+        // ambulance yielding constraints
+        if (yielding) {
+            targetSpeed = std::min(targetSpeed, freeFlowSpeed * getYieldSpeedFactor());
+        }
         if (currentRoad != nullptr) {
             Intersection* nextIntersectionForLight = currentRoad->getEnd();
             if (nextIntersectionForLight != nullptr) {

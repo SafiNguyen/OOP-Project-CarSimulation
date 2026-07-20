@@ -242,6 +242,23 @@ std::string Road::toString() const {
            ", Lanes: " + std::to_string(laneCount) + "]";
 }
 
+std::vector<Vehicle*> Road::getVehiclesInProgressRange(double fromProgress,
+                                                          double toProgress) const {
+    std::vector<Vehicle*> result;
+    if (toProgress <= fromProgress) {
+        return result;
+    }
+
+    for (const Lane& lane : lanes) {
+        for (Vehicle* v : lane.getVehicles()) {
+            double p = v->getProgressOnRoad();
+            if (p > fromProgress && p <= toProgress) {
+                result.push_back(v);
+            }
+        }
+    }
+    return result;
+}
 
 Road::~Road() {
 }

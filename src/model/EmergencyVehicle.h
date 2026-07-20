@@ -7,13 +7,13 @@
 
 class EmergencyVehicle : public Vehicle {
 public:
+    static constexpr double YIELD_LOOKAHEAD_DISTANCE = 60.0;
     EmergencyVehicle(int id, double speed, Intersection* start, Intersection* dest)
         : Vehicle(id, speed, start, dest) {}
 
     double calculateCurrentSpeed() const override {
         if (currentRoad == nullptr)   return 0.0;
         if (currentRoad->isBlocked()) return 0.0;
-
         return baseSpeed;
     }
 
@@ -30,6 +30,44 @@ public:
     double getHeight() const override { return 2.5; }  // metres — tall with equipment
     double getWeight() const override { return 3.5; }  // tonnes
     double getMinGap() const override { return 1.5; }
+    //ambulance yielding: ambulance will not yield to any vehicle
+    double getYieldSpeedFactor() const override { return 1.0; }
+    void notifyEmergencyApproaching() override { /* no-op: ambulance không nhường ai */ }
+
+    void update(double dt) override {
+        Vehicle::update(dt);
+        notifyVehiclesAhead();
+    }
+
+private:
+    void notifyVehiclesAhead() const {
+        Road* road = getCurrentRoad();
+        if (road == nullptr) {
+            return;
+        }
+
+        const double selfProgress = getProgressOnRoad();
+        const double remainingOnRoad = road->getDistance() - selfProgress;
+
+        for (Vehicle* v : road->getVehiclesInProgressRange(
+                 selfProgress, selfProgress + YIELD_LOOKAHEAD_DISTANCE)) {
+            if (v != this) {
+                v->notifyEmergencyApproaching();
+            }
+        }
+
+        if (remainingOnRoad < YIELD_LOOKAHEAD_DISTANCE) {
+            Road* next = getNextRoad();
+            if (next != nullptr) {
+                const double spillover = YIELD_LOOKAHEAD_DISTANCE - remainingOnRoad;
+                for (Vehicle* v : next->getVehiclesInProgressRange(0.0, spillover)) {
+                    if (v != this) {
+                        v->notifyEmergencyApproaching();
+                    }
+                }
+            }
+        }
+    }
 };
 
 #endif

@@ -77,6 +77,11 @@ public:
     void clearBusStops();
     const std::vector<double>& getBusStopPositions() const;
     double getNextBusStop(double fromPosition, double toPosition) const;
+
+    // ambulance yielding support
+    std::vector<Vehicle*> getVehiclesInProgressRange(double fromProgress,
+                                                       double toProgress) const;
+    
     
     std::string toString() const;
 
