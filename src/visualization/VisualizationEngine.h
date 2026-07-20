@@ -2,6 +2,7 @@
 #define VISUALIZATIONENGINE_H
 
 #include <SFML/Graphics.hpp>
+#include <cstdint>
 #include <vector>
 #include "model/TrafficLight.h"
 
@@ -41,6 +42,31 @@ private:
                        const sf::Vector2f& b,
                        const sf::Color& color,
                        float thickness) const;
+    // Mark the road's lane-fill rectangle (centreline `a` to `b` with
+    // `thickness`) into `bodyMask`, a row-major grid of `gridW * gridH`
+    // cells where each cell covers `cellSize * cellSize` screen pixels.
+    // Used by drawGraph to keep track of which screen pixels are already
+    // covered by some road's body so the border pass can skip them.
+    void rasterizeBodyToMask(const sf::Vector2f& a,
+                             const sf::Vector2f& b,
+                             float thickness,
+                             std::vector<uint8_t>& bodyMask,
+                             unsigned int gridW,
+                             unsigned int gridH,
+                             unsigned int cellSize) const;
+    // Like drawRoadStrip, but the border is drawn in 1px chunks and any
+    // chunk whose centre falls on a cell marked in `bodyMask` is skipped.
+    // This makes overlapping roads merge visually at intersections instead
+    // of stacking dark curb strips on top of each other.
+    void drawRoadBorderMasked(sf::RenderTarget& target,
+                              const sf::Vector2f& a,
+                              const sf::Vector2f& b,
+                              const sf::Color& color,
+                              float thickness,
+                              const std::vector<uint8_t>& bodyMask,
+                              unsigned int gridW,
+                              unsigned int gridH,
+                              unsigned int cellSize) const;
     void drawTrafficLights(sf::RenderTarget& target, const Graph& graph) const;
     void drawIntersectionNode(sf::RenderTarget& target, const Intersection* intersection) const;
     sf::Vector2f getRoadEntryPoint(const Road* road, const Intersection* intersection) const;

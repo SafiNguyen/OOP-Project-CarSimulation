@@ -80,6 +80,41 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
         return lhs->getId() < rhs->getId();
     });
 
+    // ---- Two-pass road rendering -----------------------------------------
+    // When two roads cross, drawing each road's dark curb/border on top of
+    // the other's lane fill produces a "+" of black at every intersection.
+    // To avoid that we:
+    //   (1) draw every road's body (the coloured lane fill) and rasterise
+    //       those same pixels into a CPU-side mask grid;
+    //   (2) draw every road's border in 1px chunks and skip any chunk that
+    //       lands on another road's body in the mask.
+    // The result: crossings look like a single continuous asphalt surface
+    // instead of a stack of overlapping dark strips.
+    constexpr unsigned int kBorderMaskCellSize = 2; // 2x2 px cells
+    const sf::Vector2u targetSize = target.getSize();
+    const unsigned int gridW = (targetSize.x + kBorderMaskCellSize - 1u) / kBorderMaskCellSize;
+    const unsigned int gridH = (targetSize.y + kBorderMaskCellSize - 1u) / kBorderMaskCellSize;
+    std::vector<uint8_t> bodyMask(static_cast<std::size_t>(gridW) * static_cast<std::size_t>(gridH), 0u);
+
+    // Pre-compute per-road geometry so the two passes don't recompute it.
+    struct RoadDraw {
+        sf::Vector2f offsetA;
+        sf::Vector2f offsetB;
+        sf::Vector2f norm;
+        sf::Vector2f dirUnit;
+        float length;
+        float totalWidth;
+        int laneCount;
+        bool isBridge;
+        bool isTunnel;
+        sf::Color bodyColor;
+        bool hasBorder;
+        sf::Color borderColor;
+        float borderWidth;
+    };
+    std::vector<RoadDraw> drawList;
+    drawList.reserve(roads.size());
+
     for (auto* road : roads) {
         auto* start = road->getStart();
         auto* end = road->getEnd();
@@ -111,44 +146,74 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
         const sf::Vector2f offsetA = a + norm * offsetAmount;
         const sf::Vector2f offsetB = b + norm * offsetAmount;
 
-        sf::Color roadColor;
-        if (road->isBridge()) {
-            roadColor = sf::Color(100, 149, 237);
-            drawRoadStrip(target, offsetA, offsetB, sf::Color(50, 50, 50), totalWidth + 4.0f);
-        } else if (road->isTunnel()) {
-            roadColor = sf::Color(40, 40, 40);
+        RoadDraw rd;
+        rd.offsetA = offsetA;
+        rd.offsetB = offsetB;
+        rd.norm = norm;
+        rd.length = length;
+        rd.totalWidth = totalWidth;
+        rd.laneCount = laneCount;
+        rd.isBridge = road->isBridge();
+        rd.isTunnel = road->isTunnel();
+        rd.dirUnit = {dir.x / length, dir.y / length};
+
+        if (rd.isBridge) {
+            rd.bodyColor = sf::Color(100, 149, 237);
+            rd.hasBorder = true;
+            rd.borderColor = sf::Color(50, 50, 50);
+            rd.borderWidth = totalWidth + 4.0f;
+        } else if (rd.isTunnel) {
+            rd.bodyColor = sf::Color(40, 40, 40);
+            rd.hasBorder = false;
+            rd.borderColor = sf::Color::Transparent;
+            rd.borderWidth = 0.0f;
         } else {
-            drawRoadStrip(target, offsetA, offsetB, sf::Color(10, 10, 10, 220), totalWidth + 3.0f);
-            roadColor = heatMapEnabled_
+            rd.bodyColor = heatMapEnabled_
                 ? colorForRoad(road)
                 : (road->isBlocked() ? sf::Color(180, 40, 40) : sf::Color(110, 110, 110));
+            rd.hasBorder = true;
+            rd.borderColor = sf::Color(10, 10, 10, 220);
+            rd.borderWidth = totalWidth + 3.0f;
         }
 
-        drawRoadStrip(target, offsetA, offsetB, roadColor, totalWidth - 1.0f);
+        drawList.push_back(rd);
+    }
 
-        // Draw lane divider lines for multi-lane roads
-        if (laneCount > 1) {
-            dir /= length; // normalize direction
-            for (int i = 1; i < laneCount; ++i) {
-                // Offset from road center to lane boundary
-                const float laneBoundaryOffset = -totalWidth * 0.5f + static_cast<float>(i) * laneWidth;
-                const sf::Vector2f laneLineA = offsetA + norm * laneBoundaryOffset;
-                const sf::Vector2f laneLineB = offsetB + norm * laneBoundaryOffset;
+    // Pass 1: bodies + lane markers + mask population.
+    for (const RoadDraw& rd : drawList) {
+        drawRoadStrip(target, rd.offsetA, rd.offsetB, rd.bodyColor, rd.totalWidth - 1.0f);
+        rasterizeBodyToMask(rd.offsetA, rd.offsetB, rd.totalWidth - 1.0f,
+                            bodyMask, gridW, gridH, kBorderMaskCellSize);
 
-                // Draw dashed line
+        // Lane divider lines for multi-lane roads.
+        if (rd.laneCount > 1) {
+            for (int i = 1; i < rd.laneCount; ++i) {
+                const float laneBoundaryOffset = -rd.totalWidth * 0.5f + static_cast<float>(i) * 10.0f;
+                const sf::Vector2f laneLineA = rd.offsetA + rd.norm * laneBoundaryOffset;
+                const sf::Vector2f laneLineB = rd.offsetB + rd.norm * laneBoundaryOffset;
+
                 const float dashLength = 6.0f;
                 const float gapLength = 4.0f;
                 const float segmentLength = dashLength + gapLength;
                 float traveled = 0.0f;
-                while (traveled < length) {
-                    const float dashEnd = std::min(traveled + dashLength, length);
-                    const sf::Vector2f dashA = laneLineA + dir * traveled;
-                    const sf::Vector2f dashB = laneLineA + dir * dashEnd;
+                while (traveled < rd.length) {
+                    const float dashEnd = std::min(traveled + dashLength, rd.length);
+                    const sf::Vector2f dashA = laneLineA + rd.dirUnit * traveled;
+                    const sf::Vector2f dashB = laneLineA + rd.dirUnit * dashEnd;
                     drawRoadStrip(target, dashA, dashB, sf::Color(255, 255, 255, 100), 0.8f);
                     traveled += segmentLength;
                 }
             }
         }
+    }
+
+    // Pass 2: borders, skipping any chunk that lands on another road's body.
+    for (const RoadDraw& rd : drawList) {
+        if (!rd.hasBorder || rd.borderWidth <= 0.0f) {
+            continue;
+        }
+        drawRoadBorderMasked(target, rd.offsetA, rd.offsetB, rd.borderColor, rd.borderWidth,
+                             bodyMask, gridW, gridH, kBorderMaskCellSize);
     }
 
     const float borderLeft = std::min_element(routePoints_.begin(), routePoints_.end(), [](const sf::Vector2f& lhs, const sf::Vector2f& rhs) {

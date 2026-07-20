@@ -140,3 +140,12 @@ target_link_libraries(test_visualization PRIVATE
     sfml-system
 )
 add_test(NAME visualization_test COMMAND test_visualization)
+
+# TEMPORARY: smoke test for the border-fix. Remove before commit.
+add_executable(test_crossing_render tests/test_crossing_render.cpp)
+target_link_libraries(test_crossing_render PRIVATE
+    urban_core
+    sfml-graphics
+    sfml-window
+    sfml-system
+)
