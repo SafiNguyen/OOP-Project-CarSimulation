@@ -46,7 +46,8 @@ void VisualizationEngine::prepare(const Graph& graph) {
             maxX_ = std::max(maxX_, x);
             minY_ = std::min(minY_, y);
             maxY_ = std::max(maxY_, y);
-        }
+     }
+
     } else {
         minX_ = 0.0;
         maxX_ = 100.0;
@@ -80,16 +81,6 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
         return lhs->getId() < rhs->getId();
     });
 
-    // ---- Two-pass road rendering -----------------------------------------
-    // When two roads cross, drawing each road's dark curb/border on top of
-    // the other's lane fill produces a "+" of black at every intersection.
-    // To avoid that we:
-    //   (1) draw every road's body (the coloured lane fill) and rasterise
-    //       those same pixels into a CPU-side mask grid;
-    //   (2) draw every road's border in 1px chunks and skip any chunk that
-    //       lands on another road's body in the mask.
-    // The result: crossings look like a single continuous asphalt surface
-    // instead of a stack of overlapping dark strips.
     constexpr unsigned int kBorderMaskCellSize = 2; // 2x2 px cells
     const sf::Vector2u targetSize = target.getSize();
     const unsigned int gridW = (targetSize.x + kBorderMaskCellSize - 1u) / kBorderMaskCellSize;
@@ -133,19 +124,8 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
             continue;
         }
         const sf::Vector2f norm = roadNormal(a, b);
-
-        bool hasReverse = false;
-        for (Road* r : end->getOutgoingRoads()) {
-            if (r->getEnd() == start) {
-                hasReverse = true;
-                break;
-            }
-        }
-
-        const float offsetAmount = hasReverse ? (totalWidth * 0.5f + 1.0f) : 0.0f;
-        const sf::Vector2f offsetA = a + norm * offsetAmount;
-        const sf::Vector2f offsetB = b + norm * offsetAmount;
-
+        const sf::Vector2f offsetA = getRoadEntryPoint(road, start);
+        const sf::Vector2f offsetB = getRoadEntryPoint(road, end);
         RoadDraw rd;
         rd.offsetA = offsetA;
         rd.offsetB = offsetB;

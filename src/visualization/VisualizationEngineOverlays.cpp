@@ -48,9 +48,11 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                 }
             }
             const float offsetAmount = hasReverse ? (totalWidth * 0.5f + 1.0f) : 0.0f;
+            const float boxHalfExtent = getIntersectionBoxHalfExtent(intersection);
 
-            // Stop line position: on the road, pulled back from intersection
-            const sf::Vector2f stopLineCenter = intersectionPoint - approachDir * 20.0f + approachNormal * offsetAmount;
+            // Stop line position: pulled back to the edge of the intersection box
+            // so the road and junction read as one connected shape.
+            const sf::Vector2f stopLineCenter = intersectionPoint - approachDir * (boxHalfExtent + 4.0f) + approachNormal * offsetAmount;
 
             const float approachAngle = std::atan2(approachDir.y, approachDir.x) * 180.0f / 3.14159265f;
 
@@ -128,13 +130,13 @@ void VisualizationEngine::drawIntersectionNode(sf::RenderTarget& target, const I
         hub.setOutlineColor(sf::Color(110, 110, 110));
         target.draw(hub);
     } else {
-        // Simple small white dot to mark intersection without cluttering the view
-        sf::CircleShape core(5.0f);
-        core.setOrigin(5.0f, 5.0f);
+        const float halfExtent = getIntersectionBoxHalfExtent(intersection);
+
+        sf::RectangleShape core({halfExtent * 2.0f, halfExtent * 2.0f});
+        core.setOrigin(halfExtent, halfExtent);
         core.setPosition(point);
-        core.setFillColor(sf::Color(230, 230, 230, 200));
-        core.setOutlineThickness(1.0f);
-        core.setOutlineColor(sf::Color(255, 255, 255, 120));
+        core.setFillColor(getIntersectionBoxColor(intersection));
+        core.setOutlineThickness(0.0f);
         target.draw(core);
     }
 
@@ -152,15 +154,31 @@ sf::Vector2f VisualizationEngine::getRoadEntryPoint(const Road* road, const Inte
         return {};
     }
 
+    const Intersection* start = road->getStart();
+    const Intersection* end = road->getEnd();
+    if (start == nullptr || end == nullptr) {
+        return worldToScreen(intersection->getX(), intersection->getY());
+    }
+
     const sf::Vector2f intersectionPoint = worldToScreen(intersection->getX(), intersection->getY());
-    const sf::Vector2f roadStart = worldToScreen(road->getStart()->getX(), road->getStart()->getY());
-    sf::Vector2f direction = intersectionPoint - roadStart;
-    const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
+    const sf::Vector2f roadStart = worldToScreen(start->getX(), start->getY());
+    const sf::Vector2f roadEnd = worldToScreen(end->getX(), end->getY());
+
+    sf::Vector2f towardOtherEnd;
+    if (intersection == start) {
+        towardOtherEnd = roadEnd - roadStart;
+    } else if (intersection == end) {
+        towardOtherEnd = roadStart - roadEnd;
+    } else {
+        towardOtherEnd = roadEnd - roadStart;
+    }
+
+    const float length = std::sqrt(towardOtherEnd.x * towardOtherEnd.x + towardOtherEnd.y * towardOtherEnd.y);
     if (length <= 0.01f) {
         return intersectionPoint;
     }
-    direction /= length;
-    const sf::Vector2f normal = roadNormal(roadStart, intersectionPoint);
+    towardOtherEnd /= length;
+    const sf::Vector2f normal = roadNormal(roadStart, roadEnd);
 
     // Compute road offset the same way drawGraph does
     const float laneWidth = 10.0f;
@@ -180,10 +198,97 @@ sf::Vector2f VisualizationEngine::getRoadEntryPoint(const Road* road, const Inte
     }
 
     const float offsetAmount = hasReverse ? (totalWidth * 0.5f + 1.0f) : 0.0f;
+    const float boxHalfExtent = getIntersectionBoxHalfExtent(intersection);
+    const float inset = std::min(boxHalfExtent, length * 0.5f);
 
-    // Position the entry point at the intersection end of the offset road centerline,
-    // pulled back along the direction by a small amount so it sits right at the road edge
-    return intersectionPoint - direction * 18.0f + normal * offsetAmount;
+    // Position the entry point at the edge of the intersection box, aligned
+    // with the road's offset centerline.
+    return intersectionPoint + towardOtherEnd * inset + normal * offsetAmount;
+}
+
+float VisualizationEngine::getIntersectionBoxHalfExtent(const Intersection* intersection) const {
+    if (intersection == nullptr) {
+        return 12.0f;
+    }
+
+    if (intersection->isRoundabout()) {
+        return 20.0f;
+    }
+
+    const auto collectMaxRoadWidth = [](const std::vector<Road*>& roads) {
+        float maxWidth = 0.0f;
+        for (const auto* road : roads) {
+            if (road == nullptr) {
+                continue;
+            }
+            const int laneCount = std::max(1, road->getLaneCount());
+            maxWidth = std::max(maxWidth, static_cast<float>(laneCount) * 10.0f);
+        }
+        return maxWidth;
+    };
+
+    const float maxWidth = std::max(collectMaxRoadWidth(intersection->getIncomingRoads()),
+                                     collectMaxRoadWidth(intersection->getOutgoingRoads()));
+    float halfExtent = std::max(14.0f, maxWidth * 0.5f + 8.0f);
+
+    constexpr float kMaxShareOfRoad = 0.35f;
+    float shortestRoadLength = -1.0f;
+
+    const auto trackShortest = [&](const std::vector<Road*>& roads) {
+        for (const Road* road : roads) {
+            if (road == nullptr || road->getStart() == nullptr || road->getEnd() == nullptr) {
+                continue;
+            }
+            const sf::Vector2f a = worldToScreen(road->getStart()->getX(), road->getStart()->getY());
+            const sf::Vector2f b = worldToScreen(road->getEnd()->getX(), road->getEnd()->getY());
+            const float len = distanceBetween(a, b);
+            if (shortestRoadLength < 0.0f || len < shortestRoadLength) {
+                shortestRoadLength = len;
+            }
+        }
+    };
+    trackShortest(intersection->getIncomingRoads());
+    trackShortest(intersection->getOutgoingRoads());
+
+    if (shortestRoadLength >= 0.0f) {
+        halfExtent = std::min(halfExtent, shortestRoadLength * kMaxShareOfRoad);
+    }
+
+    return std::max(6.0f, halfExtent); 
+}
+
+sf::Color VisualizationEngine::getIntersectionBoxColor(const Intersection* intersection) const {
+    const sf::Color fallbackGray(110, 110, 110);
+    if (intersection == nullptr) {
+        return fallbackGray;
+    }
+
+    int r = 0;
+    int g = 0;
+    int b = 0;
+    int count = 0;
+
+    const auto accumulate = [&](const std::vector<Road*>& roads) {
+        for (const Road* road : roads) {
+            if (road == nullptr || road->isBridge() || road->isTunnel()) {
+                continue; // these have their own distinct colors, not congestion-based
+            }
+            const sf::Color c = heatMapEnabled_ ? colorForRoad(road) : sf::Color(110, 110, 110);
+            r += c.r;
+            g += c.g;
+            b += c.b;
+            ++count;
+        }
+    };
+    accumulate(intersection->getIncomingRoads());
+    accumulate(intersection->getOutgoingRoads());
+
+    if (count == 0) {
+        return fallbackGray;
+    }
+    return sf::Color(static_cast<sf::Uint8>(r / count),
+                      static_cast<sf::Uint8>(g / count),
+                      static_cast<sf::Uint8>(b / count));
 }
 
 sf::Color VisualizationEngine::lightColor(LightState state) const {

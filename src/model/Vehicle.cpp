@@ -205,7 +205,7 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
 void Vehicle::tryYieldLaneChange() {
     if (currentRoad == nullptr || !canChangeLanes()) return;
     if (currentRoad->getLaneCount() <= 1) return;
-    if (emergencyLaneToAvoid_ < 0 || currentLaneIndex != emergencyLaneToAvoid_) return;
+    if (emergencyLaneToAvoid < 0 || currentLaneIndex != emergencyLaneToAvoid) return;
 
     const double minGap = getMinGap();
     int bestLane = -1;
