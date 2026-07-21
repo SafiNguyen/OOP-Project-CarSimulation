@@ -23,27 +23,37 @@ VehicleSprite::VehicleSprite(Vehicle* v, const VisualizationEngine* eng)
     setupShape();
 }
 
+float scale  = 0.55;
+
 void VehicleSprite::setupShape() {
     switch (vehicleType) {
     case Type::CAR:
-        shape.setSize({12.0f, 6.0f});
+        shape.setSize({12.0f * scale, 6.0f * scale});
         shape.setFillColor(sf::Color(50, 150, 255));
-        shape.setOrigin(6.0f, 3.0f);
+        shape.setOrigin(6.0f * scale, 3.0f * scale);
+        shape.setOutlineThickness(1.0f * scale);
+        shape.setOutlineColor(sf::Color::Black);
         break;
     case Type::BUS:
-        shape.setSize({20.0f, 8.0f});
-        shape.setFillColor(sf::Color(50, 200, 50));
-        shape.setOrigin(10.0f, 4.0f);
+        shape.setSize({20.0f* scale, 8.0f* scale});
+        shape.setFillColor(sf::Color(200, 162, 50));
+        shape.setOrigin(10.0f* scale, 4.0f* scale);
+        shape.setOutlineThickness(1.0f * scale);
+        shape.setOutlineColor(sf::Color::Black);
         break;
     case Type::EMERGENCY:
-        shape.setSize({14.0f, 7.0f});
+        shape.setSize({14.0f* scale, 7.0f * scale});
         shape.setFillColor(sf::Color::Red);
-        shape.setOrigin(7.0f, 3.5f);
+        shape.setOrigin(7.0f* scale, 3.5f* scale);
+        shape.setOutlineThickness(1.0f * scale);
+        shape.setOutlineColor(sf::Color::Black);
         break;
     case Type::MOTORBIKE:
-        bikeShape.setRadius(3.0f);
+        bikeShape.setRadius(3.0f* scale);
         bikeShape.setFillColor(sf::Color(255, 200, 0));
-        bikeShape.setOrigin(3.0f, 3.0f);
+        bikeShape.setOrigin(3.0f* scale, 3.0f* scale);
+        bikeShape.setOutlineThickness(1.0f * scale);
+        bikeShape.setOutlineColor(sf::Color::Black);
         break;
     }
 }
