@@ -1,36 +1,15 @@
 {
   "intersections": [
-    { "id": 1, "x": 300.0, "y": 500.0 },
-    { "id": 2, "x": 600.0, "y": 200.0 },
-    { "id": 3, "x": 900.0, "y": 500.0 }
+    { "id": 1, "x": 55.0, "y": 90.0 },
+    { "id": 2, "x": 16.0, "y": 70.0 },
+    { "id": 3, "x": 84.0, "y": 20.0 }
   ],
   "roads": [
-    {
-      "id": 101,
-      "start": 1,
-      "end": 2,
-      "distance": 150.0,
-      "speedLimit": 40.0,
-      "lanes": 1,
-      "twoWay": true
-    },
-    {
-      "id": 102,
-      "start": 2,
-      "end": 3,
-      "distance": 150.0,
-      "speedLimit": 40.0,
-      "lanes": 1,
-      "twoWay": true
-    },
-    {
-      "id": 103,
-      "start": 1,
-      "end": 3,
-      "distance": 400.0,
-      "speedLimit": 40.0,
-      "lanes": 1,
-      "twoWay": true
-    }
+    { "id": 101, "start": 1, "end": 2, "distance": 16.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 102, "start": 2, "end": 1, "distance": 16.0, "speedLimit": 50.0, "lanes": 2 },
+
+    { "id": 103, "start": 3, "end": 2, "distance": 37.0, "speedLimit": 50.0, "lanes": 2 },
+
+    { "id": 105, "start": 1, "end": 3, "distance": 32.0, "speedLimit": 50.0, "lanes": 2 }
   ]
 }

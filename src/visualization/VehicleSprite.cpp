@@ -86,7 +86,7 @@ sf::Vector2f VehicleSprite::laneOffset(const Road* road, const sf::Vector2f& bas
     const sf::Vector2f norm(-dir.y / length, dir.x / length);
     const float laneWidth = 10.0f;
     const int laneCount = road->getLaneCount();
-    const int laneIndex = vehicle != nullptr ? vehicle->getId() % laneCount : 0;
+    const int laneIndex = vehicle != nullptr ? vehicle->getCurrentLaneIndex() : 0;
 
     bool hasReverse = false;
     for (Road* r : end->getOutgoingRoads()) {
@@ -97,7 +97,11 @@ sf::Vector2f VehicleSprite::laneOffset(const Road* road, const sf::Vector2f& bas
     }
 
     if (hasReverse) {
-        const float totalOffset = 1.0f + laneIndex * laneWidth + laneWidth * 0.5f;
+        // rd.offsetAmount in VisualizationEngine: totalWidth * 0.5f + 1.0f
+        // then the lane is offset by (-totalWidth * 0.5f + laneIndex * 10.0f + 5.0f)
+        // total offset from median = (totalWidth * 0.5f + 1.0f) + (-totalWidth * 0.5f + laneIndex * 10.0f + 5.0f)
+        //                          = 1.0f + laneIndex * 10.0f + 5.0f = 6.0f + laneIndex * 10.0f
+        const float totalOffset = 6.0f + laneIndex * laneWidth;
         return basePosition + norm * totalOffset;
     }
 

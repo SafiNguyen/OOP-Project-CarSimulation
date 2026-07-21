@@ -11,6 +11,7 @@ class Lane {
 private:
     int laneIndex; 
     double capacity;
+    bool blocked;
     std::vector<Vehicle*> vehicles;
 
 public:
@@ -22,6 +23,10 @@ public:
     void removeVehicle(Vehicle* v);
     int getVehicleCount() const;
     const std::vector<Vehicle*>& getVehicles() const;
+
+    bool isBlocked() const;
+    void block();
+    void unblock();
     
     ~Lane();
 };

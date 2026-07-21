@@ -16,7 +16,6 @@ private:
     double distance;  //met (m)
     double speedLimit;  // m/s
     double congestionLevel;
-    bool blocked; // accident status
 
     int laneCount;
     std::vector<Lane> lanes;
@@ -43,6 +42,7 @@ public:
     double getCongestionLevel() const;
     double getDynamicCongestionLevel() const;
     bool isBlocked() const;
+    bool hasBlockedLane() const;
     virtual bool isBridge() const { return false; }
     virtual bool isTunnel() const { return false; }
 
@@ -72,6 +72,9 @@ public:
     void updateCongestionLevel(double newLevel);
     void blockRoad();
     void unblockRoad();
+    void blockLane(int laneIndex);
+    void unblockLane(int laneIndex);
+    void addLanes(int count);
 
     void addBusStop(double position);
     void clearBusStops();

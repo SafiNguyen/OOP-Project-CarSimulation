@@ -13,7 +13,7 @@ public:
 
     double calculateCurrentSpeed() const override {
         if (currentRoad == nullptr)   return 0.0;
-        if (currentRoad->isBlocked()) return 0.0;
+        if (currentRoad->getLane(currentLaneIndex).isBlocked()) return 0.0;
 
         double maxAllowed = std::min(baseSpeed, currentRoad->getSpeedLimit());
         return maxAllowed / currentRoad->getCongestionLevel();

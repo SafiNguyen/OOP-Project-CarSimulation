@@ -34,7 +34,7 @@ public:
     Road* getRoad(int id) const;
     
     // --- Graph Functions ---
-    void updateRoadCondition(int roadId, double congestionLevel, bool blocked);
+    void updateRoadCondition(int roadId, double congestionLevel, bool blocked, int laneIndex = -1);
     std::vector<Road*> getConnectedRoads(int intersectionId) const;
 
     // Accessors for visualization/testing

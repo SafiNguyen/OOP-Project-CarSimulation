@@ -14,8 +14,7 @@ Road::Road(int id, const std::string& name, Intersection* start, Intersection* e
     } else {
         this->congestionLevel = congestionLevel;
     }    
-    this->blocked = false; 
-    lanes.reserve(this -> laneCount);
+    lanes.reserve(this->laneCount);
     for (int i = 0; i < this->laneCount; ++i) {
         lanes.emplace_back(i);
     }
@@ -42,7 +41,21 @@ double Road::getDynamicCongestionLevel() const {
     return congestionLevel * (1.0 + occupancy);
 }
 
-bool Road::isBlocked() const { return blocked; }
+bool Road::isBlocked() const {
+    if (lanes.empty()) return false;
+    for (const Lane& lane : lanes) {
+        if (!lane.isBlocked()) return false;
+    }
+    return true; // All lanes blocked
+}
+
+bool Road::hasBlockedLane() const {
+    if (lanes.empty()) return false;
+    for (const Lane& lane : lanes) {
+        if (lane.isBlocked()) return true;
+    }
+    return false;
+}
 int Road::getLaneCount() const { return laneCount; }
  
 const std::vector<Lane>& Road::getLanes() const { return lanes; }
@@ -96,8 +109,8 @@ Vehicle* Road::findLeader(int laneIndex, const Vehicle* self) const {
             continue;
         }
         const double candidateProgress = candidate->getProgressOnRoad();
-        // Only consider vehicles strictly ahead of self on this road.
-        if (candidateProgress > selfProgress && candidateProgress < bestProgress) {
+        // Only consider vehicles strictly ahead of self on this road, or use ID for tie-break if overlapping.
+        if ((candidateProgress > selfProgress || (candidateProgress == selfProgress && candidate->getId() < self->getId())) && candidateProgress < bestProgress) {
             bestProgress = candidateProgress;
             leader = candidate;
         }
@@ -122,8 +135,8 @@ Vehicle* Road::findFollower(int laneIndex, const Vehicle* self) const {
             continue;
         }
         const double candidateProgress = candidate->getProgressOnRoad();
-        // Only consider vehicles strictly behind self on this road.
-        if (candidateProgress < selfProgress && candidateProgress > bestProgress) {
+        // Only consider vehicles strictly behind self on this road, or use ID for tie-break if overlapping.
+        if ((candidateProgress < selfProgress || (candidateProgress == selfProgress && candidate->getId() > self->getId())) && candidateProgress > bestProgress) {
             bestProgress = candidateProgress;
             follower = candidate;
         }
@@ -153,10 +166,11 @@ Vehicle* Road::getFirstVehicleInLane(int laneIndex) const {
 }
 
 double Road::getTravelTime() const {
-    if (blocked) {
+    if (isBlocked()) {
         return std::numeric_limits<double>::infinity(); 
     }
-    return distance / (speedLimit / getDynamicCongestionLevel()); 
+    double time = distance / (speedLimit / getDynamicCongestionLevel()); 
+    return time;
 }
 
 double Road::getTravelCost() const {
@@ -172,11 +186,33 @@ void Road::updateCongestionLevel(double newLevel) {
 }
 
 void Road::blockRoad() {
-    this->blocked = true;
+    for (Lane& lane : lanes) lane.block();
 }
 
 void Road::unblockRoad() {
-    this->blocked = false;
+    for (Lane& lane : lanes) lane.unblock();
+}
+
+void Road::blockLane(int laneIndex) {
+    if (laneIndex >= 0 && laneIndex < laneCount) {
+        lanes[laneIndex].block();
+    }
+}
+
+void Road::unblockLane(int laneIndex) {
+    if (laneIndex >= 0 && laneIndex < laneCount) {
+        lanes[laneIndex].unblock();
+    }
+}
+
+void Road::addLanes(int count) {
+    if (count <= 0) return;
+    int oldLaneCount = laneCount;
+    laneCount += count;
+    lanes.reserve(laneCount);
+    for (int i = 0; i < count; ++i) {
+        lanes.emplace_back(oldLaneCount + i);
+    }
 }
 
 void Road::addBusStop(double position) {
@@ -222,7 +258,7 @@ double Road::getNextBusStop(double fromPosition, double toPosition) const {
 
 
 std::string Road::toString() const {
-    std::string blockStatus = blocked ? "true" : "false";
+    std::string blockStatus = isBlocked() ? "true" : "false";
     
     std::string stops = "[";
     for (size_t i = 0; i < busStopPositions.size(); ++i) {

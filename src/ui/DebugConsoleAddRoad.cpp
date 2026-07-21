@@ -70,20 +70,54 @@ void DebugConsole::drawAddRoadPanel(Graph& graph, VisualizationEngine& visualiza
         } else if (start == end) {
             addRoadMessage_ = "Start and end must be different intersections.";
         } else {
-            const double distance = addRoadAutoDistance_
-                ? graph.calculateDistance(start->getId(), end->getId())
-                : static_cast<double>(addRoadDistance_);
-            const int newId = nextFreeRoadId(graph);
-            Road* road = new Road(newId, "Custom Road", start, end, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
-            graph.addRoad(road);
-            if (addRoadTwoWay_) {
-                Road* revRoad = new Road(-newId, "Custom Road", end, start, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
-                graph.addRoad(revRoad);
+            bool foundDuplicate = false;
+            for (Road* existingRoad : graph.getAllRoads()) {
+                if (existingRoad->getStart()->getId() == start->getId() &&
+                    existingRoad->getEnd()->getId() == end->getId()) {
+                    existingRoad->addLanes(addRoadLanes_);
+                    addRoadMessage_ = "Road already exists. Added " + std::to_string(addRoadLanes_) + " lanes to it.";
+                    foundDuplicate = true;
+                    if (addRoadTwoWay_) {
+                        bool foundReverse = false;
+                        for (Road* rev : graph.getAllRoads()) {
+                            if (rev->getStart()->getId() == end->getId() && rev->getEnd()->getId() == start->getId()) {
+                                rev->addLanes(addRoadLanes_);
+                                foundReverse = true;
+                                break;
+                            }
+                        }
+                        if (!foundReverse) {
+                            const double distance = addRoadAutoDistance_
+                                ? graph.calculateDistance(start->getId(), end->getId())
+                                : static_cast<double>(addRoadDistance_);
+                            const int newId = nextFreeRoadId(graph);
+                            Road* revRoad = new Road(-newId, "Custom Road", end, start, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
+                            graph.addRoad(revRoad);
+                            visualization.prepare(graph);
+                            snapshotDirty_ = true;
+                        }
+                        addRoadMessage_ += " (Two-way updated)";
+                    }
+                    break;
+                }
             }
-            visualization.prepare(graph);
-            snapshotDirty_ = true;
-            addRoadMessage_ = "Road #" + std::to_string(newId) + " created ("
-                + std::to_string(start->getId()) + " -> " + std::to_string(end->getId()) + ").";
+
+            if (!foundDuplicate) {
+                const double distance = addRoadAutoDistance_
+                    ? graph.calculateDistance(start->getId(), end->getId())
+                    : static_cast<double>(addRoadDistance_);
+                const int newId = nextFreeRoadId(graph);
+                Road* road = new Road(newId, "Custom Road", start, end, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
+                graph.addRoad(road);
+                if (addRoadTwoWay_) {
+                    Road* revRoad = new Road(-newId, "Custom Road", end, start, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
+                    graph.addRoad(revRoad);
+                }
+                visualization.prepare(graph);
+                snapshotDirty_ = true;
+                addRoadMessage_ = "Road #" + std::to_string(newId) + " created ("
+                    + std::to_string(start->getId()) + " -> " + std::to_string(end->getId()) + ").";
+            }
         }
     }
     if (!addRoadMessage_.empty()) {

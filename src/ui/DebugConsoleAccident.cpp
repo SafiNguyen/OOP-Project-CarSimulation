@@ -11,9 +11,12 @@
 #include "simulation/TrafficSimulator.h"
 
 void DebugConsole::drawAccidentPanel(std::unique_ptr<TrafficSimulator>& simulator) {
-    if (!ImGui::TreeNodeEx("Trigger Accident", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (!ImGui::TreeNodeEx("Trigger Event", ImGuiTreeNodeFlags_DefaultOpen)) {
         return;
     }
+
+    const char* eventTypeNames[3] = { "Accident (Block Lane)", "Congestion", "Road Closure (Block All Lanes)" };
+    ImGui::Combo("Event Type", &eventTypeIdx_, eventTypeNames, 3);
 
     std::string previewRoad = "Random road";
     if (accidentRoadIdx_ >= 0 && accidentRoadIdx_ < static_cast<int>(roadsSnapshot_.size())) {
@@ -37,18 +40,41 @@ void DebugConsole::drawAccidentPanel(std::unique_ptr<TrafficSimulator>& simulato
     }
     ImGui::InputFloat("Duration (s)", &accidentDuration_);
     accidentDuration_ = std::max(1.0f, accidentDuration_);
+    
+    if (eventTypeIdx_ == 0) {
+        ImGui::InputInt("Lane Index (-1=Random)", &accidentLaneIdx_);
+        accidentLaneIdx_ = std::max(-1, accidentLaneIdx_);
+    }
+    
+    if (eventTypeIdx_ == 1) { // Congestion
+        ImGui::InputFloat("Severity", &accidentSeverity_);
+        accidentSeverity_ = std::max(1.1f, accidentSeverity_);
+    }
 
-    if (ImGui::Button("Trigger Accident")) {
+    if (ImGui::Button("Trigger Event")) {
         if (simulator && !roadsSnapshot_.empty()) {
             Road* r = nullptr;
+            std::mt19937 rng(std::random_device{}());
             if (accidentRoadIdx_ >= 0 && accidentRoadIdx_ < static_cast<int>(roadsSnapshot_.size())) {
                 r = roadsSnapshot_[accidentRoadIdx_];
             } else {
-                std::mt19937 rng(std::random_device{}());
                 std::uniform_int_distribution<size_t> dist(0, roadsSnapshot_.size() - 1);
                 r = roadsSnapshot_[dist(rng)];
             }
-            auto te = std::make_unique<AccidentEvent>(r->getId(), static_cast<double>(accidentDuration_));
+            
+            std::unique_ptr<TrafficEvent> te;
+            if (eventTypeIdx_ == 0) { // Accident
+                int targetLane = accidentLaneIdx_;
+                if (targetLane < 0 || targetLane >= r->getLaneCount()) {
+                    std::uniform_int_distribution<int> distLane(0, std::max(0, r->getLaneCount() - 1));
+                    targetLane = distLane(rng);
+                }
+                te = std::make_unique<AccidentEvent>(r->getId(), static_cast<double>(accidentDuration_), targetLane);
+            } else if (eventTypeIdx_ == 1) { // Congestion
+                te = std::make_unique<CongestionEvent>(r->getId(), static_cast<double>(accidentDuration_), static_cast<double>(accidentSeverity_));
+            } else { // Road Closure
+                te = std::make_unique<RoadClosureEvent>(r->getId(), static_cast<double>(accidentDuration_));
+            }
             simulator->triggerEvent(std::move(te));
         }
     }

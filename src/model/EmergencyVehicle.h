@@ -13,7 +13,7 @@ public:
 
     double calculateCurrentSpeed() const override {
         if (currentRoad == nullptr)   return 0.0;
-        if (currentRoad->isBlocked()) return 0.0;
+        if (currentRoad->getLane(currentLaneIndex).isBlocked()) return 0.0;
         return baseSpeed;
     }
 
@@ -34,8 +34,8 @@ public:
     double getYieldSpeedFactor() const override { return 1.0; }
     void notifyEmergencyApproaching() override { /* no-op: ambulance không nhường ai */ }
 
-    void update(double dt) override {
-        Vehicle::update(dt);
+    void update(double dt, Graph* graph = nullptr, PathFindingStrategy* strategy = nullptr) override {
+        Vehicle::update(dt, graph, strategy);
         notifyVehiclesAhead();
     }
 

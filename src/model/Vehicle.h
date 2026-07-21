@@ -45,6 +45,12 @@ protected:
     bool yielding = false;              // yielding state for ambulance priority
     double yieldCooldownTimer = 0.0;    
 
+    double stuckTimer = 0.0;
+    double patienceThreshold = 5.0;
+    double uTurnCooldownTimer = 0.0;
+    
+    double recalculateTimer = 5.0;
+
 public:
     Vehicle(int id, double speed, Intersection* start, Intersection* dest);
     Vehicle(const Vehicle&) = delete;
@@ -68,7 +74,7 @@ public:
     virtual bool mustStopForTrafficLight(Intersection* nextIntersection) const;
     virtual void onPauseStarted() {}
     virtual bool updatePause(double dt) { return true; }
-    virtual void update(double dt);
+    virtual void update(double dt, Graph* graph = nullptr, PathFindingStrategy* strategy = nullptr);
     virtual double getYieldSpeedFactor() const { return YIELD_SPEED_FACTOR; }
     virtual void notifyEmergencyApproaching() {
         yielding = true;

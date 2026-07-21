@@ -4,7 +4,8 @@
 
 Lane::Lane(int laneIndex, double capacity)
     : laneIndex(laneIndex),
-      capacity(capacity > 0.0 ? capacity : DEFAULT_LANE_CAPACITY) {
+      capacity(capacity > 0.0 ? capacity : DEFAULT_LANE_CAPACITY),
+      blocked(false) {
 }
  
 int Lane::getIndex() const {
@@ -34,6 +35,18 @@ int Lane::getVehicleCount() const {
  
 const std::vector<Vehicle*>& Lane::getVehicles() const {
     return vehicles;
+}
+
+bool Lane::isBlocked() const {
+    return blocked;
+}
+
+void Lane::block() {
+    blocked = true;
+}
+
+void Lane::unblock() {
+    blocked = false;
 }
  
 Lane::~Lane() {

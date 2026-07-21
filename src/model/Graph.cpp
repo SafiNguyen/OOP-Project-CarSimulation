@@ -186,14 +186,22 @@ std::vector<Road*> Graph::getAllRoads() const {
 }
 
 // --- Graph Functions ---
-void Graph::updateRoadCondition(int roadId, double congestionLevel, bool blocked) {
+void Graph::updateRoadCondition(int roadId, double congestionLevel, bool blocked, int laneIndex) {
     Road* road = getRoad(roadId);
     if (road != nullptr) {
         road->updateCongestionLevel(congestionLevel);
-        if (blocked) {
-            road->blockRoad();
+        if (laneIndex == -1) {
+            if (blocked) {
+                road->blockRoad();
+            } else {
+                road->unblockRoad();
+            }
         } else {
-            road->unblockRoad();
+            if (blocked) {
+                road->blockLane(laneIndex);
+            } else {
+                road->unblockLane(laneIndex);
+            }
         }
     }
 }

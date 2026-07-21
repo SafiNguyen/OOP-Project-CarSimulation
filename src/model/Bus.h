@@ -42,7 +42,7 @@ public:
 
     double calculateCurrentSpeed() const override {
         if (currentRoad == nullptr)     return 0.0;
-        if (currentRoad->isBlocked())   return 0.0;
+        if (currentRoad->getLane(currentLaneIndex).isBlocked())   return 0.0;
 
         double cap = std::min(baseSpeed, currentRoad->getSpeedLimit()) * CRUISE_FACTOR;
         return cap / currentRoad->getCongestionLevel();

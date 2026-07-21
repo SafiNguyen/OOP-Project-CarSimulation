@@ -158,8 +158,11 @@ private:
     std::string spawnMessage_;
 
     // Task 4c: Trigger Accident panel state
+    int eventTypeIdx_ = 0; // 0=Accident, 1=Congestion, 2=Road Closure
     int accidentRoadIdx_ = -1; // index into roadsSnapshot_, -1 = random
     float accidentDuration_ = 15.0f;
+    float accidentSeverity_ = 1.5f; // for Congestion event
+    int accidentLaneIdx_ = -1; // -1 = Random
 
     // Task 4d: Algorithm switching panel state
     AStarStrategy aStar_;

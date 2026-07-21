@@ -114,7 +114,7 @@ void TrafficSimulator::update(double dt) {
         }
 
         for (Vehicle* v : vehicles) {
-            v->update(step);
+            v->update(step, graph, pathFindingStrategy);
 
             if (statisticsManager) {
                 statisticsManager->recordVehicleTravel(v->getId(), step);

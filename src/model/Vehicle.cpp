@@ -7,6 +7,7 @@
 #include "algorithm/PathFindingStrategy.h"
 #include <algorithm>
 #include <limits>
+#include <cstdlib>
 
 
 Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
@@ -21,6 +22,8 @@ Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
       paused(false),
       awaitingIntersectionTransition(false),
       intersectionTransitionTimer(0.0) {
+    patienceThreshold = 3.0 + static_cast<double>(std::rand() % 50) / 10.0;
+    recalculateTimer = 5.0 + static_cast<double>(std::rand() % 100) / 10.0;
 }
 
 Vehicle::~Vehicle() {
@@ -146,7 +149,9 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
     const double minGap = getMinGap();
     const double desiredGap = minGap + freeFlowSpeed * getTimeHeadway();
 
-    if (currentGapAhead >= desiredGap) {
+    bool isCurrentLaneBlocked = currentRoad->getLane(currentLaneIndex).isBlocked();
+
+    if (!isCurrentLaneBlocked && currentGapAhead >= desiredGap) {
         return; // khong bi can tro dang ke, khong can doi lane
     }
 
@@ -154,11 +159,14 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
     //    lane thoa dieu kien "tot hon dang ke" (LANE_CHANGE_GAP_IMPROVEMENT_FACTOR)
     //    VA an toan cho xe phia sau o lane do.
     int bestLaneIndex = -1;
-    double bestGapAhead = currentGapAhead;
+    double bestGapAhead = isCurrentLaneBlocked ? 0.0 : currentGapAhead;
 
     const int candidateLanes[2] = { currentLaneIndex - 1, currentLaneIndex + 1 };
     for (int candidateLane : candidateLanes) {
         if (candidateLane < 0 || candidateLane >= currentRoad->getLaneCount()) {
+            continue;
+        }
+        if (currentRoad->getLane(candidateLane).isBlocked()) {
             continue;
         }
 
@@ -208,9 +216,26 @@ Road* Vehicle::getNextRoad() const {
     return nullptr;
 }
 
-void Vehicle::update(double dt) {
+void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
     if (hasReachedDestination() || currentRoad == nullptr) {
         return;
+    }
+
+    recalculateTimer -= dt;
+    if (recalculateTimer <= 0.0) {
+        recalculateTimer = 10.0 + static_cast<double>(std::rand() % 50) / 10.0; // 10-15s
+        if (graph && strategy && currentRoad) {
+            bool hasCongestion = false;
+            for (size_t i = currentRouteIndex + 1; i < currentRoute.size(); ++i) {
+                if (currentRoute[i]->getDynamicCongestionLevel() > 1.5 || currentRoute[i]->isBlocked()) {
+                    hasCongestion = true;
+                    break;
+                }
+            }
+            if (hasCongestion) {
+                recalculateRoute(*graph, strategy);
+            }
+        }
     }
 
     if (awaitingIntersectionTransition) {
@@ -232,6 +257,10 @@ void Vehicle::update(double dt) {
         }
     }
 
+    if (uTurnCooldownTimer > 0.0) {
+        uTurnCooldownTimer -= dt;
+    }
+
     if (yielding) {
         yieldCooldownTimer -= dt;
         if (yieldCooldownTimer <= 0.0) {
@@ -250,8 +279,6 @@ void Vehicle::update(double dt) {
     double remainingTime = dt;
 
     while (remainingTime > 0.0 && currentRoad != nullptr && !paused) {
-        const double freeFlowSpeed = calculateCurrentSpeed();
-        double targetSpeed = freeFlowSpeed;
         const double freeFlowSpeed = calculateCurrentSpeed();
         double targetSpeed = freeFlowSpeed;
 
@@ -335,7 +362,33 @@ void Vehicle::update(double dt) {
 
         double speed = currentSpeed;
         if (speed <= 0.0) {
+            stuckTimer += subDt;
+            if (stuckTimer > patienceThreshold && graph != nullptr && strategy != nullptr) {
+                // Check if it's safe to U-turn (no vehicle closely behind)
+                Vehicle* follower = currentRoad->findFollower(currentLaneIndex, this);
+                bool safeToUTurn = true;
+                if (follower != nullptr) {
+                    double gapBehind = progressOnCurrentRoad - getLength() - follower->getProgressOnRoad();
+                    if (gapBehind < 5.0 && follower->getCurrentSpeed() > 0.01) {
+                        safeToUTurn = false;
+                    } else if (gapBehind < 1.0) { // they are very close, still unsafe
+                        safeToUTurn = false;
+                    }
+                }
+                
+                if (safeToUTurn && currentLaneIndex == 0 && uTurnCooldownTimer <= 0.0) {
+                    if (performUTurn(*graph, strategy)) {
+                        stuckTimer = 0.0;
+                        uTurnCooldownTimer = 30.0; // 30s cooldown
+                    } else {
+                        // If U-turn failed (e.g. no path), wait longer
+                        patienceThreshold += 2.0; 
+                    }
+                }
+            }
             break;
+        } else {
+            stuckTimer = 0.0;
         }
 
         double distanceThisTick = speed * subDt;
@@ -469,7 +522,11 @@ bool Vehicle::performUTurn(const Graph& graph, PathFindingStrategy* strategy) {
         return false;
     }
 
+    currentRoad->getLane(currentLaneIndex).removeVehicle(this);
     currentRoad = reverseRoad;
+    currentLaneIndex = 0; // Luon ep vao lane sat dai phan cach khi quay dau
+    currentRoad->getLane(currentLaneIndex).addVehicle(this);
+
     progressOnCurrentRoad = currentRoad->getDistance() - progressOnCurrentRoad;
     if (progressOnCurrentRoad < 0) {
         progressOnCurrentRoad = 0;

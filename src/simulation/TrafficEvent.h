@@ -55,15 +55,17 @@ public:
 
 // Accident Event
 class AccidentEvent : public TrafficEvent {
+private:
+    int laneIndex;
 public:
-    AccidentEvent(int rId, double dur) : TrafficEvent(rId, dur) {}
+    AccidentEvent(int rId, double dur, int lane = -1) : TrafficEvent(rId, dur), laneIndex(lane) {}
 
     void apply(Graph& graph) override {
-        graph.updateRoadCondition(roadId, 1.0, true); // Block the road
+        graph.updateRoadCondition(roadId, 1.0, true, laneIndex); // Block the specific lane (or all if -1)
     }
 
     void remove(Graph& graph) override {
-        graph.updateRoadCondition(roadId, 1.0, false); // Reopen the road
+        graph.updateRoadCondition(roadId, 1.0, false, laneIndex); // Reopen the lane
     }
 
     std::string getEventType() const override { return "Accident"; }

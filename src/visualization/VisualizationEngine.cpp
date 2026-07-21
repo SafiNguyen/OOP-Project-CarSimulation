@@ -168,9 +168,11 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
             rd.borderColor = sf::Color::Transparent;
             rd.borderWidth = 0.0f;
         } else {
-            rd.bodyColor = heatMapEnabled_
-                ? colorForRoad(road)
-                : (road->isBlocked() ? sf::Color(180, 40, 40) : sf::Color(110, 110, 110));
+            if (heatMapEnabled_) {
+                rd.bodyColor = colorForRoad(road);
+            } else {
+                rd.bodyColor = sf::Color(110, 110, 110);
+            }
             rd.hasBorder = true;
             rd.borderColor = sf::Color(10, 10, 10, 220);
             rd.borderWidth = totalWidth + 3.0f;
@@ -180,10 +182,22 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
     }
 
     // Pass 1: bodies + lane markers + mask population.
+    int roadIndex = 0;
     for (const RoadDraw& rd : drawList) {
         drawRoadStrip(target, rd.offsetA, rd.offsetB, rd.bodyColor, rd.totalWidth - 1.0f);
         rasterizeBodyToMask(rd.offsetA, rd.offsetB, rd.totalWidth - 1.0f,
                             bodyMask, gridW, gridH, kBorderMaskCellSize);
+
+        // Draw individual blocked lanes
+        Road* roadObj = roads[roadIndex++];
+        for (int i = 0; i < rd.laneCount; ++i) {
+            if (roadObj->getLane(i).isBlocked() && !roadObj->isBlocked() && heatMapEnabled_) {
+                const float laneBoundaryOffset = -rd.totalWidth * 0.5f + static_cast<float>(i) * 10.0f + 5.0f;
+                const sf::Vector2f laneCenterA = rd.offsetA + rd.norm * laneBoundaryOffset;
+                const sf::Vector2f laneCenterB = rd.offsetB + rd.norm * laneBoundaryOffset;
+                drawRoadStrip(target, laneCenterA, laneCenterB, sf::Color(180, 40, 40), 9.0f);
+            }
+        }
 
         // Lane divider lines for multi-lane roads.
         if (rd.laneCount > 1) {
