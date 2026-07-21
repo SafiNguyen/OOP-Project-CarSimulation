@@ -21,7 +21,7 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingS
 
     std::mt19937 rng(42);
     std::uniform_int_distribution<size_t> dist(0, intersections.size() - 1);
-    for (int i = 0; i < 40; ++i) {
+    for (int i = 0; i < 1000; ++i) {
         Intersection* start = intersections[dist(rng)];
         Intersection* end = intersections[dist(rng)];
         while (start == end) {
