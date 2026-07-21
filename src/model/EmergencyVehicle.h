@@ -32,7 +32,7 @@ public:
     double getMinGap() const override { return 1.5; }
     //ambulance yielding: ambulance will not yield to any vehicle
     double getYieldSpeedFactor() const override { return 1.0; }
-    void notifyEmergencyApproaching() override { /* no-op: ambulance không nhường ai */ }
+    void notifyEmergencyApproaching(int /*emergencyLaneIndex*/) override { /* no-op */ }
 
     void update(double dt, Graph* graph = nullptr, PathFindingStrategy* strategy = nullptr) override {
         Vehicle::update(dt, graph, strategy);
@@ -48,11 +48,12 @@ private:
 
         const double selfProgress = getProgressOnRoad();
         const double remainingOnRoad = road->getDistance() - selfProgress;
+        const int myLane = getCurrentLaneIndex();
 
         for (Vehicle* v : road->getVehiclesInProgressRange(
                  selfProgress, selfProgress + YIELD_LOOKAHEAD_DISTANCE)) {
             if (v != this) {
-                v->notifyEmergencyApproaching();
+                v->notifyEmergencyApproaching(myLane);
             }
         }
 
@@ -60,6 +61,7 @@ private:
             Road* next = getNextRoad();
             if (next != nullptr) {
                 const double spillover = YIELD_LOOKAHEAD_DISTANCE - remainingOnRoad;
+                int nextLane = std::min(myLane, next->getLaneCount() - 1);
                 for (Vehicle* v : next->getVehiclesInProgressRange(0.0, spillover)) {
                     if (v != this) {
                         v->notifyEmergencyApproaching();

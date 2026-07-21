@@ -202,6 +202,52 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
     }
 }
 
+void Vehicle::tryYieldLaneChange() {
+    if (currentRoad == nullptr || !canChangeLanes()) return;
+    if (currentRoad->getLaneCount() <= 1) return;
+    if (emergencyLaneToAvoid_ < 0 || currentLaneIndex != emergencyLaneToAvoid_) return;
+
+    const double minGap = getMinGap();
+    int bestLane = -1;
+
+    std::vector<int> order;
+    for (int i = 0; i < currentRoad->getLaneCount(); ++i) {
+        if (i != currentLaneIndex) order.push_back(i);
+    }
+    std::sort(order.begin(), order.end(), [this](int a, int b) {
+        return std::abs(a - currentLaneIndex) < std::abs(b - currentLaneIndex);
+    });
+
+    for (int candidateLane : order) {
+        if (currentRoad->getLane(candidateLane).isBlocked()) continue;
+
+        Vehicle* candidateLeader = currentRoad->findLeader(candidateLane, this);
+        double gapAhead = std::numeric_limits<double>::infinity();
+        if (candidateLeader != nullptr) {
+            gapAhead = candidateLeader->getProgressOnRoad() - progressOnCurrentRoad - candidateLeader->getLength();
+        }
+        if (gapAhead <= minGap) continue;
+
+        Vehicle* candidateFollower = currentRoad->findFollower(candidateLane, this);
+        if (candidateFollower != nullptr) {
+            const double gapBehind = progressOnCurrentRoad - candidateFollower->getProgressOnRoad() - getLength();
+            const double followerSpeed = candidateFollower->getCurrentSpeed();
+            const double requiredGapBehind = minGap + followerSpeed * (LANE_CHANGE_REAR_SAFETY_TIME * 0.5);
+            if (gapBehind < requiredGapBehind) continue;
+        }
+
+        bestLane = candidateLane;
+        break;
+    }
+
+    if (bestLane != -1) {
+        currentRoad->getLane(currentLaneIndex).removeVehicle(this);
+        currentLaneIndex = bestLane;
+        currentRoad->getLane(currentLaneIndex).addVehicle(this);
+        laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN * 0.5;
+    }
+}
+
 bool Vehicle::mustStopForTrafficLight(Intersection* nextIntersection) const {
     if (nextIntersection == nullptr || currentRoad == nullptr) {
         return false;
@@ -266,6 +312,7 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
         if (yieldCooldownTimer <= 0.0) {
             yieldCooldownTimer = 0.0;
             yielding = false;
+            emergencyLaneToAvoid = -1; 
         }
     }
 
@@ -302,6 +349,10 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
                     }
                 }
             }
+        }
+        
+        if (yielding && laneChangeCooldownTimer <= 0.0) {
+            tryYieldLaneChange();
         }
 
         if (laneChangeCooldownTimer <= 0.0) {
