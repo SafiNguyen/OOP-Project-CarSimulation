@@ -127,35 +127,32 @@ sf::Vector2f VehicleSprite::resolvePosition() const {
     }
 
     Road* currentRoad = vehicle->getCurrentRoad();
-    Road* nextRoad = vehicle->getNextRoad();
     const double ratio = vehicle->getProgressRatio();
-    const sf::Vector2f currentPos = pointOnRoad(currentRoad, ratio);
+    const sf::Vector2f currentLanePos = laneOffset(currentRoad, pointOnRoad(currentRoad, ratio));
 
-    float turnFactor = 0.0f;
-    if (nextRoad != nullptr && nextRoad->getStart() == currentRoad->getEnd()) {
+    if (vehicle->isAwaitingIntersectionTransition()) {
+        Road* prevRoad = vehicle->getPreviousRoad();
+        if (prevRoad != nullptr) {
+            float t = std::clamp(static_cast<float>(vehicle->getIntersectionTransitionProgress()), 0.0f, 1.0f);
+            t = t * t * (3.0f - 2.0f * t);
+            const sf::Vector2f prevLanePos = laneOffset(prevRoad, pointOnRoad(prevRoad, 1.0));
+            return (1.0f - t) * prevLanePos + t * currentLanePos;
+        }
+    }
+
+    Road* nextRoad = vehicle->getNextRoad();
+    if (!vehicle->isPaused() && nextRoad != nullptr && nextRoad->getStart() == currentRoad->getEnd()) {
         const double turnDistance = 20.0;
         const double distanceRemaining = currentRoad->getDistance() * (1.0 - ratio);
         if (distanceRemaining < turnDistance) {
-            turnFactor = static_cast<float>(1.0 - (distanceRemaining / turnDistance));
-            turnFactor = std::clamp(turnFactor, 0.0f, 1.0f);
-        }
-        if (vehicle != nullptr && vehicle->isAwaitingIntersectionTransition()) {
-            turnFactor = std::max(turnFactor, static_cast<float>(vehicle->getIntersectionTransitionProgress()));
-        }
-        
-        if (turnFactor > 0.0f) {
-            // Apply smoothing curve to turnFactor so it feels like a real steering curve
-            float t = turnFactor * turnFactor * (3.0f - 2.0f * turnFactor);
-            
-            const sf::Vector2f nextPos = pointOnRoad(nextRoad, 0.0);
-            const sf::Vector2f currentLanePos = laneOffset(currentRoad, currentPos);
-            const sf::Vector2f nextLanePos = laneOffset(nextRoad, nextPos);
-
+            float turnFactor = std::clamp(static_cast<float>(1.0 - distanceRemaining / turnDistance), 0.0f, 1.0f);
+            const float t = turnFactor * turnFactor * (3.0f - 2.0f * turnFactor);
+            const sf::Vector2f nextLanePos = laneOffset(nextRoad, pointOnRoad(nextRoad, 0.0));
             return (1.0f - t) * currentLanePos + t * nextLanePos;
         }
     }
 
-    return laneOffset(currentRoad, currentPos);
+    return currentLanePos;
 }
 
 float VehicleSprite::resolveAngle() const {
@@ -163,39 +160,44 @@ float VehicleSprite::resolveAngle() const {
         return 0.0f;
     }
 
+    auto roadAngle = [](const Road* r) {
+        return std::atan2(r->getEnd()->getY() - r->getStart()->getY(),
+                           r->getEnd()->getX() - r->getStart()->getX());
+    };
+    auto blendAngle = [](double from, double to, float t) {
+        double diff = to - from;
+        while (diff < -3.14159265358979323846) diff += 2.0 * 3.14159265358979323846;;
+        while (diff > 3.14159265358979323846) diff -= 2.0 * 3.14159265358979323846;;
+        return from + diff * t;
+    };
+
     Road* currentRoad = vehicle->getCurrentRoad();
-    Road* nextRoad = vehicle->getNextRoad();
-    const double ratio = vehicle->getProgressRatio();
-    float turnFactor = 0.0f;
-    if (nextRoad != nullptr && nextRoad->getStart() == currentRoad->getEnd()) {
-        const double turnDistance = 20.0;
-        const double distanceRemaining = currentRoad->getDistance() * (1.0 - ratio);
-        if (distanceRemaining < turnDistance) {
-            turnFactor = static_cast<float>(1.0 - (distanceRemaining / turnDistance));
-            turnFactor = std::clamp(turnFactor, 0.0f, 1.0f);
+    const double currentAngle = roadAngle(currentRoad);
+
+    if (vehicle->isAwaitingIntersectionTransition()) {
+        Road* prevRoad = vehicle->getPreviousRoad();
+        if (prevRoad != nullptr) {
+            float t = std::clamp(static_cast<float>(vehicle->getIntersectionTransitionProgress()), 0.0f, 1.0f);
+            t = t * t * (3.0f - 2.0f * t);
+            const double blended = blendAngle(roadAngle(prevRoad), currentAngle, t);
+            return static_cast<float>(-blended * 180.0 / 3.14159265358979323846);
         }
     }
 
-    if (vehicle != nullptr && vehicle->isAwaitingIntersectionTransition()) {
-        const float transitionProgress = std::clamp(static_cast<float>(vehicle->getIntersectionTransitionProgress()), 0.0f, 1.0f);
-        turnFactor = std::max(turnFactor, transitionProgress);
+    Road* nextRoad = vehicle->getNextRoad();
+    if (!vehicle->isPaused() && nextRoad != nullptr && nextRoad->getStart() == currentRoad->getEnd()) {
+        const double ratio = vehicle->getProgressRatio();
+        const double turnDistance = 20.0;
+        const double distanceRemaining = currentRoad->getDistance() * (1.0 - ratio);
+        if (distanceRemaining < turnDistance) {
+            float turnFactor = std::clamp(static_cast<float>(1.0 - distanceRemaining / turnDistance), 0.0f, 1.0f);
+            const float t = turnFactor * turnFactor * (3.0f - 2.0f * turnFactor);
+            const double blended = blendAngle(currentAngle, roadAngle(nextRoad), t);
+            return static_cast<float>(-blended * 180.0 / 3.14159265358979323846);
+        }
     }
 
-    const double currentAngle = std::atan2(currentRoad->getEnd()->getY() - currentRoad->getStart()->getY(),
-                                          currentRoad->getEnd()->getX() - currentRoad->getStart()->getX());
-    if (turnFactor <= 0.0f || nextRoad == nullptr) {
-        return static_cast<float>(-currentAngle * 180.0f / 3.14159265358979323846);
-    }
-
-    const double nextAngle = std::atan2(nextRoad->getEnd()->getY() - nextRoad->getStart()->getY(),
-                                       nextRoad->getEnd()->getX() - nextRoad->getStart()->getX());
-    
-    double diff = nextAngle - currentAngle;
-    while (diff < -3.14159265358979323846) diff += 2.0 * 3.14159265358979323846;
-    while (diff > 3.14159265358979323846) diff -= 2.0 * 3.14159265358979323846;
-    
-    const double blended = currentAngle + diff * turnFactor;
-    return static_cast<float>(-blended * 180.0f / 3.14159265358979323846);
+    return static_cast<float>(-currentAngle * 180.0 / 3.14159265358979323846);
 }
 
 void VehicleSprite::update(float dt) {

@@ -113,7 +113,7 @@ public:
     const std::vector<Road*>& getCurrentRoute() const { return currentRoute; }
     int getCurrentRouteIndex() const { return currentRouteIndex; }
     Road* getNextRoad() const;
-
+    Road* getPreviousRoad() const { return travelHistory.empty() ? nullptr : travelHistory.back(); }
     void addTravelHistory(Road* road) { travelHistory.push_back(road); }
     const std::vector<Road*>& getTravelHistory() const { return travelHistory; }
 
