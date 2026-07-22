@@ -345,11 +345,19 @@ void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vec
         const Intersection* end = road->getEnd();
         if (!start || !end) continue;
 
-        sf::Vector2f a = worldToScreen(start->getX(), start->getY());
-        sf::Vector2f b = worldToScreen(end->getX(), end->getY());
-        sf::Vector2f mid = (a + b) * 0.5f;
+        // Use the same box-edge points the road is actually drawn between
+        // (see getRoadEntryPoint), not the raw intersection centers - so
+        // the label centers on the visible road segment instead of a point
+        // that may sit inside one of the intersection boxes on short roads.
+        const sf::Vector2f a = getRoadEntryPoint(road, start);
+        const sf::Vector2f b = getRoadEntryPoint(road, end);
+        const sf::Vector2f mid = (a + b) * 0.5f;
 
-        float angle = std::atan2(b.y - a.y, b.x - a.x) * 180.0f / 3.14159265f;
+        const float dx = b.x - a.x;
+        const float dy = b.y - a.y;
+        const float visibleLength = std::sqrt(dx * dx + dy * dy);
+
+        float angle = std::atan2(dy, dx) * 180.0f / 3.14159265f;
         if (angle > 90.0f || angle < -90.0f) {
             angle += 180.0f;
         }
@@ -357,15 +365,30 @@ void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vec
         sf::Text text;
         text.setFont(*font_);
         text.setString(road->getName());
-        text.setCharacterSize(12);
+        text.setCharacterSize(13);
+        text.setStyle(sf::Text::Bold);
         text.setFillColor(sf::Color::White);
-        text.setOutlineColor(sf::Color::Black);
-        text.setOutlineThickness(1.0f);
 
-        sf::FloatRect bounds = text.getLocalBounds();
+        const sf::FloatRect bounds = text.getLocalBounds();
+
+        constexpr float kEdgeMargin = 6.0f;
+        if (visibleLength < bounds.width + kEdgeMargin * 2.0f) {
+            continue;
+        }
+
         text.setOrigin(bounds.left + bounds.width * 0.5f, bounds.top + bounds.height * 0.5f);
         text.setPosition(mid);
         text.setRotation(angle);
+
+
+        constexpr float kPlatePaddingX = 5.0f;
+        constexpr float kPlatePaddingY = 2.0f;
+        sf::RectangleShape plate({bounds.width + kPlatePaddingX * 2.0f, bounds.height + kPlatePaddingY * 2.0f});
+        plate.setOrigin(plate.getSize().x * 0.5f, plate.getSize().y * 0.5f);
+        plate.setPosition(mid);
+        plate.setRotation(angle);
+        plate.setFillColor(sf::Color(15, 15, 15, 165));
+        target.draw(plate);
 
         target.draw(text);
     }
