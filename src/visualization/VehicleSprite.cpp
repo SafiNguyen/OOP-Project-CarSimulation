@@ -69,14 +69,10 @@ sf::Vector2f VehicleSprite::pointOnRoad(const Road* road, double ratio) const {
         return {};
     }
 
-
-    const double worldX = start->getX() + ratio * (end->getX() - start->getX());
-    const double worldY = start->getY() + ratio * (end->getY() - start->getY());
-    return engine->worldToScreen(worldX, worldY);
-  //  const sf::Vector2f edgeStart = engine->getRoadEntryPoint(road, start);
-   // const sf::Vector2f edgeEnd = engine->getRoadEntryPoint(road, end);
-   // const double clampedRatio = std::clamp(ratio, 0.0, 1.0);
-    //return edgeStart + static_cast<float>(clampedRatio) * (edgeEnd - edgeStart);
+    const sf::Vector2f edgeStart = engine->getRoadCenterlineEntryPoint(road, start);
+    const sf::Vector2f edgeEnd = engine->getRoadCenterlineEntryPoint(road, end);
+    const double clampedRatio = std::clamp(ratio, 0.0, 1.0);
+    return edgeStart + static_cast<float>(clampedRatio) * (edgeEnd - edgeStart);
 }
 
 sf::Vector2f VehicleSprite::laneOffset(const Road* road, const sf::Vector2f& basePosition) const {

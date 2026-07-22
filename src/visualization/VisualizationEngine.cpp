@@ -153,9 +153,9 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
             } else {
                 rd.bodyColor = sf::Color(110, 110, 110);
             }
-            rd.hasBorder = true;
-            rd.borderColor = sf::Color(10, 10, 10, 220);
-            rd.borderWidth = totalWidth + 3.0f;
+            rd.hasBorder = false;
+            rd.borderColor = sf::Color::Transparent;
+            rd.borderWidth = 0.0f;
         }
 
         drawList.push_back(rd);

@@ -27,7 +27,7 @@ public:
                           const sf::Vector2f& size = {24.0f, 24.0f});
 
     sf::Vector2f getRoadEntryPoint(const Road* road, const Intersection* intersection) const;
-
+    sf::Vector2f getRoadCenterlineEntryPoint(const Road* road, const Intersection* intersection) const;
     void clearSpriteTexture();
 
     void setFont(const sf::Font& font);
@@ -45,11 +45,7 @@ private:
                        const sf::Vector2f& b,
                        const sf::Color& color,
                        float thickness) const;
-    // Mark the road's lane-fill rectangle (centreline `a` to `b` with
-    // `thickness`) into `bodyMask`, a row-major grid of `gridW * gridH`
-    // cells where each cell covers `cellSize * cellSize` screen pixels.
-    // Used by drawGraph to keep track of which screen pixels are already
-    // covered by some road's body so the border pass can skip them.
+
     void rasterizeBodyToMask(const sf::Vector2f& a,
                              const sf::Vector2f& b,
                              float thickness,

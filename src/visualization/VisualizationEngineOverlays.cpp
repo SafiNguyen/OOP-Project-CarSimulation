@@ -153,7 +153,36 @@ sf::Vector2f VisualizationEngine::getRoadEntryPoint(const Road* road, const Inte
     if (road == nullptr || intersection == nullptr) {
         return {};
     }
+    const Intersection* start = road->getStart();
+    const Intersection* end = road->getEnd();
+    if (start == nullptr || end == nullptr) {
+        return worldToScreen(intersection->getX(), intersection->getY());
+    }
 
+    const sf::Vector2f roadStart = worldToScreen(start->getX(), start->getY());
+    const sf::Vector2f roadEnd = worldToScreen(end->getX(), end->getY());
+    const sf::Vector2f normal = roadNormal(roadStart, roadEnd);
+
+    const float laneWidth = 10.0f;
+    const int laneCount = std::max(1, road->getLaneCount());
+    const float totalWidth = static_cast<float>(laneCount) * laneWidth;
+
+    bool hasReverse = false;
+    if (end && start) {
+        for (Road* r : end->getOutgoingRoads()) {
+            if (r->getEnd() == start) { hasReverse = true; break; }
+        }
+    }
+    const float offsetAmount = hasReverse ? (totalWidth * 0.5f + 1.0f) : 0.0f;
+
+    return getRoadCenterlineEntryPoint(road, intersection) + normal * offsetAmount;
+}
+
+
+sf::Vector2f VisualizationEngine::getRoadCenterlineEntryPoint(const Road* road, const Intersection* intersection) const {
+    if (road == nullptr || intersection == nullptr) {
+        return {};
+    }
     const Intersection* start = road->getStart();
     const Intersection* end = road->getEnd();
     if (start == nullptr || end == nullptr) {
@@ -164,46 +193,16 @@ sf::Vector2f VisualizationEngine::getRoadEntryPoint(const Road* road, const Inte
     const sf::Vector2f roadStart = worldToScreen(start->getX(), start->getY());
     const sf::Vector2f roadEnd = worldToScreen(end->getX(), end->getY());
 
-    sf::Vector2f towardOtherEnd;
-    if (intersection == start) {
-        towardOtherEnd = roadEnd - roadStart;
-    } else if (intersection == end) {
-        towardOtherEnd = roadStart - roadEnd;
-    } else {
-        towardOtherEnd = roadEnd - roadStart;
-    }
-
+    sf::Vector2f towardOtherEnd = (intersection == start) ? (roadEnd - roadStart) : (roadStart - roadEnd);
     const float length = std::sqrt(towardOtherEnd.x * towardOtherEnd.x + towardOtherEnd.y * towardOtherEnd.y);
     if (length <= 0.01f) {
         return intersectionPoint;
     }
     towardOtherEnd /= length;
-    const sf::Vector2f normal = roadNormal(roadStart, roadEnd);
 
-    // Compute road offset the same way drawGraph does
-    const float laneWidth = 10.0f;
-    const int laneCount = std::max(1, road->getLaneCount());
-    const float totalWidth = static_cast<float>(laneCount) * laneWidth;
-
-    bool hasReverse = false;
-    auto* endIntersection = road->getEnd();
-    auto* startIntersection = road->getStart();
-    if (endIntersection && startIntersection) {
-        for (Road* r : endIntersection->getOutgoingRoads()) {
-            if (r->getEnd() == startIntersection) {
-                hasReverse = true;
-                break;
-            }
-        }
-    }
-
-    const float offsetAmount = hasReverse ? (totalWidth * 0.5f + 1.0f) : 0.0f;
     const float boxHalfExtent = getIntersectionBoxHalfExtent(intersection);
     const float inset = std::min(boxHalfExtent, length * 0.5f);
-
-    // Position the entry point at the edge of the intersection box, aligned
-    // with the road's offset centerline.
-    return intersectionPoint + towardOtherEnd * inset + normal * offsetAmount;
+    return intersectionPoint + towardOtherEnd * inset; // no normal/offsetAmount here
 }
 
 float VisualizationEngine::getIntersectionBoxHalfExtent(const Intersection* intersection) const {
