@@ -56,6 +56,8 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
     const char* vehicleTypeNames[4] = { "Car", "Bus", "Motorbike", "Emergency Vehicle" };
     ImGui::Combo("Vehicle type", &spawnVehicleTypeIdx_, vehicleTypeNames, 4);
     ImGui::InputFloat("Base speed", &spawnVehicleSpeed_);
+    ImGui::InputInt("Count to spawn", &spawnVehicleCount_);
+    if (spawnVehicleCount_ < 1) spawnVehicleCount_ = 1;
 
     if (ImGui::Button("Spawn Vehicle")) {
         spawnMessage_.clear();
@@ -68,18 +70,24 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
         } else if (start == end) {
             spawnMessage_ = "Start and destination must be different.";
         } else {
-            const int newId = nextFreeVehicleId(simulator.get());
-            Vehicle* v = nullptr;
-            switch (spawnVehicleTypeIdx_) {
-                case 0: v = new Car(newId, spawnVehicleSpeed_, start, end); break;
-                case 1: v = new Bus(newId, spawnVehicleSpeed_, start, end); break;
-                case 2: v = new Motorbike(newId, spawnVehicleSpeed_, start, end); break;
-                default: v = new EmergencyVehicle(newId, spawnVehicleSpeed_, start, end); break;
+            int successCount = 0;
+            for (int i = 0; i < spawnVehicleCount_; ++i) {
+                const int newId = nextFreeVehicleId(simulator.get());
+                Vehicle* v = nullptr;
+                switch (spawnVehicleTypeIdx_) {
+                    case 0: v = new Car(newId, spawnVehicleSpeed_, start, end); break;
+                    case 1: v = new Bus(newId, spawnVehicleSpeed_, start, end); break;
+                    case 2: v = new Motorbike(newId, spawnVehicleSpeed_, start, end); break;
+                    default: v = new EmergencyVehicle(newId, spawnVehicleSpeed_, start, end); break;
+                }
+                if (simulator->addVehicle(v)) {
+                    successCount++;
+                }
             }
-            if (simulator->addVehicle(v)) {
-                spawnMessage_ = "Spawned vehicle #" + std::to_string(newId) + ".";
+            if (successCount > 0) {
+                spawnMessage_ = "Successfully spawned " + std::to_string(successCount) + " vehicles.";
             } else {
-                spawnMessage_ = "No path exists between those two points; vehicle was not spawned.";
+                spawnMessage_ = "No path exists between those two points; vehicles were not spawned.";
             }
         }
     }

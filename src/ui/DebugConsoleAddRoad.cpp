@@ -74,30 +74,15 @@ void DebugConsole::drawAddRoadPanel(Graph& graph, VisualizationEngine& visualiza
             for (Road* existingRoad : graph.getAllRoads()) {
                 if (existingRoad->getStart()->getId() == start->getId() &&
                     existingRoad->getEnd()->getId() == end->getId()) {
-                    existingRoad->addLanes(addRoadLanes_);
-                    addRoadMessage_ = "Road already exists. Added " + std::to_string(addRoadLanes_) + " lanes to it.";
+                    addRoadMessage_ = "Error: Road from " + std::to_string(start->getId()) + " to " + std::to_string(end->getId()) + " already exists!";
                     foundDuplicate = true;
-                    if (addRoadTwoWay_) {
-                        bool foundReverse = false;
-                        for (Road* rev : graph.getAllRoads()) {
-                            if (rev->getStart()->getId() == end->getId() && rev->getEnd()->getId() == start->getId()) {
-                                rev->addLanes(addRoadLanes_);
-                                foundReverse = true;
-                                break;
-                            }
-                        }
-                        if (!foundReverse) {
-                            const double distance = addRoadAutoDistance_
-                                ? graph.calculateDistance(start->getId(), end->getId())
-                                : static_cast<double>(addRoadDistance_);
-                            const int newId = nextFreeRoadId(graph);
-                            Road* revRoad = new Road(-newId, "Custom Road", end, start, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
-                            graph.addRoad(revRoad);
-                            visualization.prepare(graph);
-                            snapshotDirty_ = true;
-                        }
-                        addRoadMessage_ += " (Two-way updated)";
-                    }
+                    break;
+                }
+                if (addRoadTwoWay_ &&
+                    existingRoad->getStart()->getId() == end->getId() &&
+                    existingRoad->getEnd()->getId() == start->getId()) {
+                    addRoadMessage_ = "Error: Road from " + std::to_string(end->getId()) + " to " + std::to_string(start->getId()) + " already exists!";
+                    foundDuplicate = true;
                     break;
                 }
             }

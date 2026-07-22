@@ -23,6 +23,7 @@ private:
 
 public:
     VehicleSprite(Vehicle* v, const VisualizationEngine* eng);
+    sf::Vector2f getPosition() const { return resolvePosition(); }
     void update(float dt);
     void draw(sf::RenderTarget& target) const;
     void drawAt(sf::RenderTarget& target, const sf::Vector2f& position, float angle) const;

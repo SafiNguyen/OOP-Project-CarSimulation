@@ -14,6 +14,7 @@ void DebugConsole::drawTopBar(sf::RenderWindow& window,
                                sf::View& view,
                                float& zoomFactor,
                                bool& heatMapEnabled,
+                               bool& showParkedVehicles,
                                std::string& mapPathInput,
                                bool usingDemoMap,
                                const std::string& loadError) {
@@ -74,6 +75,10 @@ void DebugConsole::drawTopBar(sf::RenderWindow& window,
     if (ImGui::Button(heatMapEnabled ? "Heat: ON" : "Heat: OFF")) {
         heatMapEnabled = !heatMapEnabled;
         visualization_.setHeatMapEnabled(heatMapEnabled);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(showParkedVehicles ? "Parked: ON" : "Parked: OFF")) {
+        showParkedVehicles = !showParkedVehicles;
     }
 
     ImGui::TextWrapped("Status: %s", usingDemoMap ? "Demo map is active." : (mapPathInput.empty() ? "No map selected." : mapPathInput.c_str()));

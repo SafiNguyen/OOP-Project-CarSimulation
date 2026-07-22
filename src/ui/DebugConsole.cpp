@@ -108,6 +108,7 @@ void DebugConsole::draw(sf::RenderWindow& window,
                          sf::View& view,
                          float& zoomFactor,
                          bool& heatMapEnabled,
+                         bool& showParkedVehicles,
                          std::string& mapPathInput,
                          bool usingDemoMap,
                          const std::string& loadError) {
@@ -138,7 +139,7 @@ void DebugConsole::draw(sf::RenderWindow& window,
         // scrolls instead of being clipped or forcing the window to grow.
         ImGui::BeginChild("##debug_console_body", ImVec2(0.0f, 0.0f), false);
 
-        drawTopBar(window, simulator, view, zoomFactor, heatMapEnabled, mapPathInput, usingDemoMap, loadError);
+        drawTopBar(window, simulator, view, zoomFactor, heatMapEnabled, showParkedVehicles, mapPathInput, usingDemoMap, loadError);
         ImGui::Separator();
         drawAddRoadPanel(graph_, visualization_);
         ImGui::Separator();
