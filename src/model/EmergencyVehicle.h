@@ -3,11 +3,15 @@
 
 #include "Vehicle.h"
 #include "Road.h"
+#include <iostream> 
 
 
 class EmergencyVehicle : public Vehicle {
 public:
     static constexpr double YIELD_LOOKAHEAD_DISTANCE = 60.0;
+    static constexpr double PREEMPTION_LOOKAHEAD_DISTANCE = 80.0;
+    static constexpr double PREEMPTION_HOLD_DURATION = 3.0;
+
     EmergencyVehicle(int id, double speed, Intersection* start, Intersection* dest)
         : Vehicle(id, speed, start, dest) {}
 
@@ -35,11 +39,24 @@ public:
     void notifyEmergencyApproaching(int /*emergencyLaneIndex*/) override { /* no-op */ }
 
     void update(double dt, Graph* graph = nullptr, PathFindingStrategy* strategy = nullptr) override {
+        requestPreemptionIfNear();
         Vehicle::update(dt, graph, strategy);
         notifyVehiclesAhead();
     }
 
 private:
+    void requestPreemptionIfNear() const {
+        Road* road = getCurrentRoad();
+        if (road == nullptr) return;
+        Intersection* next = road->getEnd();
+        if (next == nullptr) return;
+
+        const double distToEnd = road->getDistance() - getProgressOnRoad();
+        if (distToEnd <= PREEMPTION_LOOKAHEAD_DISTANCE) {
+            next->requestEmergencyPreemption(road, PREEMPTION_HOLD_DURATION);
+        }
+    }
+    
     void notifyVehiclesAhead() const {
         Road* road = getCurrentRoad();
         if (road == nullptr) {
@@ -56,7 +73,7 @@ private:
                 v->notifyEmergencyApproaching(myLane);
             }
         }
-
+ 
         if (remainingOnRoad < YIELD_LOOKAHEAD_DISTANCE) {
             Road* next = getNextRoad();
             if (next != nullptr) {
@@ -64,7 +81,7 @@ private:
                 int nextLane = std::min(myLane, next->getLaneCount() - 1);
                 for (Vehicle* v : next->getVehiclesInProgressRange(0.0, spillover)) {
                     if (v != this) {
-                        v->notifyEmergencyApproaching();
+                        v->notifyEmergencyApproaching(nextLane);
                     }
                 }
             }

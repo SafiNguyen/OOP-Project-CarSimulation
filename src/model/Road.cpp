@@ -79,10 +79,13 @@ int Road::getFreestLaneIndex() const {
     double lowestOccupancy = std::numeric_limits<double>::infinity();
  
     for (const Lane& lane : lanes) {
+        if (lane.isBlocked()) {
+            continue; // khong xet lane dang bi block khi tim lane trong nhat
+        }
         double capacity = lane.getCapacity();
         double occupancy = (capacity > 0.0)
             ? static_cast<double>(lane.getVehicleCount()) / capacity
-            : std::numeric_limits<double>::infinity();
+            : std::numeric_limits<double>::infinity();  
  
         if (occupancy < lowestOccupancy) {
             lowestOccupancy = occupancy;
@@ -90,7 +93,7 @@ int Road::getFreestLaneIndex() const {
         }
     }
  
-    return freestIndex;
+    return (freestIndex != -1) ? freestIndex : lanes.front().getIndex();
 }
 
 Vehicle* Road::findLeader(int laneIndex, const Vehicle* self) const {

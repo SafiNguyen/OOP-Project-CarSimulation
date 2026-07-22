@@ -108,6 +108,9 @@ bool Vehicle::advanceToNextRoad() {
             if (currentLaneIndex > maxLaneIndex) {
                 currentLaneIndex = maxLaneIndex;
             }
+            if (currentRoad->getLane(currentLaneIndex).isBlocked()) {
+                currentLaneIndex = currentRoad->getFreestLaneIndex();
+            }
             currentRoad->getLane(currentLaneIndex).addVehicle(this);
         }
         onRoadChanged();
@@ -331,14 +334,23 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
 
         // ambulance yielding constraints
         if (yielding) {
+        const bool stuckOnEmergencyLane = (emergencyLaneToAvoid >= 0)
+                                        && (currentLaneIndex == emergencyLaneToAvoid);
+
+        if (stuckOnEmergencyLane && currentRoad->getLaneCount() > 1) {
+            const double escapeSpeed = std::min(currentRoad->getSpeedLimit(),
+                                                freeFlowSpeed * getYieldEscapeSpeedFactor());
+            targetSpeed = std::max(targetSpeed, escapeSpeed);
+        } else {
             targetSpeed = std::min(targetSpeed, freeFlowSpeed * getYieldSpeedFactor());
         }
+}
         if (currentRoad != nullptr) {
             Intersection* nextIntersectionForLight = currentRoad->getEnd();
             if (nextIntersectionForLight != nullptr) {
                 bool lightRequiresStop = mustStopForTrafficLight(nextIntersectionForLight);
                 bool boxRequiresStop = (reservedIntersection_ != nextIntersectionForLight)
-                                       && nextIntersectionForLight->isFull();
+                       && !nextIntersectionForLight->canEnter(getId(), currentRoad); 
 
                 if (lightRequiresStop || boxRequiresStop) {
                     const double distToStopLine = currentRoad->getDistance() - progressOnCurrentRoad;
@@ -466,9 +478,10 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
         } else {
             Intersection* nextIntersection = currentRoad->getEnd();
 
-            bool boxBlocked = (nextIntersection != nullptr)
-                              && (reservedIntersection_ != nextIntersection)
-                              && nextIntersection->isFull();
+            bool boxBlocked = false;
+            if (nextIntersection != nullptr && reservedIntersection_ != nextIntersection) {
+                boxBlocked = !nextIntersection->canEnter(getId(), currentRoad);
+            }
 
             if (mustStopForTrafficLight(nextIntersection) || boxBlocked) {
                 progressOnCurrentRoad = currentRoad->getDistance();
@@ -478,8 +491,14 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
             }
 
             if (nextIntersection != nullptr && reservedIntersection_ != nextIntersection) {
-                nextIntersection->tryEnter(getId());
-                reservedIntersection_ = nextIntersection;
+                if (nextIntersection->tryEnter(getId(), currentRoad)) {
+                    reservedIntersection_ = nextIntersection;
+                } else {
+                    progressOnCurrentRoad = currentRoad->getDistance();
+                    currentSpeed = 0.0;
+                    remainingTime = 0.0;
+                    break;
+                }
             }
             double distToEnd = currentRoad->getDistance() - currentPos;
             double timeToEnd = (speed > 0.0) ? distToEnd / speed : 0.0;
@@ -575,7 +594,9 @@ bool Vehicle::performUTurn(const Graph& graph, PathFindingStrategy* strategy) {
 
     currentRoad->getLane(currentLaneIndex).removeVehicle(this);
     currentRoad = reverseRoad;
-    currentLaneIndex = 0; // Luon ep vao lane sat dai phan cach khi quay dau
+    currentLaneIndex = currentRoad->getLane(0).isBlocked()
+        ? currentRoad->getFreestLaneIndex()
+        : 0;
     currentRoad->getLane(currentLaneIndex).addVehicle(this);
 
     progressOnCurrentRoad = currentRoad->getDistance() - progressOnCurrentRoad;

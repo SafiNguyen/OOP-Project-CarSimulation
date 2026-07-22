@@ -18,6 +18,7 @@ public:
     static constexpr double MAX_PHYSICS_SUBSTEP = 0.05;
     static constexpr double YIELD_COOLDOWN_DURATION = 2.0;  
     static constexpr double YIELD_SPEED_FACTOR = 0.4; 
+    static constexpr double YIELD_ESCAPE_SPEED_FACTOR = 1.25;
 
 protected:
     int id;
@@ -77,6 +78,7 @@ public:
     virtual bool updatePause(double dt) { return true; }
     virtual void update(double dt, Graph* graph = nullptr, PathFindingStrategy* strategy = nullptr);
     virtual double getYieldSpeedFactor() const { return YIELD_SPEED_FACTOR; }
+    virtual double getYieldEscapeSpeedFactor() const { return YIELD_ESCAPE_SPEED_FACTOR; }
     virtual void notifyEmergencyApproaching(int emergencyLaneIndex = -1) {
         yielding = true;
         yieldCooldownTimer = YIELD_COOLDOWN_DURATION;

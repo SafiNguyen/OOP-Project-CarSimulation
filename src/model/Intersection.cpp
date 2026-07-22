@@ -112,6 +112,8 @@ void Intersection::registerIncomingLight(Road* road) {
     // GREEN at once).
     trafficLights[roadId] = std::make_unique<TrafficLight>(
         roadId, /*green=*/30.0, /*yellow=*/3.0, /*red=*/25.0, LightState::RED);
+
+    rebuildPhaseGroups();
 }
  
 TrafficLight* Intersection::getLightForIncomingRoad(int roadId) const {
@@ -200,6 +202,27 @@ void Intersection::updateTrafficLights(double dt) {
         return;
     }
 
+    if (preemptionTimer_ > 0.0) {
+        preemptionTimer_ -= dt;
+        for (const auto& group : phaseGroups) {
+            const bool isPreemptedGroup =
+                std::find(group.begin(), group.end(), preemptedRoad_) != group.end();
+            const LightState desired = isPreemptedGroup ? LightState::GREEN : LightState::RED;
+            for (Road* road : group) {
+                TrafficLight* light = getLightForIncomingRoad(road);
+                if (light != nullptr && light->getState() != desired) {
+                    light->forceState(desired);
+                }
+            }
+        }
+        if (preemptionTimer_ <= 0.0) {
+            preemptionTimer_ = 0.0;
+            preemptedRoad_ = nullptr;
+            phaseElapsedTime = 0.0;
+        }
+        return; 
+    }
+
     static constexpr double GREEN_DURATION = 30.0;
     static constexpr double YELLOW_DURATION = 3.0;
     // Clearance gap between one phase group's YELLOW ending and the next
@@ -240,6 +263,12 @@ void Intersection::updateTrafficLights(double dt) {
     }
 }
 
+void Intersection::requestEmergencyPreemption(const Road* incomingRoad, double holdDuration) {
+    if (incomingRoad == nullptr || holdDuration <= 0.0) return;
+    preemptedRoad_ = incomingRoad;
+    preemptionTimer_ = holdDuration; 
+}
+
 bool Intersection::mustStopForRoad(const Road *road) const{
     TrafficLight* light = getLightForIncomingRoad(road);
     //không có đèn -> mặc định ko bắt dừng
@@ -253,14 +282,27 @@ bool Intersection::mustStopForRoad(const Road *road) const{
 // the junction is currently occupied by a vehicle arriving from another
 // approach. This is the missing piece that stops vehicles from different
 // roads/lanes rendering on top of each other inside the junction.
-bool Intersection::tryEnter(int vehicleId) {
+
+bool Intersection::canEnter(int vehicleId, const Road* fromRoad) const {
+    if (occupants_.count(vehicleId) > 0) {
+        return true; // dang giu cho roi
+    }
+    for (const auto& occupant : occupants_) {
+        if (!areRoadsInSamePhase(fromRoad, occupant.second)) {
+            return false; 
+        }
+    }
+    return static_cast<int>(occupants_.size()) < capacity_;
+}
+
+bool Intersection::tryEnter(int vehicleId, const Road* fromRoad) {
     if (occupants_.count(vehicleId) > 0) {
         return true; // already holding a slot, nothing to do
     }
-    if (static_cast<int>(occupants_.size()) >= capacity_) {
-        return false; // box full, caller must keep waiting at the stop line
+    if (!canEnter(vehicleId, fromRoad)) {
+        return false;
     }
-    occupants_.insert(vehicleId);
+    occupants_.emplace(vehicleId, fromRoad);
     return true;
 }
 

@@ -41,7 +41,10 @@ private:
     // different roads overlapping inside the junction at the same time,
     // independent of the traffic-light phase groups above) ---
     int capacity_ = 1;                  // max vehicles allowed inside the box at once
-    std::unordered_set<int> occupants_; // ids of vehicles currently holding a slot
+    std::unordered_map<int, const Road*> occupants_; // ids of vehicles currently holding a slot
+
+    const Road* preemptedRoad_ = nullptr;
+    double preemptionTimer_ = 0.0; // time remaining for preemption to be active    
 
 public:
     Intersection(int id, double x = 0.0, double y = 0.0);
@@ -86,13 +89,16 @@ public:
     // they are the same phase group, or one/both have no light at all).
     bool areRoadsInSamePhase(const Road* a, const Road* b) const;
 
+    void requestEmergencyPreemption(const Road* incomingRoad, double holdDuration);
+    bool canEnter(int vehicleId, const Road* fromRoad) const;
+
     // --- Intersection-box reservation ---
     // Attempts to claim one of the `capacity_` slots for `vehicleId`. Returns
     // true if the vehicle now holds a slot (either newly granted, or it
     // already held one - calling this again is safe/idempotent). Returns
     // false if the box is full and the vehicle must keep waiting at the
     // stop line.
-    bool tryEnter(int vehicleId);
+    bool tryEnter(int vehicleId, const Road* fromRoad);
     // Releases the slot held by `vehicleId`, if any. Safe to call even if
     // the vehicle never held a slot.
     void exit(int vehicleId);
@@ -100,6 +106,8 @@ public:
     bool isFull() const;
     void setCapacity(int cap);
     int getCapacity() const { return capacity_; }
+
+
 
     std::string toString() const;  
 
