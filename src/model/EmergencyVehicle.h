@@ -3,6 +3,7 @@
 
 #include "Vehicle.h"
 #include "Road.h"
+#include "Intersection.h"
 #include <iostream> 
 
 
