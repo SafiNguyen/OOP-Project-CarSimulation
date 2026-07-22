@@ -78,13 +78,26 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
     ctx.visualization.drawGraph(window, ctx.graph);
 
     if (simulator) {
+        const sf::Vector2f viewCenter = ctx.view.getCenter();
+        const sf::Vector2f viewSize = ctx.view.getSize();
+        const float margin = 60.0f;
+        const float minX = viewCenter.x - viewSize.x * 0.5f - margin;
+        const float maxX = viewCenter.x + viewSize.x * 0.5f + margin;
+        const float minY = viewCenter.y - viewSize.y * 0.5f - margin;
+        const float maxY = viewCenter.y + viewSize.y * 0.5f + margin;
+
         for (Vehicle* v : simulator->getVehicles()) {
             VehicleSprite sprite(v, &ctx.visualization);
-            sprite.update(dt);
-            sprite.draw(window);
+            const sf::Vector2f pos = sprite.getPosition();
+            if (pos.x >= minX && pos.x <= maxX && pos.y >= minY && pos.y <= maxY) {
+                sprite.update(dt);
+                sprite.draw(window);
+            }
         }
         debugConsole.drawFailedRecalcMarkers(window, simulator.get(), ctx.visualization);
-        drawParkedVehicles(window, ctx.visualization, *simulator);
+        if (ctx.showParkedVehicles) {
+            drawParkedVehicles(window, ctx.visualization, *simulator);
+        }
     }
 
     if (simulator && simulator->getStatisticsManager()) {
@@ -92,7 +105,7 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
     }
 
     debugConsole.draw(window, simulator, ctx.view, ctx.zoomFactor, ctx.heatMapEnabled,
-                       ctx.mapPathInput, ctx.usingDemoMap, ctx.loadError);
+                       ctx.showParkedVehicles, ctx.mapPathInput, ctx.usingDemoMap, ctx.loadError);
 
     ImGui::SFML::Render(window);
     window.display();

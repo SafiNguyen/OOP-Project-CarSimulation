@@ -291,6 +291,8 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
         currentLaneIndex = bestCandidate.laneIndex;
         currentRoad->getLane(currentLaneIndex).addVehicle(this);
         laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN;
+    } else {
+        laneChangeCooldownTimer = 0.5; // Short cooldown when lane change is skipped/fails
     }
 }
 
@@ -316,6 +318,8 @@ void Vehicle::tryYieldLaneChange() {
         currentLaneIndex = bestCandidate.laneIndex;
         currentRoad->getLane(currentLaneIndex).addVehicle(this);
         laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN * 0.5;
+    } else {
+        laneChangeCooldownTimer = 0.25; // Short cooldown when yield lane change fails
     }
 }
 

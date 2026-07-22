@@ -80,6 +80,7 @@ public:
               sf::View& view,
               float& zoomFactor,
               bool& heatMapEnabled,
+              bool& showParkedVehicles,
               std::string& mapPathInput,
               bool usingDemoMap,
               const std::string& loadError);
@@ -121,6 +122,7 @@ private:
                      sf::View& view,
                      float& zoomFactor,
                      bool& heatMapEnabled,
+                     bool& showParkedVehicles,
                      std::string& mapPathInput,
                      bool usingDemoMap,
                      const std::string& loadError);
@@ -155,6 +157,7 @@ private:
     int spawnEndId_ = -1;
     int spawnVehicleTypeIdx_ = 0; // 0=Car,1=Bus,2=Motorbike,3=Emergency
     float spawnVehicleSpeed_ = 20.0f;
+    int spawnVehicleCount_ = 1;
     std::string spawnMessage_;
 
     // Task 4c: Trigger Accident panel state

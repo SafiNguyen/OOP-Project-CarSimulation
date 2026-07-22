@@ -34,18 +34,20 @@ void handleEvent(const sf::Event& event, AppContext& ctx, DebugConsole& debugCon
         return;
     }
 
-    // 1. Process camera dragging BEFORE ImGui checks, so dragging is never interrupted or stuck,
-    // and use exact event-based coordinates to eliminate mouse lag/jitter.
+    // 1. Early return for ImGui capture for all interactions (UI controls, buttons, text inputs)
+    if (ImGui::GetIO().WantCaptureMouse || ImGui::GetIO().WantCaptureKeyboard) {
+        ctx.isDragging = false;
+        return;
+    }
+
     if (event.type == sf::Event::MouseButtonPressed && 
         (event.mouseButton.button == sf::Mouse::Middle || event.mouseButton.button == sf::Mouse::Right || event.mouseButton.button == sf::Mouse::Left)) {
-        if (!ImGui::GetIO().WantCaptureMouse) {
-            // Only allow left click drag if not picking
-            if (event.mouseButton.button == sf::Mouse::Left && debugConsole.isPicking()) {
-                // Do nothing here, it's handled below
-            } else {
-                ctx.isDragging = true;
-                ctx.lastMousePixel = sf::Vector2i(event.mouseButton.x, event.mouseButton.y);
-            }
+        // Only allow left click drag if not picking
+        if (event.mouseButton.button == sf::Mouse::Left && debugConsole.isPicking()) {
+            // Do nothing here, it's handled below
+        } else {
+            ctx.isDragging = true;
+            ctx.lastMousePixel = sf::Vector2i(event.mouseButton.x, event.mouseButton.y);
         }
     }
     if (event.type == sf::Event::MouseButtonReleased && 
@@ -60,11 +62,6 @@ void handleEvent(const sf::Event& event, AppContext& ctx, DebugConsole& debugCon
         ctx.view.move(-static_cast<float>(delta.x) * ctx.zoomFactor,
                       -static_cast<float>(delta.y) * ctx.zoomFactor);
         return; // Consumed
-    }
-
-    // 2. Early return for ImGui capture for other interactions (e.g. left click, keys)
-    if (ImGui::GetIO().WantCaptureMouse || ImGui::GetIO().WantCaptureKeyboard) {
-        return;
     }
 
     if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape) {

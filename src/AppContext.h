@@ -38,6 +38,7 @@ struct AppContext {
     bool usingDemoMap = false;
     std::string loadError;
     bool heatMapEnabled = true;
+    bool showParkedVehicles = true;
 };
 
 #endif

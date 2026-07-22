@@ -284,12 +284,30 @@ sf::Color VisualizationEngine::colorForRoad(const Road* road) const {
         return sf::Color(180, 40, 40);
     }
 
-    const double congestion = std::max(1.0, road->getCongestionLevel());
-    const float normalized = static_cast<float>(std::clamp((congestion - 1.0) / 4.0, 0.0, 1.0));
+    // Sum active vehicles currently driving/queued on all lanes of this road
+    int vehicleCount = 0;
+    for (const Lane& lane : road->getLanes()) {
+        vehicleCount += lane.getVehicleCount();
+    }
 
-    const sf::Color green(45, 190, 90);
-    const sf::Color yellow(245, 190, 45);
-    const sf::Color red(220, 55, 55);
+    // Physical capacity estimate based on road length & lane count (~6.5m per car slot)
+    const double vehicleSpace = 6.5;
+    const double maxCapacity = std::max(1.0, (road->getDistance() / vehicleSpace) * std::max(1, road->getLaneCount()));
+
+    // Occupancy ratio (0.0 = no cars, 1.0+ = road at or over capacity)
+    const double occupancy = static_cast<double>(vehicleCount) / maxCapacity;
+
+    // Blend static base congestion factor with dynamic vehicle occupancy
+    const double baseCongestionFactor = std::max(1.0, road->getCongestionLevel());
+    const double effectiveLoad = (baseCongestionFactor > 1.0)
+        ? std::max(occupancy, (baseCongestionFactor - 1.0) / 3.0)
+        : occupancy;
+
+    const float normalized = static_cast<float>(std::clamp(effectiveLoad, 0.0, 1.0));
+
+    const sf::Color green(45, 190, 90);    // Free flow / 0 cars
+    const sf::Color yellow(245, 190, 45);  // Moderate traffic
+    const sf::Color red(220, 45, 45);      // Heavy congestion / Too many cars
 
     if (normalized < 0.5f) {
         return mixColor(green, yellow, normalized * 2.0f);
