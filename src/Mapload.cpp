@@ -314,9 +314,14 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 		}
 
 		std::string roadType;
-		std::string roadName;
+		std::string originalRoadName;
 		getStringOptional(item, "type", roadType, localError);
-		getStringOptional(item, "name", roadName, localError);
+		getStringOptional(item, "name", originalRoadName, localError);
+
+		std::string roadName = originalRoadName;
+		if (roadName.empty()) {
+			roadName = "Road " + std::to_string(startId) + " -> " + std::to_string(endId);
+		}
 
 		Road* road = nullptr;
 		if (roadType == "bridge") {
@@ -342,19 +347,23 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 		if (twoWay) {
 			// create reverse road with negative id
 			Road* revRoad = nullptr;
+			std::string revRoadName = originalRoadName;
+			if (revRoadName.empty()) {
+				revRoadName = "Road " + std::to_string(endId) + " -> " + std::to_string(startId);
+			}
 			if (roadType == "bridge") {
 				double heightLimit = 4.5, weightLimit = 30.0;
 				getDoubleOptional(item, "heightLimit", heightLimit, localError);
 				getDoubleOptional(item, "weightLimit", weightLimit, localError);
-				revRoad = new Bridge(-id, roadName, end, start, distanceMeters, speedLimit,
+				revRoad = new Bridge(-id, revRoadName, end, start, distanceMeters, speedLimit,
 				                     congestionLevel, lanes, heightLimit, weightLimit);
 			} else if (roadType == "tunnel") {
 				double heightLimit = 3.5;
 				getDoubleOptional(item, "heightLimit", heightLimit, localError);
-				revRoad = new Tunnel(-id, roadName, end, start, distanceMeters, speedLimit,
+				revRoad = new Tunnel(-id, revRoadName, end, start, distanceMeters, speedLimit,
 				                     congestionLevel, lanes, heightLimit);
 			} else {
-				revRoad = new Road(-id, roadName, end, start, distanceMeters, speedLimit, congestionLevel, lanes);
+				revRoad = new Road(-id, revRoadName, end, start, distanceMeters, speedLimit, congestionLevel, lanes);
 			}
 			if (blocked) revRoad->blockRoad();
 			graph.addRoad(revRoad);

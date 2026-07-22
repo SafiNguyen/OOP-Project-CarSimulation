@@ -48,9 +48,11 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                 }
             }
             const float offsetAmount = hasReverse ? (totalWidth * 0.5f + 1.0f) : 0.0f;
+            const float boxHalfExtent = getIntersectionBoxHalfExtent(intersection);
 
-            // Stop line position: on the road, pulled back from intersection
-            const sf::Vector2f stopLineCenter = intersectionPoint - approachDir * 20.0f + approachNormal * offsetAmount;
+            // Stop line position: pulled back to the edge of the intersection box
+            // so the road and junction read as one connected shape.
+            const sf::Vector2f stopLineCenter = intersectionPoint - approachDir * (boxHalfExtent + 4.0f) + approachNormal * offsetAmount;
 
             const float approachAngle = std::atan2(approachDir.y, approachDir.x) * 180.0f / 3.14159265f;
 
@@ -128,13 +130,13 @@ void VisualizationEngine::drawIntersectionNode(sf::RenderTarget& target, const I
         hub.setOutlineColor(sf::Color(110, 110, 110));
         target.draw(hub);
     } else {
-        // Simple small white dot to mark intersection without cluttering the view
-        sf::CircleShape core(5.0f);
-        core.setOrigin(5.0f, 5.0f);
+        const float halfExtent = getIntersectionBoxHalfExtent(intersection);
+
+        sf::RectangleShape core({halfExtent * 2.0f, halfExtent * 2.0f});
+        core.setOrigin(halfExtent, halfExtent);
         core.setPosition(point);
-        core.setFillColor(sf::Color(230, 230, 230, 200));
-        core.setOutlineThickness(1.0f);
-        core.setOutlineColor(sf::Color(255, 255, 255, 120));
+        core.setFillColor(getIntersectionBoxColor(intersection));
+        core.setOutlineThickness(0.0f);
         target.draw(core);
     }
 
@@ -151,39 +153,141 @@ sf::Vector2f VisualizationEngine::getRoadEntryPoint(const Road* road, const Inte
     if (road == nullptr || intersection == nullptr) {
         return {};
     }
-
-    const sf::Vector2f intersectionPoint = worldToScreen(intersection->getX(), intersection->getY());
-    const sf::Vector2f roadStart = worldToScreen(road->getStart()->getX(), road->getStart()->getY());
-    sf::Vector2f direction = intersectionPoint - roadStart;
-    const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
-    if (length <= 0.01f) {
-        return intersectionPoint;
+    const Intersection* start = road->getStart();
+    const Intersection* end = road->getEnd();
+    if (start == nullptr || end == nullptr) {
+        return worldToScreen(intersection->getX(), intersection->getY());
     }
-    direction /= length;
-    const sf::Vector2f normal = roadNormal(roadStart, intersectionPoint);
 
-    // Compute road offset the same way drawGraph does
+    const sf::Vector2f roadStart = worldToScreen(start->getX(), start->getY());
+    const sf::Vector2f roadEnd = worldToScreen(end->getX(), end->getY());
+    const sf::Vector2f normal = roadNormal(roadStart, roadEnd);
+
     const float laneWidth = 10.0f;
     const int laneCount = std::max(1, road->getLaneCount());
     const float totalWidth = static_cast<float>(laneCount) * laneWidth;
 
     bool hasReverse = false;
-    auto* endIntersection = road->getEnd();
-    auto* startIntersection = road->getStart();
-    if (endIntersection && startIntersection) {
-        for (Road* r : endIntersection->getOutgoingRoads()) {
-            if (r->getEnd() == startIntersection) {
-                hasReverse = true;
-                break;
-            }
+    if (end && start) {
+        for (Road* r : end->getOutgoingRoads()) {
+            if (r->getEnd() == start) { hasReverse = true; break; }
         }
     }
-
     const float offsetAmount = hasReverse ? (totalWidth * 0.5f + 1.0f) : 0.0f;
 
-    // Position the entry point at the intersection end of the offset road centerline,
-    // pulled back along the direction by a small amount so it sits right at the road edge
-    return intersectionPoint - direction * 18.0f + normal * offsetAmount;
+    return getRoadCenterlineEntryPoint(road, intersection) + normal * offsetAmount;
+}
+
+
+sf::Vector2f VisualizationEngine::getRoadCenterlineEntryPoint(const Road* road, const Intersection* intersection) const {
+    if (road == nullptr || intersection == nullptr) {
+        return {};
+    }
+    const Intersection* start = road->getStart();
+    const Intersection* end = road->getEnd();
+    if (start == nullptr || end == nullptr) {
+        return worldToScreen(intersection->getX(), intersection->getY());
+    }
+
+    const sf::Vector2f intersectionPoint = worldToScreen(intersection->getX(), intersection->getY());
+    const sf::Vector2f roadStart = worldToScreen(start->getX(), start->getY());
+    const sf::Vector2f roadEnd = worldToScreen(end->getX(), end->getY());
+
+    sf::Vector2f towardOtherEnd = (intersection == start) ? (roadEnd - roadStart) : (roadStart - roadEnd);
+    const float length = std::sqrt(towardOtherEnd.x * towardOtherEnd.x + towardOtherEnd.y * towardOtherEnd.y);
+    if (length <= 0.01f) {
+        return intersectionPoint;
+    }
+    towardOtherEnd /= length;
+
+    const float boxHalfExtent = getIntersectionBoxHalfExtent(intersection);
+    const float inset = std::min(boxHalfExtent, length * 0.5f);
+    return intersectionPoint + towardOtherEnd * inset; // no normal/offsetAmount here
+}
+
+float VisualizationEngine::getIntersectionBoxHalfExtent(const Intersection* intersection) const {
+    if (intersection == nullptr) {
+        return 12.0f;
+    }
+
+    if (intersection->isRoundabout()) {
+        return 20.0f;
+    }
+
+    const auto collectMaxRoadWidth = [](const std::vector<Road*>& roads) {
+        float maxWidth = 0.0f;
+        for (const auto* road : roads) {
+            if (road == nullptr) {
+                continue;
+            }
+            const int laneCount = std::max(1, road->getLaneCount());
+            maxWidth = std::max(maxWidth, static_cast<float>(laneCount) * 10.0f);
+        }
+        return maxWidth;
+    };
+
+    const float maxWidth = std::max(collectMaxRoadWidth(intersection->getIncomingRoads()),
+                                     collectMaxRoadWidth(intersection->getOutgoingRoads()));
+    float halfExtent = std::max(14.0f, maxWidth * 0.5f + 8.0f);
+
+    constexpr float kMaxShareOfRoad = 0.35f;
+    float shortestRoadLength = -1.0f;
+
+    const auto trackShortest = [&](const std::vector<Road*>& roads) {
+        for (const Road* road : roads) {
+            if (road == nullptr || road->getStart() == nullptr || road->getEnd() == nullptr) {
+                continue;
+            }
+            const sf::Vector2f a = worldToScreen(road->getStart()->getX(), road->getStart()->getY());
+            const sf::Vector2f b = worldToScreen(road->getEnd()->getX(), road->getEnd()->getY());
+            const float len = distanceBetween(a, b);
+            if (shortestRoadLength < 0.0f || len < shortestRoadLength) {
+                shortestRoadLength = len;
+            }
+        }
+    };
+    trackShortest(intersection->getIncomingRoads());
+    trackShortest(intersection->getOutgoingRoads());
+
+    if (shortestRoadLength >= 0.0f) {
+        halfExtent = std::min(halfExtent, shortestRoadLength * kMaxShareOfRoad);
+    }
+
+    return std::max(6.0f, halfExtent); 
+}
+
+sf::Color VisualizationEngine::getIntersectionBoxColor(const Intersection* intersection) const {
+    const sf::Color fallbackGray(110, 110, 110);
+    if (intersection == nullptr) {
+        return fallbackGray;
+    }
+
+    int r = 0;
+    int g = 0;
+    int b = 0;
+    int count = 0;
+
+    const auto accumulate = [&](const std::vector<Road*>& roads) {
+        for (const Road* road : roads) {
+            if (road == nullptr || road->isBridge() || road->isTunnel()) {
+                continue; // these have their own distinct colors, not congestion-based
+            }
+            const sf::Color c = heatMapEnabled_ ? colorForRoad(road) : sf::Color(110, 110, 110);
+            r += c.r;
+            g += c.g;
+            b += c.b;
+            ++count;
+        }
+    };
+    accumulate(intersection->getIncomingRoads());
+    accumulate(intersection->getOutgoingRoads());
+
+    if (count == 0) {
+        return fallbackGray;
+    }
+    return sf::Color(static_cast<sf::Uint8>(r / count),
+                      static_cast<sf::Uint8>(g / count),
+                      static_cast<sf::Uint8>(b / count));
 }
 
 sf::Color VisualizationEngine::lightColor(LightState state) const {
@@ -241,11 +345,19 @@ void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vec
         const Intersection* end = road->getEnd();
         if (!start || !end) continue;
 
-        sf::Vector2f a = worldToScreen(start->getX(), start->getY());
-        sf::Vector2f b = worldToScreen(end->getX(), end->getY());
-        sf::Vector2f mid = (a + b) * 0.5f;
+        // Use the same box-edge points the road is actually drawn between
+        // (see getRoadEntryPoint), not the raw intersection centers - so
+        // the label centers on the visible road segment instead of a point
+        // that may sit inside one of the intersection boxes on short roads.
+        const sf::Vector2f a = getRoadEntryPoint(road, start);
+        const sf::Vector2f b = getRoadEntryPoint(road, end);
+        const sf::Vector2f mid = (a + b) * 0.5f;
 
-        float angle = std::atan2(b.y - a.y, b.x - a.x) * 180.0f / 3.14159265f;
+        const float dx = b.x - a.x;
+        const float dy = b.y - a.y;
+        const float visibleLength = std::sqrt(dx * dx + dy * dy);
+
+        float angle = std::atan2(dy, dx) * 180.0f / 3.14159265f;
         if (angle > 90.0f || angle < -90.0f) {
             angle += 180.0f;
         }
@@ -253,15 +365,30 @@ void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vec
         sf::Text text;
         text.setFont(*font_);
         text.setString(road->getName());
-        text.setCharacterSize(12);
+        text.setCharacterSize(13);
+        text.setStyle(sf::Text::Bold);
         text.setFillColor(sf::Color::White);
-        text.setOutlineColor(sf::Color::Black);
-        text.setOutlineThickness(1.0f);
 
-        sf::FloatRect bounds = text.getLocalBounds();
+        const sf::FloatRect bounds = text.getLocalBounds();
+
+        constexpr float kEdgeMargin = 6.0f;
+        if (visibleLength < bounds.width + kEdgeMargin * 2.0f) {
+            continue;
+        }
+
         text.setOrigin(bounds.left + bounds.width * 0.5f, bounds.top + bounds.height * 0.5f);
         text.setPosition(mid);
         text.setRotation(angle);
+
+
+        constexpr float kPlatePaddingX = 5.0f;
+        constexpr float kPlatePaddingY = 2.0f;
+        sf::RectangleShape plate({bounds.width + kPlatePaddingX * 2.0f, bounds.height + kPlatePaddingY * 2.0f});
+        plate.setOrigin(plate.getSize().x * 0.5f, plate.getSize().y * 0.5f);
+        plate.setPosition(mid);
+        plate.setRotation(angle);
+        plate.setFillColor(sf::Color(15, 15, 15, 165));
+        target.draw(plate);
 
         target.draw(text);
     }

@@ -44,6 +44,7 @@ protected:
     double laneChangeCooldownTimer = 0.0;
     bool yielding = false;              // yielding state for ambulance priority
     double yieldCooldownTimer = 0.0;    
+    int emergencyLaneToAvoid = -1;          // lane index to avoid when yielding to an ambulance
 
     double stuckTimer = 0.0;
     double patienceThreshold = 5.0;
@@ -76,10 +77,11 @@ public:
     virtual bool updatePause(double dt) { return true; }
     virtual void update(double dt, Graph* graph = nullptr, PathFindingStrategy* strategy = nullptr);
     virtual double getYieldSpeedFactor() const { return YIELD_SPEED_FACTOR; }
-    virtual void notifyEmergencyApproaching() {
+    virtual void notifyEmergencyApproaching(int emergencyLaneIndex = -1) {
         yielding = true;
-        yieldCooldownTimer = YIELD_COOLDOWN_DURATION; // refresh the cooldown timer whenever notified
-     }
+        yieldCooldownTimer = YIELD_COOLDOWN_DURATION;
+        emergencyLaneToAvoid = emergencyLaneIndex;
+    }
     bool isYielding() const { return yielding; }
 
     void setRoute(const std::vector<Road*>& route);
@@ -130,6 +132,7 @@ public:
 private:
     bool advanceToNextRoad();
     void tryLaneChange(double freeFlowSpeedHint);
+    void tryYieldLaneChange(); 
 };
 
 #endif

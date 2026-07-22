@@ -25,6 +25,9 @@ public:
     void setSpriteTexture(const sf::Texture& texture,
                           const sf::IntRect& rect = sf::IntRect(),
                           const sf::Vector2f& size = {24.0f, 24.0f});
+
+    sf::Vector2f getRoadEntryPoint(const Road* road, const Intersection* intersection) const;
+    sf::Vector2f getRoadCenterlineEntryPoint(const Road* road, const Intersection* intersection) const;
     void clearSpriteTexture();
 
     void setFont(const sf::Font& font);
@@ -42,11 +45,7 @@ private:
                        const sf::Vector2f& b,
                        const sf::Color& color,
                        float thickness) const;
-    // Mark the road's lane-fill rectangle (centreline `a` to `b` with
-    // `thickness`) into `bodyMask`, a row-major grid of `gridW * gridH`
-    // cells where each cell covers `cellSize * cellSize` screen pixels.
-    // Used by drawGraph to keep track of which screen pixels are already
-    // covered by some road's body so the border pass can skip them.
+
     void rasterizeBodyToMask(const sf::Vector2f& a,
                              const sf::Vector2f& b,
                              float thickness,
@@ -54,10 +53,7 @@ private:
                              unsigned int gridW,
                              unsigned int gridH,
                              unsigned int cellSize) const;
-    // Like drawRoadStrip, but the border is drawn in 1px chunks and any
-    // chunk whose centre falls on a cell marked in `bodyMask` is skipped.
-    // This makes overlapping roads merge visually at intersections instead
-    // of stacking dark curb strips on top of each other.
+
     void drawRoadBorderMasked(sf::RenderTarget& target,
                               const sf::Vector2f& a,
                               const sf::Vector2f& b,
@@ -69,12 +65,14 @@ private:
                               unsigned int cellSize) const;
     void drawTrafficLights(sf::RenderTarget& target, const Graph& graph) const;
     void drawIntersectionNode(sf::RenderTarget& target, const Intersection* intersection) const;
-    sf::Vector2f getRoadEntryPoint(const Road* road, const Intersection* intersection) const;
+    
     sf::Color lightColor(LightState state) const;
     sf::Vector2f roadNormal(const sf::Vector2f& a, const sf::Vector2f& b) const;
 
     void drawPOIs(sf::RenderTarget& target, const Graph& graph) const;
     void drawRoadNames(sf::RenderTarget& target, const std::vector<Road*>& roads) const;
+    float getIntersectionBoxHalfExtent(const Intersection* intersection) const;
+    sf::Color getIntersectionBoxColor(const Intersection* intersection) const;
 
     sf::Vector2u windowSize_;
     float margin_;

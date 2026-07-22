@@ -69,9 +69,10 @@ sf::Vector2f VehicleSprite::pointOnRoad(const Road* road, double ratio) const {
         return {};
     }
 
-    const double worldX = start->getX() + ratio * (end->getX() - start->getX());
-    const double worldY = start->getY() + ratio * (end->getY() - start->getY());
-    return engine->worldToScreen(worldX, worldY);
+    const sf::Vector2f edgeStart = engine->getRoadCenterlineEntryPoint(road, start);
+    const sf::Vector2f edgeEnd = engine->getRoadCenterlineEntryPoint(road, end);
+    const double clampedRatio = std::clamp(ratio, 0.0, 1.0);
+    return edgeStart + static_cast<float>(clampedRatio) * (edgeEnd - edgeStart);
 }
 
 sf::Vector2f VehicleSprite::laneOffset(const Road* road, const sf::Vector2f& basePosition) const {
@@ -146,11 +147,11 @@ sf::Vector2f VehicleSprite::resolvePosition() const {
             // Apply smoothing curve to turnFactor so it feels like a real steering curve
             float t = turnFactor * turnFactor * (3.0f - 2.0f * turnFactor);
             
-            sf::Vector2f offset1 = laneOffset(currentRoad, currentPos) - currentPos;
-            sf::Vector2f offset2 = laneOffset(nextRoad, currentPos) - currentPos;
-            sf::Vector2f blendedOffset = (1.0f - t) * offset1 + t * offset2;
-            
-            return currentPos + blendedOffset;
+            const sf::Vector2f nextPos = pointOnRoad(nextRoad, 0.0);
+            const sf::Vector2f currentLanePos = laneOffset(currentRoad, currentPos);
+            const sf::Vector2f nextLanePos = laneOffset(nextRoad, nextPos);
+
+            return (1.0f - t) * currentLanePos + t * nextLanePos;
         }
     }
 
