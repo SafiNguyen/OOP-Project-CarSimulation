@@ -145,7 +145,16 @@ void Intersection::rebuildPhaseGroups() {
     activePhaseGroup = 0;
     phaseElapsedTime = 0.0;
 
-    const size_t n = incomingRoads.size();
+    std::vector<Road*> activeIncomingRoads;
+    for (Road* road : incomingRoads) {
+        if (getLightForIncomingRoad(road) != nullptr) {
+            activeIncomingRoads.push_back(road);
+        }
+    }
+
+    const size_t n = activeIncomingRoads.size();
+    if (n == 0) return;
+
     std::vector<bool> assigned(n, false);
 
     auto approachAngle = [this](Road* road) -> double {
@@ -160,27 +169,40 @@ void Intersection::rebuildPhaseGroups() {
     for (size_t i = 0; i < n; ++i) {
         if (assigned[i]) continue;
         std::vector<Road*> group;
-        group.push_back(incomingRoads[i]);
+        group.push_back(activeIncomingRoads[i]);
         assigned[i] = true;
 
-        const double angleI = approachAngle(incomingRoads[i]);
+        const double angleI = approachAngle(activeIncomingRoads[i]);
 
         for (size_t j = i + 1; j < n; ++j) {
             if (assigned[j]) continue;
-            const double angleJ = approachAngle(incomingRoads[j]);
+            const double angleJ = approachAngle(activeIncomingRoads[j]);
 
             double diff = std::fabs(angleI - angleJ);
             if (diff > PI) diff = 2.0 * PI - diff;
             const double distanceFromOpposite = std::fabs(diff - PI);
 
             if (distanceFromOpposite <= OPPOSITE_TOLERANCE_RAD) {
-                group.push_back(incomingRoads[j]);
+                group.push_back(activeIncomingRoads[j]);
                 assigned[j] = true;
                 break; // each approach pairs with at most one opposite partner
             }
         }
 
         phaseGroups.push_back(std::move(group));
+    }
+
+    // Immediately set active group's lights to GREEN so adding a light starts it active right away
+    if (!phaseGroups.empty()) {
+        for (size_t g = 0; g < phaseGroups.size(); ++g) {
+            const LightState desired = (g == 0) ? LightState::GREEN : LightState::RED;
+            for (Road* road : phaseGroups[g]) {
+                TrafficLight* light = getLightForIncomingRoad(road);
+                if (light != nullptr) {
+                    light->forceState(desired);
+                }
+            }
+        }
     }
 }
 
@@ -194,7 +216,7 @@ bool Intersection::areRoadsInSamePhase(const Road* a, const Road* b) const {
         if (hasA && hasB) return true;
         if (hasA || hasB) return false; // found one but not the other -> different groups
     }
-    return false; // neither found (shouldn't normally happen)
+    return true;
 }
 
 void Intersection::updateTrafficLights(double dt) {
