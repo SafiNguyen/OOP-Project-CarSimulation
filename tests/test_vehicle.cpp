@@ -28,6 +28,25 @@ using TestFramework::reportResult;
 using TestFramework::nearlyEqual;
 using TestFramework::printSummary;
 
+class LaneTestCar : public Car {
+public:
+    using Car::Car;
+
+    void placeOnLane(Road& road, int laneIndex, double progress) {
+        if (currentRoad != nullptr) {
+            currentRoad->getLane(currentLaneIndex).removeVehicle(this);
+        }
+        currentRoad = &road;
+        currentLaneIndex = laneIndex;
+        progressOnCurrentRoad = progress;
+        currentRoad->getLane(currentLaneIndex).addVehicle(this);
+    }
+
+    void setTestSpeed(double speed) {
+        currentSpeed = speed;
+    }
+};
+
 // ----------------------------------------------------------------------------
 // Test Cases
 // ----------------------------------------------------------------------------
@@ -249,6 +268,231 @@ void test_Vehicle_StopsAtRedTrafficLight() {
       << ", progress=" << (car.getProgressRatio() * road->getDistance()) << "\n";
     reportResult(testName, passed, d.str());
 }
+
+void test_LaneChange_DoesNotEnterEmergencyLane() {
+    std::string testName = "Lane change: yielding vehicle does not enter the emergency lane";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 100.0, 0.0);
+    Road road(101, "Test", &i1, &i2, 100.0, 20.0, 1.0, 3);
+
+    LaneTestCar subject(1, 20.0, &i1, &i2);
+    LaneTestCar leader(2, 5.0, &i1, &i2);
+    subject.setRoute({&road});
+    leader.setRoute({&road});
+
+    subject.placeOnLane(road, 1, 20.0);
+    leader.placeOnLane(road, 1, 35.0);
+    road.blockLane(0); // Lane 2 is the only attractive normal candidate.
+
+    subject.notifyEmergencyApproaching(2);
+    subject.update(0.05);
+
+    const bool passed = subject.getCurrentLaneIndex() == 1;
+    std::ostringstream d;
+    d << "  Expected: remain in lane 1 instead of entering emergency lane 2\n";
+    d << "  Actual:   lane=" << subject.getCurrentLaneIndex() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_YieldLaneChange_CanExitEmergencyLane() {
+    std::string testName = "Lane change: vehicle on the emergency lane can still move out";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 100.0, 0.0);
+    Road road(101, "Test", &i1, &i2, 100.0, 20.0, 1.0, 3);
+
+    LaneTestCar subject(1, 20.0, &i1, &i2);
+    subject.setRoute({&road});
+    subject.placeOnLane(road, 2, 20.0);
+
+    subject.notifyEmergencyApproaching(2);
+    subject.update(0.05);
+
+    const bool passed = subject.getCurrentLaneIndex() == 1;
+    std::ostringstream d;
+    d << "  Expected: leave emergency lane 2 for nearest safe lane 1\n";
+    d << "  Actual:   lane=" << subject.getCurrentLaneIndex() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_LaneChange_SelectsBestEligibleLane() {
+    std::string testName = "Lane change: selects the best eligible adjacent lane";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 100.0, 0.0);
+    Road road(101, "Test", &i1, &i2, 100.0, 20.0, 1.0, 3);
+
+    LaneTestCar subject(1, 20.0, &i1, &i2);
+    LaneTestCar currentLeader(2, 20.0, &i1, &i2);
+    LaneTestCar lane0Leader(3, 20.0, &i1, &i2);
+    LaneTestCar lane2Leader(4, 20.0, &i1, &i2);
+    subject.setRoute({&road});
+    currentLeader.setRoute({&road});
+    lane0Leader.setRoute({&road});
+    lane2Leader.setRoute({&road});
+
+    subject.placeOnLane(road, 1, 20.0);
+    currentLeader.placeOnLane(road, 1, 34.5); // 10 m gap
+    lane0Leader.placeOnLane(road, 0, 39.5);   // 15 m gap
+    lane2Leader.placeOnLane(road, 2, 42.5);   // 18 m gap
+    subject.setTestSpeed(10.0);
+    currentLeader.setTestSpeed(10.0);
+    lane0Leader.setTestSpeed(10.0);
+    lane2Leader.setTestSpeed(10.0);
+
+    subject.update(0.05);
+
+    const bool passed = subject.getCurrentLaneIndex() == 2;
+    std::ostringstream d;
+    d << "  Expected: choose lane 2 with the largest safe forward gap\n";
+    d << "  Actual:   lane=" << subject.getCurrentLaneIndex() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_LaneChange_RejectsFastRearFollower() {
+    std::string testName = "Lane change: rejects a target lane with a fast rear follower";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 120.0, 0.0);
+    Road road(101, "Test", &i1, &i2, 120.0, 30.0, 1.0, 3);
+
+    LaneTestCar subject(1, 30.0, &i1, &i2);
+    LaneTestCar currentLeader(2, 10.0, &i1, &i2);
+    LaneTestCar fastFollower(3, 30.0, &i1, &i2);
+    subject.setRoute({&road});
+    currentLeader.setRoute({&road});
+    fastFollower.setRoute({&road});
+
+    subject.placeOnLane(road, 1, 40.0);
+    currentLeader.placeOnLane(road, 1, 50.0);
+    fastFollower.placeOnLane(road, 2, 30.0);
+    subject.setTestSpeed(10.0);
+    currentLeader.setTestSpeed(10.0);
+    fastFollower.setTestSpeed(30.0);
+    road.blockLane(0);
+
+    subject.update(0.05);
+
+    const bool passed = subject.getCurrentLaneIndex() == 1;
+    std::ostringstream d;
+    d << "  Expected: remain in lane 1 because lane 2 has unsafe rear TTC\n";
+    d << "  Actual:   lane=" << subject.getCurrentLaneIndex() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_YieldLaneChange_DoesNotSkipBlockedAdjacentLane() {
+    std::string testName = "Lane change: emergency yielding never skips across lanes";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 100.0, 0.0);
+    Road road(101, "Test", &i1, &i2, 100.0, 20.0, 1.0, 3);
+
+    LaneTestCar subject(1, 20.0, &i1, &i2);
+    subject.setRoute({&road});
+    subject.placeOnLane(road, 0, 20.0);
+    road.blockLane(1);
+
+    subject.notifyEmergencyApproaching(0);
+    subject.update(0.05);
+
+    const bool passed = subject.getCurrentLaneIndex() == 0;
+    std::ostringstream d;
+    d << "  Expected: stay in lane 0; lane 2 cannot be reached by one change\n";
+    d << "  Actual:   lane=" << subject.getCurrentLaneIndex() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_LaneChange_StopsOpportunisticChangeNearIntersection() {
+    std::string testName = "Lane change: avoids opportunistic weaving near an intersection";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 100.0, 0.0);
+    Road road(101, "Test", &i1, &i2, 100.0, 20.0, 1.0, 2);
+
+    LaneTestCar subject(1, 20.0, &i1, &i2);
+    LaneTestCar leader(2, 10.0, &i1, &i2);
+    subject.setRoute({&road});
+    leader.setRoute({&road});
+    subject.placeOnLane(road, 0, 90.0);
+    leader.placeOnLane(road, 0, 98.0);
+    subject.setTestSpeed(10.0);
+    leader.setTestSpeed(10.0);
+
+    subject.update(0.05);
+
+    const bool passed = subject.getCurrentLaneIndex() == 0;
+    std::ostringstream d;
+    d << "  Expected: remain in lane 0 inside the 12 m no-change zone\n";
+    d << "  Actual:   lane=" << subject.getCurrentLaneIndex() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_LaneChange_AllowsBlockedLaneEscapeNearIntersection() {
+    std::string testName = "Lane change: blocked lane can still be escaped near an intersection";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 100.0, 0.0);
+    Road road(101, "Test", &i1, &i2, 100.0, 20.0, 1.0, 2);
+
+    LaneTestCar subject(1, 20.0, &i1, &i2);
+    subject.setRoute({&road});
+    subject.placeOnLane(road, 0, 95.0);
+    road.blockLane(0);
+
+    subject.update(0.05);
+
+    const bool passed = subject.getCurrentLaneIndex() == 1;
+    std::ostringstream d;
+    d << "  Expected: move to lane 1 despite being inside the no-change zone\n";
+    d << "  Actual:   lane=" << subject.getCurrentLaneIndex() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_LaneChange_UsesAdaptiveIntersectionZoneOnShortRoad() {
+    std::string testName = "Lane change: no-change zone scales down on short roads";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 20.0, 0.0);
+    Road road(101, "Test", &i1, &i2, 20.0, 20.0, 1.0, 2);
+
+    LaneTestCar subject(1, 20.0, &i1, &i2);
+    LaneTestCar leader(2, 10.0, &i1, &i2);
+    subject.setRoute({&road});
+    leader.setRoute({&road});
+    subject.placeOnLane(road, 0, 8.0);
+    leader.placeOnLane(road, 0, 14.0);
+
+    subject.update(0.05);
+
+    const bool passed = subject.getCurrentLaneIndex() == 1;
+    std::ostringstream d;
+    d << "  Expected: lane change is allowed outside the final 20% (4 m)\n";
+    d << "  Actual:   lane=" << subject.getCurrentLaneIndex() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Yielding_DoesNotSlowVehiclesAlreadyOutsideEmergencyLane() {
+    std::string testName = "Lane change: yielding does not slow an already clear lane";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 100.0, 0.0);
+    Road road(101, "Test", &i1, &i2, 100.0, 20.0, 1.0, 3);
+
+    LaneTestCar subject(1, 20.0, &i1, &i2);
+    subject.setRoute({&road});
+    subject.placeOnLane(road, 1, 20.0);
+    subject.setTestSpeed(20.0);
+
+    subject.notifyEmergencyApproaching(2);
+    subject.update(0.05);
+
+    const bool passed = nearlyEqual(subject.getCurrentSpeed(), 20.0);
+    std::ostringstream d;
+    d << "  Expected: keep normal speed because lane 1 is already clear\n";
+    d << "  Actual:   speed=" << subject.getCurrentSpeed() << "\n";
+    reportResult(testName, passed, d.str());
+}
 // ----------------------------------------------------------------------------
 // main
 // ----------------------------------------------------------------------------
@@ -264,6 +508,15 @@ int main() {
     test_Vehicle_RouteAdvancement();
     test_Vehicle_RecalculateRoute_PreservesProgressNoGrowth();
     test_Vehicle_StopsAtRedTrafficLight();
+    test_LaneChange_DoesNotEnterEmergencyLane();
+    test_YieldLaneChange_CanExitEmergencyLane();
+    test_LaneChange_SelectsBestEligibleLane();
+    test_LaneChange_RejectsFastRearFollower();
+    test_YieldLaneChange_DoesNotSkipBlockedAdjacentLane();
+    test_LaneChange_StopsOpportunisticChangeNearIntersection();
+    test_LaneChange_AllowsBlockedLaneEscapeNearIntersection();
+    test_LaneChange_UsesAdaptiveIntersectionZoneOnShortRoad();
+    test_Yielding_DoesNotSlowVehiclesAlreadyOutsideEmergencyLane();
 
 
     printSummary();

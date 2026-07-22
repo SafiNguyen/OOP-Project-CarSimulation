@@ -15,6 +15,12 @@ public:
     static constexpr double LANE_CHANGE_COOLDOWN = 3.0;
     static constexpr double LANE_CHANGE_GAP_IMPROVEMENT_FACTOR = 1.3;
     static constexpr double LANE_CHANGE_REAR_SAFETY_TIME = 2.0;
+    static constexpr double LANE_CHANGE_FRONT_SAFETY_TIME = 1.5;
+    static constexpr double LANE_CHANGE_REACTION_TIME = 0.5;
+    static constexpr double LANE_CHANGE_MIN_TTC = 3.0;
+    static constexpr double YIELD_LANE_CHANGE_MIN_TTC = 1.5;
+    static constexpr double NO_LANE_CHANGE_DISTANCE = 12.0;
+    static constexpr double NO_LANE_CHANGE_ROAD_FRACTION = 0.2;
     static constexpr double MAX_PHYSICS_SUBSTEP = 0.05;
     static constexpr double YIELD_COOLDOWN_DURATION = 2.0;  
     static constexpr double YIELD_SPEED_FACTOR = 0.4; 

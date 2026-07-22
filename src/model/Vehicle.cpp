@@ -9,6 +9,98 @@
 #include <limits>
 #include <cstdlib>
 
+namespace {
+
+struct LaneChangeCandidate {
+    int laneIndex = -1;
+    double gapAhead = -std::numeric_limits<double>::infinity();
+    double gapBehind = -std::numeric_limits<double>::infinity();
+    bool safe = false;
+};
+
+double gapAheadOf(const Vehicle& vehicle, const Vehicle* leader) {
+    if (leader == nullptr) {
+        return std::numeric_limits<double>::infinity();
+    }
+    return leader->getProgressOnRoad()
+         - vehicle.getProgressOnRoad()
+         - leader->getLength();
+}
+
+double gapBehindOf(const Vehicle& vehicle, const Vehicle* follower) {
+    if (follower == nullptr) {
+        return std::numeric_limits<double>::infinity();
+    }
+    return vehicle.getProgressOnRoad()
+         - follower->getProgressOnRoad()
+         - vehicle.getLength();
+}
+
+LaneChangeCandidate assessLaneChange(const Vehicle& vehicle,
+                                     Road& road,
+                                     int laneIndex,
+                                     double rearSafetyTime,
+                                     double minTimeToCollision) {
+    LaneChangeCandidate result;
+    result.laneIndex = laneIndex;
+
+    if (laneIndex < 0 || laneIndex >= road.getLaneCount()
+        || road.getLane(laneIndex).isBlocked()) {
+        return result;
+    }
+
+    Vehicle* leader = road.findLeader(laneIndex, &vehicle);
+    result.gapAhead = gapAheadOf(vehicle, leader);
+    if (leader != nullptr) {
+        const double closingSpeed = std::max(
+            0.0, vehicle.getCurrentSpeed() - leader->getCurrentSpeed());
+        const double baseGap = std::max(vehicle.getMinGap(), leader->getMinGap());
+        const double requiredGap = baseGap
+                                 + vehicle.getCurrentSpeed() * Vehicle::LANE_CHANGE_REACTION_TIME
+                                 + closingSpeed * Vehicle::LANE_CHANGE_FRONT_SAFETY_TIME;
+        if (result.gapAhead <= requiredGap) {
+            return result;
+        }
+        if (closingSpeed > 1e-6
+            && result.gapAhead / closingSpeed < minTimeToCollision) {
+            return result;
+        }
+    }
+
+    Vehicle* follower = road.findFollower(laneIndex, &vehicle);
+    result.gapBehind = gapBehindOf(vehicle, follower);
+    if (follower != nullptr) {
+        const double closingSpeed = std::max(
+            0.0, follower->getCurrentSpeed() - vehicle.getCurrentSpeed());
+        const double baseGap = std::max(vehicle.getMinGap(), follower->getMinGap());
+        const double requiredGap = baseGap
+                                 + follower->getCurrentSpeed() * Vehicle::LANE_CHANGE_REACTION_TIME
+                                 + closingSpeed * rearSafetyTime;
+        if (result.gapBehind < requiredGap) {
+            return result;
+        }
+        if (closingSpeed > 1e-6
+            && result.gapBehind / closingSpeed < minTimeToCollision) {
+            return result;
+        }
+    }
+
+    result.safe = true;
+    return result;
+}
+
+bool isBetterCandidate(const LaneChangeCandidate& candidate,
+                       const LaneChangeCandidate& best) {
+    if (!candidate.safe) return false;
+    if (!best.safe) return true;
+    if (candidate.gapAhead != best.gapAhead) {
+        return candidate.gapAhead > best.gapAhead;
+    }
+    return candidate.gapBehind > best.gapBehind;
+}
+
+} // namespace
+
 
 Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
     : id(id),
@@ -144,62 +236,59 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
     //    tuc la gap phia truoc nho hon "khoang cach thoai mai" mong muon.
     //    Neu dang chay tu do, khong co ly do gi de doi lane.
     Vehicle* currentLeader = currentRoad->findLeader(currentLaneIndex, this);
-    double currentGapAhead = std::numeric_limits<double>::infinity();
-    if (currentLeader != nullptr) {
-        currentGapAhead = currentLeader->getProgressOnRoad() - progressOnCurrentRoad - currentLeader->getLength();
-    }
+    const double currentGapAhead = gapAheadOf(*this, currentLeader);
 
     const double minGap = getMinGap();
     const double desiredGap = minGap + freeFlowSpeed * getTimeHeadway();
 
-    bool isCurrentLaneBlocked = currentRoad->getLane(currentLaneIndex).isBlocked();
+    const bool isCurrentLaneBlocked = currentRoad->getLane(currentLaneIndex).isBlocked();
 
     if (!isCurrentLaneBlocked && currentGapAhead >= desiredGap) {
         return; // khong bi can tro dang ke, khong can doi lane
     }
 
+    // Avoid opportunistic weaving while entering an intersection. Escaping a
+    // blocked lane remains allowed; emergency yielding is handled separately.
+    const double distanceToIntersection = currentRoad->getDistance() - progressOnCurrentRoad;
+    const double noChangeDistance = std::min(
+        NO_LANE_CHANGE_DISTANCE,
+        currentRoad->getDistance() * NO_LANE_CHANGE_ROAD_FRACTION);
+    if (!isCurrentLaneBlocked && distanceToIntersection <= noChangeDistance) {
+        return;
+    }
+
     // 2) Xet 2 lane lan can (trai/phai). Chon lane tot nhat trong so cac
     //    lane thoa dieu kien "tot hon dang ke" (LANE_CHANGE_GAP_IMPROVEMENT_FACTOR)
     //    VA an toan cho xe phia sau o lane do.
-    int bestLaneIndex = -1;
-    double bestGapAhead = isCurrentLaneBlocked ? 0.0 : currentGapAhead;
+    LaneChangeCandidate bestCandidate;
+    const double requiredGapAhead = isCurrentLaneBlocked
+        ? minGap
+        : currentGapAhead * LANE_CHANGE_GAP_IMPROVEMENT_FACTOR;
 
     const int candidateLanes[2] = { currentLaneIndex - 1, currentLaneIndex + 1 };
     for (int candidateLane : candidateLanes) {
         if (candidateLane < 0 || candidateLane >= currentRoad->getLaneCount()) {
             continue;
         }
-        if (currentRoad->getLane(candidateLane).isBlocked()) {
+        // A yielding vehicle may still use the normal lane-change logic when
+        // its own lane is obstructed. However, it must never choose the lane
+        // currently being cleared for the approaching emergency vehicle.
+        if (yielding && candidateLane == emergencyLaneToAvoid) {
             continue;
         }
+        LaneChangeCandidate candidate = assessLaneChange(
+            *this, *currentRoad, candidateLane,
+            LANE_CHANGE_REAR_SAFETY_TIME, LANE_CHANGE_MIN_TTC);
+        if (!candidate.safe || candidate.gapAhead <= requiredGapAhead) continue;
 
-        Vehicle* candidateLeader = currentRoad->findLeader(candidateLane, this);
-        double gapAhead = std::numeric_limits<double>::infinity();
-        if (candidateLeader != nullptr) {
-            gapAhead = candidateLeader->getProgressOnRoad() - progressOnCurrentRoad - candidateLeader->getLength();
+        if (isBetterCandidate(candidate, bestCandidate)) {
+            bestCandidate = candidate;
         }
-
-        if (gapAhead <= bestGapAhead * LANE_CHANGE_GAP_IMPROVEMENT_FACTOR) {
-            continue;
-        }
-
-        Vehicle* candidateFollower = currentRoad->findFollower(candidateLane, this);
-        if (candidateFollower != nullptr) {
-            const double gapBehind = progressOnCurrentRoad - candidateFollower->getProgressOnRoad() - getLength();
-            const double followerSpeed = candidateFollower->getCurrentSpeed();
-            const double requiredGapBehind = minGap + followerSpeed * LANE_CHANGE_REAR_SAFETY_TIME;
-            if (gapBehind < requiredGapBehind) {
-                continue; 
-            }
-        }
-
-        bestLaneIndex = candidateLane;
-        bestGapAhead = gapAhead;
     }
 
-    if (bestLaneIndex != -1 && bestGapAhead > minGap ) {
+    if (bestCandidate.safe) {
         currentRoad->getLane(currentLaneIndex).removeVehicle(this);
-        currentLaneIndex = bestLaneIndex;
+        currentLaneIndex = bestCandidate.laneIndex;
         currentRoad->getLane(currentLaneIndex).addVehicle(this);
         laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN;
     }
@@ -210,42 +299,21 @@ void Vehicle::tryYieldLaneChange() {
     if (currentRoad->getLaneCount() <= 1) return;
     if (emergencyLaneToAvoid < 0 || currentLaneIndex != emergencyLaneToAvoid) return;
 
-    const double minGap = getMinGap();
-    int bestLane = -1;
-
-    std::vector<int> order;
-    for (int i = 0; i < currentRoad->getLaneCount(); ++i) {
-        if (i != currentLaneIndex) order.push_back(i);
-    }
-    std::sort(order.begin(), order.end(), [this](int a, int b) {
-        return std::abs(a - currentLaneIndex) < std::abs(b - currentLaneIndex);
-    });
-
-    for (int candidateLane : order) {
-        if (currentRoad->getLane(candidateLane).isBlocked()) continue;
-
-        Vehicle* candidateLeader = currentRoad->findLeader(candidateLane, this);
-        double gapAhead = std::numeric_limits<double>::infinity();
-        if (candidateLeader != nullptr) {
-            gapAhead = candidateLeader->getProgressOnRoad() - progressOnCurrentRoad - candidateLeader->getLength();
+    LaneChangeCandidate bestCandidate;
+    const int candidateLanes[2] = { currentLaneIndex - 1, currentLaneIndex + 1 };
+    for (int candidateLane : candidateLanes) {
+        LaneChangeCandidate candidate = assessLaneChange(
+            *this, *currentRoad, candidateLane,
+            LANE_CHANGE_REAR_SAFETY_TIME * 0.5,
+            YIELD_LANE_CHANGE_MIN_TTC);
+        if (isBetterCandidate(candidate, bestCandidate)) {
+            bestCandidate = candidate;
         }
-        if (gapAhead <= minGap) continue;
-
-        Vehicle* candidateFollower = currentRoad->findFollower(candidateLane, this);
-        if (candidateFollower != nullptr) {
-            const double gapBehind = progressOnCurrentRoad - candidateFollower->getProgressOnRoad() - getLength();
-            const double followerSpeed = candidateFollower->getCurrentSpeed();
-            const double requiredGapBehind = minGap + followerSpeed * (LANE_CHANGE_REAR_SAFETY_TIME * 0.5);
-            if (gapBehind < requiredGapBehind) continue;
-        }
-
-        bestLane = candidateLane;
-        break;
     }
 
-    if (bestLane != -1) {
+    if (bestCandidate.safe) {
         currentRoad->getLane(currentLaneIndex).removeVehicle(this);
-        currentLaneIndex = bestLane;
+        currentLaneIndex = bestCandidate.laneIndex;
         currentRoad->getLane(currentLaneIndex).addVehicle(this);
         laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN * 0.5;
     }
@@ -333,18 +401,15 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
         double targetSpeed = freeFlowSpeed;
 
         // ambulance yielding constraints
-        if (yielding) {
-        const bool stuckOnEmergencyLane = (emergencyLaneToAvoid >= 0)
-                                        && (currentLaneIndex == emergencyLaneToAvoid);
-
-        if (stuckOnEmergencyLane && currentRoad->getLaneCount() > 1) {
-            const double escapeSpeed = std::min(currentRoad->getSpeedLimit(),
-                                                freeFlowSpeed * getYieldEscapeSpeedFactor());
+        if (yielding && emergencyLaneToAvoid >= 0
+            && currentLaneIndex == emergencyLaneToAvoid) {
+            // Keep moving while looking for a safe adjacent gap. Vehicles that
+            // already cleared the emergency lane keep their normal speed.
+            const double escapeSpeed = std::min(
+                currentRoad->getSpeedLimit(),
+                freeFlowSpeed * getYieldEscapeSpeedFactor());
             targetSpeed = std::max(targetSpeed, escapeSpeed);
-        } else {
-            targetSpeed = std::min(targetSpeed, freeFlowSpeed * getYieldSpeedFactor());
         }
-}
         if (currentRoad != nullptr) {
             Intersection* nextIntersectionForLight = currentRoad->getEnd();
             if (nextIntersectionForLight != nullptr) {
