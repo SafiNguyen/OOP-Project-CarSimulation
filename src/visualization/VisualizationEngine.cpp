@@ -137,6 +137,8 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
         rd.isTunnel = road->isTunnel();
         rd.dirUnit = {dir.x / length, dir.y / length};
 
+
+        // brigde sprite
         if (rd.isBridge) {
             rd.bodyColor = sf::Color(100, 149, 237);
             rd.hasBorder = true;

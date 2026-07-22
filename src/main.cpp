@@ -55,6 +55,26 @@ int main(int argc, char** argv) {
     Graph graph;
     VisualizationEngine visualization({windowW, windowH});
 
+    sf::Font font;
+    bool fontLoaded = false;
+    const std::string fontPaths[] = {
+        "arial.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/segoeui.ttf",
+        "C:/Windows/Fonts/calibri.ttf",
+        "build/_deps/sfml-src/examples/android/app/src/main/assets/tuffy.ttf"
+    };
+    for (const auto& fontPath : fontPaths) {
+        if (font.loadFromFile(fontPath)) {
+            visualization.setFont(font);
+            fontLoaded = true;
+            break;
+        }
+    }
+    if (!fontLoaded) {
+        std::cerr << "Warning: Could not load any font. Road names and POIs will not be rendered." << std::endl;
+    }
+
     AppContext ctx(graph, visualization, window, windowW, windowH);
     ctx.view = window.getDefaultView();
     ctx.mapPathInput = path.empty() ? "map.json" : path;

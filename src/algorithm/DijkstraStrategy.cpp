@@ -71,7 +71,9 @@ PathResult DijkstraStrategy::findPath(const Graph& graph, int startId, int goalI
         for (Road* road : current->getOutgoingRoads()) {
             if (road == nullptr) continue;
 
-            double edgeCost = road->getTravelCost(); // infinity if blocked
+            // Speed-aware, distance-aware edge cost. See DijkstraStrategy.h
+            // for what speedPreference_ == 0 / 1 / in-between each mean.
+            double edgeCost = road->getWeightedCost(speedPreference_);
             if (edgeCost == INF) continue;            // skip impassable roads
 
             int neighborId = road->getEnd()->getId();
