@@ -170,6 +170,13 @@ private:
     DijkstraStrategy dijkstraStrategy_;
     int selectedAlgorithmIdx_ = 2; // 0=BFS,1=Dijkstra,2=A*
 
+    // Distance-vs-speed blend shared by Dijkstra and A* (BFS ignores it -
+    // BFS is hop-count-only by design). 0.0 = shortest distance,
+    // 1.0 = fastest travel time (speed-limit + congestion aware).
+    // Kept in sync with aStar_ / dijkstraStrategy_ via setSpeedPreference()
+    // whenever the slider in drawAlgorithmPanel() changes.
+    float speedPreference_ = 1.0f;
+
     // Traffic light panel state
     int trafficLightIntersectionIdx_ = -1; // index into intersectionsSnapshot_
 

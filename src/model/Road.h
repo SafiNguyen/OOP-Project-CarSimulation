@@ -68,6 +68,25 @@ public:
 
     double getTravelCost() const;
     double getTravelTime() const;        
+
+    // --- Speed-aware weighted routing cost ---
+    // General-purpose edge cost for pathfinding strategies (Dijkstra / A*)
+    // that lets the caller blend between "shortest distance" and
+    // "fastest travel time" (which already factors in this road's
+    // speedLimit and current congestion):
+    //
+    //   cost = speedPreference * travelTime + (1 - speedPreference) * distance
+    //
+    //   speedPreference = 1.0  -> pure travel-time optimization (equivalent
+    //                             to getTravelCost() / getTravelTime());
+    //                             a road with a higher speedLimit is
+    //                             cheaper even if it is physically longer.
+    //   speedPreference = 0.0  -> pure distance optimization; speedLimit is
+    //                             ignored entirely.
+    //   0 < speedPreference < 1 -> a blend of both.
+    //
+    // Returns +infinity if the road is blocked, same as getTravelTime().
+    double getWeightedCost(double speedPreference = 1.0) const;
     
     void updateCongestionLevel(double newLevel);
     void blockRoad();

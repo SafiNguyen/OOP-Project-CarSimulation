@@ -57,10 +57,19 @@ PathResult AStarStrategy::findPath(const Graph& graph, int startId, int goalId) 
     const double INF = std::numeric_limits<double>::infinity();
     const double maxSpeed = findMaxSpeedLimit(graph);
 
+    // Best-case per-unit-distance cost: optimistically assumes the fastest
+    // speedLimit anywhere in the graph (for the time term) and zero
+    // congestion, blended the same way Road::getWeightedCost() blends its
+    // two terms. Multiplying this by the straight-line distance to the
+    // goal gives an admissible lower bound on the remaining path cost for
+    // any speedPreference_ in [0, 1] (see AStarStrategy.h for the proof
+    // sketch).
+    const double bestCasePerDistance = speedPreference_ / maxSpeed + (1.0 - speedPreference_);
+
     auto heuristic = [&](int id) -> double {
         Intersection* node = graph.getIntersection(id);
         if (node == nullptr) return 0.0;
-        return euclidean(node, goalNode) / maxSpeed;
+        return euclidean(node, goalNode) * bestCasePerDistance;
     };
 
     std::unordered_map<int, double> gScore; // best known cost from start
@@ -97,7 +106,9 @@ PathResult AStarStrategy::findPath(const Graph& graph, int startId, int goalId) 
         for (Road* road : current->getOutgoingRoads()) {
             if (road == nullptr) continue;
 
-            double edgeCost = road->getTravelCost();
+            // Speed-aware, distance-aware edge cost. See AStarStrategy.h
+            // for what speedPreference_ == 0 / 1 / in-between each mean.
+            double edgeCost = road->getWeightedCost(speedPreference_);
             if (edgeCost == INF) continue; // blocked road
 
             int neighborId = road->getEnd()->getId();

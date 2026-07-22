@@ -177,6 +177,23 @@ double Road::getTravelCost() const {
     return getTravelTime();
 }
 
+double Road::getWeightedCost(double speedPreference) const {
+    if (isBlocked()) {
+        return std::numeric_limits<double>::infinity();
+    }
+
+    // Clamp defensively: callers passing a slider value or similar should
+    // never be able to push this outside the intended [0, 1] blend range.
+    const double alpha = std::clamp(speedPreference, 0.0, 1.0);
+
+    // alpha == 1.0 reduces exactly to getTravelTime()'s formula, so
+    // existing "pure time-optimal" callers keep identical behaviour.
+    const double travelTime = distance / (speedLimit / getDynamicCongestionLevel());
+    const double distanceCost = distance;
+
+    return alpha * travelTime + (1.0 - alpha) * distanceCost;
+}
+
 void Road::updateCongestionLevel(double newLevel) {
     if (newLevel < 1.0) {
         this->congestionLevel = 1.0;
