@@ -16,6 +16,11 @@ enum class PauseReason {
     BusStop
 };
 
+struct PauseUpdateResult {
+    bool resumed;
+    double remainingTime;
+};
+
 class Vehicle {
 public:
     static constexpr double INTERSECTION_TRANSITION_DURATION = 0.12;
@@ -89,7 +94,9 @@ public:
                                 double& pausePos);
     virtual bool mustStopForTrafficLight(Intersection* nextIntersection) const;
     virtual void onPauseStarted() {}
-    virtual bool updatePause(double dt) { return true; }
+    virtual PauseUpdateResult updatePause(double availableTime) {
+        return {true, availableTime};
+    }
     virtual void update(double dt, Graph* graph = nullptr, PathFindingStrategy* strategy = nullptr);
     virtual double getYieldSpeedFactor() const { return YIELD_SPEED_FACTOR; }
     virtual double getYieldEscapeSpeedFactor() const { return YIELD_ESCAPE_SPEED_FACTOR; }
@@ -146,8 +153,16 @@ public:
         return 1.0 - (intersectionTransitionTimer / INTERSECTION_TRANSITION_DURATION);
     }
 
+protected:
+    PauseReason getIntersectionControlReason() const;
+    double getIntersectionStopPosition() const;
+    void beginPause(PauseReason reason);
+    void clearPause();
+    virtual int getRequiredLaneIndex() const { return -1; }
+
 private:
     bool advanceToNextRoad();
+    bool tryRequiredLaneChange(int requiredLaneIndex);
     void tryLaneChange(double freeFlowSpeedHint);
     void tryYieldLaneChange(); 
 };

@@ -12,7 +12,7 @@ class Intersection;
 
 class VisualizationEngine {
 public:
-    VisualizationEngine(sf::Vector2u windowSize = {800u, 600u}, float margin = 24.0f);
+    VisualizationEngine(sf::Vector2u windowSize = {800u, 600u}, float margin = 48.0f);
 
     void prepare(const Graph& graph);
     void setWindowSize(sf::Vector2u windowSize);

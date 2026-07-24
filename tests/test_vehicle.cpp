@@ -52,8 +52,22 @@ class TestBus : public Bus {
 public:
     using Bus::Bus;
 
+    void placeOnLane(Road& road, int laneIndex, double progress) {
+        if (currentRoad != nullptr) {
+            currentRoad->getLane(currentLaneIndex).removeVehicle(this);
+        }
+        currentRoad = &road;
+        currentLaneIndex = laneIndex;
+        progressOnCurrentRoad = progress;
+        currentRoad->getLane(currentLaneIndex).addVehicle(this);
+    }
+
     void setTestSpeed(double speed) {
         currentSpeed = speed;
+    }
+
+    void setTestProgress(double progress) {
+        progressOnCurrentRoad = progress;
     }
 };
 
@@ -406,6 +420,532 @@ void test_Bus_NoStopsKeepsNormalBehavior() {
     reportResult(testName, passed, d.str());
 }
 
+void test_Bus_UTurnRefreshesStopOnReverseRoad() {
+    std::string testName = "Vehicle: Bus U-turn refreshes the next stop from the reverse road";
+
+    Graph g;
+    g.addIntersection(new Intersection(1, 0.0, 0.0));
+    g.addIntersection(new Intersection(2, 100.0, 0.0));
+    g.addRoad(new Road(101, "Forward", g.getIntersection(1), g.getIntersection(2),
+                       100.0, 20.0));
+    g.addRoad(new Road(102, "Reverse", g.getIntersection(2), g.getIntersection(1),
+                       100.0, 20.0));
+
+    Road* forward = g.getRoad(101);
+    Road* reverse = g.getRoad(102);
+    forward->addBusStop(std::make_unique<BusStop>(
+        501, "Forward stop", forward, 90.0, 0, 1.0));
+    reverse->addBusStop(std::make_unique<BusStop>(
+        502, "Reverse stop", reverse, 80.0, 0, 1.0));
+    const BusStop* stopA = forward->findBusStopById(501);
+    const BusStop* stopB = reverse->findBusStopById(502);
+
+    DijkstraStrategy strategy;
+    TestBus bus(1, 20.0, g.getIntersection(1), g.getIntersection(1));
+    bus.setRoute({forward});
+    bus.setTestProgress(30.0);
+
+    const bool turned = bus.performUTurn(g, &strategy);
+    const BusStop* next = bus.getNextBusStop();
+    const bool passed = turned &&
+                        bus.getCurrentRoad() == reverse &&
+                        next == stopB &&
+                        next != stopA &&
+                        next != nullptr &&
+                        next->getRoad() == reverse;
+
+    std::ostringstream d;
+    d << "  Expected: reverse road and stop 502 after mirroring progress to 70m\n";
+    d << "  Actual: turned=" << turned
+      << " road=" << (bus.getCurrentRoad() ? bus.getCurrentRoad()->getId() : 0)
+      << " stop=" << (next ? next->getId() : 0) << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_UTurnToRoadWithoutStopsClearsNextStop() {
+    std::string testName = "Vehicle: Bus U-turn to a road without stops clears stale stop state";
+
+    Graph g;
+    g.addIntersection(new Intersection(1, 0.0, 0.0));
+    g.addIntersection(new Intersection(2, 100.0, 0.0));
+    g.addRoad(new Road(101, "Forward", g.getIntersection(1), g.getIntersection(2),
+                       100.0, 20.0));
+    g.addRoad(new Road(102, "Reverse", g.getIntersection(2), g.getIntersection(1),
+                       100.0, 20.0));
+
+    Road* forward = g.getRoad(101);
+    Road* reverse = g.getRoad(102);
+    forward->addBusStop(std::make_unique<BusStop>(
+        501, "Old-road stop", forward, 90.0, 0, 1.0));
+
+    DijkstraStrategy strategy;
+    TestBus bus(1, 20.0, g.getIntersection(1), g.getIntersection(1));
+    bus.setRoute({forward});
+    bus.setTestProgress(30.0);
+
+    const bool turned = bus.performUTurn(g, &strategy);
+    const double progressAfterTurn = bus.getProgressOnRoad();
+    bus.update(0.5);
+    const bool passed = turned &&
+                        bus.getCurrentRoad() == reverse &&
+                        bus.getNextBusStop() == nullptr &&
+                        bus.getNextStopPos() < 0.0 &&
+                        !bus.isDwelling() &&
+                        bus.getProgressOnRoad() > progressAfterTurn;
+
+    std::ostringstream d;
+    d << "  Expected: no next stop and no phantom dwell on reverse road\n";
+    d << "  Actual: turned=" << turned
+      << " nextPos=" << bus.getNextStopPos()
+      << " dwelling=" << bus.isDwelling()
+      << " progress=" << bus.getProgressOnRoad() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_UTurnSkipsReverseStopBehindMirroredProgress() {
+    std::string testName = "Vehicle: Bus U-turn skips reverse-road stops behind its mirrored progress";
+
+    Graph g;
+    g.addIntersection(new Intersection(1, 0.0, 0.0));
+    g.addIntersection(new Intersection(2, 100.0, 0.0));
+    g.addRoad(new Road(101, "Forward", g.getIntersection(1), g.getIntersection(2),
+                       100.0, 20.0));
+    g.addRoad(new Road(102, "Reverse", g.getIntersection(2), g.getIntersection(1),
+                       100.0, 20.0));
+
+    Road* forward = g.getRoad(101);
+    Road* reverse = g.getRoad(102);
+    reverse->addBusStop(std::make_unique<BusStop>(
+        501, "Behind", reverse, 50.0, 0, 1.0));
+    reverse->addBusStop(std::make_unique<BusStop>(
+        502, "Ahead", reverse, 80.0, 0, 1.0));
+
+    DijkstraStrategy strategy;
+    TestBus bus(1, 20.0, g.getIntersection(1), g.getIntersection(1));
+    bus.setRoute({forward});
+    bus.setTestProgress(30.0);
+
+    const bool turned = bus.performUTurn(g, &strategy);
+    const BusStop* next = bus.getNextBusStop();
+    const bool passed = turned &&
+                        nearlyEqual(bus.getProgressOnRoad(), 70.0) &&
+                        next != nullptr &&
+                        next->getId() == 502 &&
+                        next->getRoad() == reverse;
+
+    std::ostringstream d;
+    d << "  Expected: stop 502 ahead of mirrored progress 70m\n";
+    d << "  Actual: progress=" << bus.getProgressOnRoad()
+      << " stop=" << (next ? next->getId() : 0) << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Vehicle_IntersectionPauseReasonPersistsAndResumes() {
+    std::string testName = "Vehicle: intersection reservation wait uses Intersection reason until released";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 80.0, 0.0);
+    Road road(101, "Approach", &i1, &i2, 80.0, 20.0);
+    LaneTestCar car(1, 20.0, &i1, &i2);
+    car.setRoute({&road});
+    car.placeOnLane(road, 0, 78.5);
+    car.setTestSpeed(0.0);
+
+    const bool occupied = i2.tryEnter(900, &road);
+    car.update(0.05);
+    const double waitingProgress = car.getProgressOnRoad();
+    const bool initiallyWaiting = occupied &&
+                                  car.isPaused() &&
+                                  car.getPauseReason() == PauseReason::Intersection &&
+                                  !car.hasReachedDestination();
+
+    car.update(0.5);
+    const bool stillWaiting = car.isPaused() &&
+                              car.getPauseReason() == PauseReason::Intersection &&
+                              nearlyEqual(car.getProgressOnRoad(), waitingProgress) &&
+                              !car.hasReachedDestination();
+
+    i2.exit(900);
+    car.update(0.1);
+    const bool resumed = car.getProgressOnRoad() > waitingProgress &&
+                         !car.isPaused() &&
+                         car.getPauseReason() == PauseReason::None;
+
+    const bool passed = initiallyWaiting && stillWaiting && resumed;
+    std::ostringstream d;
+    d << "  Expected: wait with Intersection, remain fixed, then resume with None\n";
+    d << "  Actual: initial=" << initiallyWaiting
+      << " waiting=" << stillWaiting
+      << " resumed=" << resumed
+      << " progress=" << car.getProgressOnRoad() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Vehicle_TrafficLightTakesPriorityOverIntersection() {
+    std::string testName = "Vehicle: TrafficLight reason overrides a blocked intersection box";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 80.0, 0.0);
+    Road road(101, "Signal approach", &i1, &i2, 80.0, 20.0);
+    i2.addIncomingRoad(&road);
+    i2.registerIncomingLight(&road);
+    TrafficLight* light = i2.getLightForIncomingRoad(&road);
+    if (light != nullptr) {
+        light->forceState(LightState::RED);
+    }
+
+    LaneTestCar car(1, 20.0, &i1, &i2);
+    car.setRoute({&road});
+    car.placeOnLane(road, 0, 78.5);
+    car.setTestSpeed(0.0);
+    const bool occupied = i2.tryEnter(900, &road);
+
+    car.update(0.05);
+    const bool redReason = light != nullptr &&
+                           occupied &&
+                           car.isPaused() &&
+                           car.getPauseReason() == PauseReason::TrafficLight;
+
+    if (light != nullptr) {
+        light->forceState(LightState::GREEN);
+    }
+    car.update(0.05);
+    const bool greenButBlockedReason =
+        car.isPaused() &&
+        car.getPauseReason() == PauseReason::Intersection;
+
+    i2.exit(900);
+    const bool passed = redReason && greenButBlockedReason;
+    std::ostringstream d;
+    d << "  Expected: TrafficLight while red, then Intersection while green but occupied\n";
+    d << "  Actual: redReason=" << redReason
+      << " greenBlockedReason=" << greenButBlockedReason << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Vehicle_NonControlObstaclesDoNotUseIntersectionPause() {
+    std::string testName = "Vehicle: lane and leader blocking do not use Intersection pause";
+
+    bool blockedLaneKeepsNormalState = false;
+    {
+        Intersection i1(1, 0.0, 0.0);
+        Intersection i2(2, 80.0, 0.0);
+        Road road(101, "Blocked lane", &i1, &i2, 80.0, 20.0);
+        LaneTestCar car(1, 20.0, &i1, &i2);
+        car.setRoute({&road});
+        car.placeOnLane(road, 0, 10.0);
+        road.blockLane(0);
+        i2.tryEnter(900, &road);
+
+        car.update(0.5);
+        blockedLaneKeepsNormalState =
+            !car.isPaused() &&
+            car.getPauseReason() == PauseReason::None &&
+            nearlyEqual(car.getProgressOnRoad(), 10.0);
+    }
+
+    bool leaderKeepsNormalState = false;
+    {
+        Intersection i1(1, 0.0, 0.0);
+        Intersection i2(2, 80.0, 0.0);
+        Road road(101, "Queued approach", &i1, &i2, 80.0, 20.0);
+        LaneTestCar follower(1, 20.0, &i1, &i2);
+        LaneTestCar leader(2, 20.0, &i1, &i2);
+        follower.setRoute({&road});
+        leader.setRoute({&road});
+        leader.placeOnLane(road, 0, 78.5);
+        leader.setTestSpeed(0.0);
+        follower.placeOnLane(road, 0, 72.0);
+        follower.setTestSpeed(0.0);
+        i2.tryEnter(900, &road);
+
+        leader.update(0.05);
+        follower.update(0.5);
+        leaderKeepsNormalState =
+            leader.isPaused() &&
+            leader.getPauseReason() == PauseReason::Intersection &&
+            !follower.isPaused() &&
+            follower.getPauseReason() == PauseReason::None &&
+            nearlyEqual(follower.getProgressOnRoad(), 72.0);
+    }
+
+    const bool passed =
+        blockedLaneKeepsNormalState && leaderKeepsNormalState;
+    std::ostringstream d;
+    d << "  Expected: only the vehicle at the stop line uses Intersection pause\n";
+    d << "  Actual: blockedLane=" << blockedLaneKeepsNormalState
+      << " queuedFollower=" << leaderKeepsNormalState << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_DwellUsesRemainingUpdateTime() {
+    std::string testName = "Vehicle: Bus uses update time remaining after dwell completes";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 200.0, 0.0);
+    Road road(101, "Long bus road", &i1, &i2, 200.0, 20.0);
+    road.addBusStop(std::make_unique<BusStop>(
+        501, "Short dwell", &road, 20.0, 0, 1.0));
+
+    TestBus bus(1, 20.0, &i1, &i2);
+    bus.setRoute({&road});
+    bus.setTestProgress(19.9);
+    bus.setTestSpeed(10.0);
+    bus.update(0.05);
+    const bool startedDwell = bus.isDwelling() &&
+                              nearlyEqual(bus.getDwellTimer(), 1.0) &&
+                              nearlyEqual(bus.getProgressOnRoad(), 20.0);
+
+    bus.update(5.0);
+    const bool passed = startedDwell &&
+                        !bus.isDwelling() &&
+                        nearlyEqual(bus.getDwellTimer(), 0.0) &&
+                        bus.getProgressOnRoad() > 20.0;
+
+    std::ostringstream d;
+    d << "  Expected: consume 1s dwell and move with the remaining 4s\n";
+    d << "  Actual: started=" << startedDwell
+      << " timer=" << bus.getDwellTimer()
+      << " progress=" << bus.getProgressOnRoad() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_IncompleteDwellConsumesOnlyAvailableTime() {
+    std::string testName = "Vehicle: Bus remains stopped when available update time is shorter than dwell";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 200.0, 0.0);
+    Road road(101, "Long bus road", &i1, &i2, 200.0, 20.0);
+    road.addBusStop(std::make_unique<BusStop>(
+        501, "Long dwell", &road, 20.0, 0, 5.0));
+
+    TestBus bus(1, 20.0, &i1, &i2);
+    bus.setRoute({&road});
+    bus.setTestProgress(19.9);
+    bus.setTestSpeed(10.0);
+    bus.update(0.05);
+    const double stopProgress = bus.getProgressOnRoad();
+    bus.update(2.0);
+
+    const bool passed = bus.isDwelling() &&
+                        bus.getPauseReason() == PauseReason::BusStop &&
+                        nearlyEqual(bus.getDwellTimer(), 3.0) &&
+                        nearlyEqual(bus.getProgressOnRoad(), stopProgress);
+    std::ostringstream d;
+    d << "  Expected: 3s dwell remains and progress stays fixed\n";
+    d << "  Actual: timer=" << bus.getDwellTimer()
+      << " progress=" << bus.getProgressOnRoad() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_DwellCompletionDoesNotBypassRedLight() {
+    std::string testName = "Vehicle: Bus rechecks a red light after dwell completes";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 80.0, 0.0);
+    Road road(101, "Signal bus road", &i1, &i2, 80.0, 20.0);
+    road.addBusStop(std::make_unique<BusStop>(
+        501, "Before signal", &road, 75.0, 0, 1.0));
+    i2.addIncomingRoad(&road);
+    i2.registerIncomingLight(&road);
+    TrafficLight* light = i2.getLightForIncomingRoad(&road);
+    if (light != nullptr) {
+        light->forceState(LightState::RED);
+    }
+
+    TestBus bus(1, 20.0, &i1, &i2);
+    bus.setRoute({&road});
+    bus.setTestProgress(74.9);
+    bus.setTestSpeed(10.0);
+    bus.update(0.05);
+    const bool startedDwell = bus.isDwelling();
+    bus.update(5.0);
+
+    const bool passed = light != nullptr &&
+                        startedDwell &&
+                        !bus.isDwelling() &&
+                        bus.isPaused() &&
+                        bus.getPauseReason() == PauseReason::TrafficLight &&
+                        bus.getCurrentRoad() == &road &&
+                        bus.getProgressOnRoad() <= 78.5 + 1e-6 &&
+                        !bus.hasReachedDestination();
+    std::ostringstream d;
+    d << "  Expected: finish dwell, then stop at red no later than 78.5m\n";
+    d << "  Actual: reason=" << static_cast<int>(bus.getPauseReason())
+      << " progress=" << bus.getProgressOnRoad()
+      << " reached=" << bus.hasReachedDestination() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_DwellCompletionDoesNotBypassIntersection() {
+    std::string testName = "Vehicle: Bus rechecks intersection reservation after dwell completes";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 80.0, 0.0);
+    Road road(101, "Reserved bus road", &i1, &i2, 80.0, 20.0);
+    road.addBusStop(std::make_unique<BusStop>(
+        501, "Before box", &road, 75.0, 0, 1.0));
+    const bool occupied = i2.tryEnter(900, &road);
+
+    TestBus bus(1, 20.0, &i1, &i2);
+    bus.setRoute({&road});
+    bus.setTestProgress(74.9);
+    bus.setTestSpeed(10.0);
+    bus.update(0.05);
+    const bool startedDwell = bus.isDwelling();
+    bus.update(5.0);
+
+    const bool passed = occupied &&
+                        startedDwell &&
+                        !bus.isDwelling() &&
+                        bus.isPaused() &&
+                        bus.getPauseReason() == PauseReason::Intersection &&
+                        bus.getCurrentRoad() == &road &&
+                        bus.getProgressOnRoad() <= 78.5 + 1e-6 &&
+                        !bus.hasReachedDestination();
+    i2.exit(900);
+
+    std::ostringstream d;
+    d << "  Expected: finish dwell, then wait for the occupied box\n";
+    d << "  Actual: reason=" << static_cast<int>(bus.getPauseReason())
+      << " progress=" << bus.getProgressOnRoad()
+      << " reached=" << bus.hasReachedDestination() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_ChangesOneLaneAtATimeTowardStop() {
+    std::string testName = "Vehicle: Bus changes one safe lane at a time toward its stop lane";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 500.0, 0.0);
+    Road road(101, "Three-lane bus road", &i1, &i2, 500.0, 20.0, 1.0, 3);
+    road.addBusStop(std::make_unique<BusStop>(
+        501, "Lane 2 stop", &road, 300.0, 2, 1.0));
+
+    TestBus bus(1, 2.0, &i1, &i2);
+    bus.setRoute({&road});
+    bus.placeOnLane(road, 0, 250.0);
+    bus.setTestSpeed(2.0);
+
+    bus.update(0.05);
+    const bool firstAdjacentChange =
+        bus.getCurrentLaneIndex() == 1 &&
+        bus.getProgressOnRoad() < 300.0;
+
+    bus.update(Vehicle::LANE_CHANGE_COOLDOWN + 0.1);
+    const bool secondAdjacentChange =
+        bus.getCurrentLaneIndex() == 2 &&
+        bus.getProgressOnRoad() < 300.0;
+
+    const bool passed = firstAdjacentChange && secondAdjacentChange;
+    std::ostringstream d;
+    d << "  Expected: lane 0 -> 1 -> 2 without skipping a lane\n";
+    d << "  Actual: first=" << firstAdjacentChange
+      << " second=" << secondAdjacentChange
+      << " finalLane=" << bus.getCurrentLaneIndex()
+      << " progress=" << bus.getProgressOnRoad() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_RejectsUnsafeFrontGapTowardStopLane() {
+    std::string testName = "Vehicle: Bus does not enter stop lane with an unsafe front gap";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 150.0, 0.0);
+    Road road(101, "Bus approach", &i1, &i2, 150.0, 20.0, 1.0, 2);
+    road.addBusStop(std::make_unique<BusStop>(
+        501, "Lane 1 stop", &road, 100.0, 1, 1.0));
+
+    TestBus bus(1, 20.0, &i1, &i2);
+    LaneTestCar frontVehicle(2, 10.0, &i1, &i2);
+    bus.setRoute({&road});
+    frontVehicle.setRoute({&road});
+    bus.placeOnLane(road, 0, 50.0);
+    frontVehicle.placeOnLane(road, 1, 60.0);
+    bus.setTestSpeed(10.0);
+    frontVehicle.setTestSpeed(5.0);
+
+    bus.update(0.05);
+
+    const bool passed =
+        bus.getCurrentLaneIndex() == 0 &&
+        !bus.isDwelling();
+    std::ostringstream d;
+    d << "  Expected: remain in lane 0 because lane 1 front gap is unsafe\n";
+    d << "  Actual: lane=" << bus.getCurrentLaneIndex()
+      << " progress=" << bus.getProgressOnRoad() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_RejectsUnsafeRearGapTowardStopLane() {
+    std::string testName = "Vehicle: Bus does not enter stop lane with an unsafe rear gap";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 150.0, 0.0);
+    Road road(101, "Bus approach", &i1, &i2, 150.0, 30.0, 1.0, 2);
+    road.addBusStop(std::make_unique<BusStop>(
+        501, "Lane 1 stop", &road, 100.0, 1, 1.0));
+
+    TestBus bus(1, 20.0, &i1, &i2);
+    LaneTestCar rearVehicle(2, 30.0, &i1, &i2);
+    bus.setRoute({&road});
+    rearVehicle.setRoute({&road});
+    bus.placeOnLane(road, 0, 50.0);
+    rearVehicle.placeOnLane(road, 1, 45.0);
+    bus.setTestSpeed(10.0);
+    rearVehicle.setTestSpeed(25.0);
+
+    bus.update(0.05);
+
+    const bool passed =
+        bus.getCurrentLaneIndex() == 0 &&
+        !bus.isDwelling();
+    std::ostringstream d;
+    d << "  Expected: remain in lane 0 because lane 1 rear gap/TTC is unsafe\n";
+    d << "  Actual: lane=" << bus.getCurrentLaneIndex()
+      << " progress=" << bus.getProgressOnRoad() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_DoesNotServeStopFromWrongLane() {
+    std::string testName = "Vehicle: Bus skips a stop it cannot safely reach and serves the next valid stop";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 120.0, 0.0);
+    Road road(101, "Two-stop bus road", &i1, &i2, 120.0, 20.0, 1.0, 2);
+    road.addBusStop(std::make_unique<BusStop>(
+        501, "Unreachable lane 1 stop", &road, 30.0, 1, 1.0));
+    road.addBusStop(std::make_unique<BusStop>(
+        502, "Reachable lane 0 stop", &road, 60.0, 0, 2.0));
+
+    TestBus bus(1, 20.0, &i1, &i2);
+    LaneTestCar laneOneVehicle(2, 5.0, &i1, &i2);
+    bus.setRoute({&road});
+    laneOneVehicle.setRoute({&road});
+    bus.placeOnLane(road, 0, 20.0);
+    laneOneVehicle.placeOnLane(road, 1, 35.0);
+    bus.setTestSpeed(10.0);
+    laneOneVehicle.setTestSpeed(0.0);
+
+    bus.update(10.0);
+
+    const BusStop* servedStop = bus.getNextBusStop();
+    const bool passed =
+        bus.isDwelling() &&
+        bus.getCurrentLaneIndex() == 0 &&
+        nearlyEqual(bus.getProgressOnRoad(), 60.0) &&
+        servedStop != nullptr &&
+        servedStop->getId() == 502 &&
+        nearlyEqual(bus.getDwellTimer(), 2.0);
+    std::ostringstream d;
+    d << "  Expected: no dwell at 30m in wrong lane; dwell at stop 502 at 60m\n";
+    d << "  Actual: lane=" << bus.getCurrentLaneIndex()
+      << " progress=" << bus.getProgressOnRoad()
+      << " stop=" << (servedStop ? servedStop->getId() : 0)
+      << " dwelling=" << bus.isDwelling() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
 void test_LaneChange_DoesNotEnterEmergencyLane() {
     std::string testName = "Lane change: yielding vehicle does not enter the emergency lane";
 
@@ -646,6 +1186,20 @@ int main() {
     test_NonBusVehicle_IgnoresBusStops();
     test_Bus_RedLightIsNotDwellAndDwellDoesNotBypassRed();
     test_Bus_NoStopsKeepsNormalBehavior();
+    test_Bus_UTurnRefreshesStopOnReverseRoad();
+    test_Bus_UTurnToRoadWithoutStopsClearsNextStop();
+    test_Bus_UTurnSkipsReverseStopBehindMirroredProgress();
+    test_Vehicle_IntersectionPauseReasonPersistsAndResumes();
+    test_Vehicle_TrafficLightTakesPriorityOverIntersection();
+    test_Vehicle_NonControlObstaclesDoNotUseIntersectionPause();
+    test_Bus_DwellUsesRemainingUpdateTime();
+    test_Bus_IncompleteDwellConsumesOnlyAvailableTime();
+    test_Bus_DwellCompletionDoesNotBypassRedLight();
+    test_Bus_DwellCompletionDoesNotBypassIntersection();
+    test_Bus_ChangesOneLaneAtATimeTowardStop();
+    test_Bus_RejectsUnsafeFrontGapTowardStopLane();
+    test_Bus_RejectsUnsafeRearGapTowardStopLane();
+    test_Bus_DoesNotServeStopFromWrongLane();
     test_Vehicle_RouteAdvancement();
     test_Vehicle_RecalculateRoute_PreservesProgressNoGrowth();
     test_Vehicle_StopsAtRedTrafficLight();

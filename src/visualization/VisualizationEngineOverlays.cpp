@@ -30,26 +30,46 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
 
             const float ratio = static_cast<float>(stop->getPositionRatio());
             const sf::Vector2f centerline = roadStart + (roadEnd - roadStart) * ratio;
-            const float laneCenterOffset =
-                -totalWidth * 0.5f +
-                (static_cast<float>(stop->getLaneIndex()) + 0.5f) * laneWidth;
-            const float edgeDirection = laneCenterOffset < 0.0f ? -1.0f : 1.0f;
+            const sf::Vector2f roadEdge =
+                centerline + normal * (totalWidth * 0.5f);
             const sf::Vector2f markerPos =
-                centerline + normal * (laneCenterOffset + edgeDirection * laneWidth * 0.45f);
+                roadEdge + normal * 9.0f;
 
-            sf::RectangleShape pole({2.0f, 9.0f});
-            pole.setOrigin(1.0f, 9.0f);
-            pole.setPosition(markerPos);
+            drawRoadStrip(
+                target, roadEdge, markerPos,
+                sf::Color(225, 235, 245), 2.5f);
+
+            sf::RectangleShape pole({2.5f, 8.0f});
+            pole.setOrigin(1.25f, 0.0f);
+            pole.setPosition(markerPos.x, markerPos.y + 5.0f);
             pole.setFillColor(sf::Color(225, 235, 245));
             target.draw(pole);
 
-            sf::RectangleShape sign({9.0f, 7.0f});
-            sign.setOrigin(4.5f, 7.0f);
-            sign.setPosition(markerPos.x, markerPos.y - 7.0f);
+            constexpr float signWidth = 14.0f;
+            constexpr float signHeight = 12.0f;
+            sf::RectangleShape sign({signWidth, signHeight});
+            sign.setOrigin(signWidth * 0.5f, signHeight * 0.5f);
+            sign.setPosition(markerPos);
             sign.setFillColor(sf::Color(35, 145, 230));
-            sign.setOutlineThickness(1.0f);
+            sign.setOutlineThickness(2.0f);
             sign.setOutlineColor(sf::Color::White);
             target.draw(sign);
+
+            const sf::Color symbolColor = sf::Color::White;
+            sf::RectangleShape leftStroke({2.0f, 7.0f});
+            leftStroke.setPosition(markerPos.x - 4.0f, markerPos.y - 3.5f);
+            leftStroke.setFillColor(symbolColor);
+            target.draw(leftStroke);
+
+            sf::RectangleShape rightStroke({2.0f, 7.0f});
+            rightStroke.setPosition(markerPos.x + 2.0f, markerPos.y - 3.5f);
+            rightStroke.setFillColor(symbolColor);
+            target.draw(rightStroke);
+
+            sf::RectangleShape crossStroke({6.0f, 2.0f});
+            crossStroke.setPosition(markerPos.x - 3.0f, markerPos.y - 1.0f);
+            crossStroke.setFillColor(symbolColor);
+            target.draw(crossStroke);
 
             if (font_) {
                 sf::Text label;
@@ -59,7 +79,7 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
                 label.setFillColor(sf::Color(120, 210, 255));
                 label.setOutlineColor(sf::Color::Black);
                 label.setOutlineThickness(1.0f);
-                label.setPosition(markerPos.x + 6.0f, markerPos.y - 17.0f);
+                label.setPosition(markerPos.x + 10.0f, markerPos.y - 17.0f);
                 target.draw(label);
             }
         }

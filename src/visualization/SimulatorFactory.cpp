@@ -15,11 +15,12 @@ namespace {
 
 constexpr int DEMO_VEHICLE_COUNT = 1000;
 
-// Car, Motorbike, Bus, EmergencyVehicle. Keep ordinary traffic close to the
-// previous even split while making emergency vehicles uncommon.
-constexpr double CAR_WEIGHT = 32.7;
-constexpr double MOTORBIKE_WEIGHT = 32.7;
-constexpr double BUS_WEIGHT = 32.6;
+// Car, Motorbike, Bus, EmergencyVehicle. Buses are deliberately a small
+// share of vehicle units: they carry many people, but are far less numerous
+// on the road than private cars and motorbikes.
+constexpr double CAR_WEIGHT = 45.0;
+constexpr double MOTORBIKE_WEIGHT = 48.0;
+constexpr double BUS_WEIGHT = 5.0;
 constexpr double EMERGENCY_WEIGHT = 2.0;
 
 } // namespace

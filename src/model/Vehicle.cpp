@@ -11,6 +11,8 @@
 
 namespace {
 
+constexpr double INTERSECTION_STOP_LINE_OFFSET = 1.5;
+
 struct LaneChangeCandidate {
     int laneIndex = -1;
     double gapAhead = -std::numeric_limits<double>::infinity();
@@ -130,40 +132,91 @@ Vehicle::~Vehicle() {
     }
 }
 
+PauseReason Vehicle::getIntersectionControlReason() const {
+    if (currentRoad == nullptr) {
+        return PauseReason::None;
+    }
+
+    Intersection* nextIntersection = currentRoad->getEnd();
+    if (nextIntersection == nullptr) {
+        return PauseReason::None;
+    }
+
+    if (mustStopForTrafficLight(nextIntersection)) {
+        return PauseReason::TrafficLight;
+    }
+
+    if (reservedIntersection_ != nextIntersection &&
+        !currentRoad->getLane(currentLaneIndex).isBlocked() &&
+        !nextIntersection->canEnter(getId(), currentRoad)) {
+        return PauseReason::Intersection;
+    }
+
+    return PauseReason::None;
+}
+
+double Vehicle::getIntersectionStopPosition() const {
+    if (currentRoad == nullptr) {
+        return 0.0;
+    }
+    return std::max(
+        0.0,
+        currentRoad->getDistance() - INTERSECTION_STOP_LINE_OFFSET);
+}
+
+void Vehicle::beginPause(PauseReason reason) {
+    if (reason == PauseReason::None) {
+        clearPause();
+        return;
+    }
+
+    const bool pauseJustStarted = !paused || pauseReason != reason;
+    paused = true;
+    pauseReason = reason;
+    currentSpeed = 0.0;
+    if (pauseJustStarted) {
+        onPauseStarted();
+    }
+}
+
+void Vehicle::clearPause() {
+    paused = false;
+    pauseReason = PauseReason::None;
+}
+
 bool Vehicle::shouldPauseAt(double currentPos,
                             double projectedPos,
                             double& pausePos) {
     if (currentRoad == nullptr) return false;
 
-    Intersection* nextIntersection = currentRoad->getEnd();
-    if (nextIntersection == nullptr) return false;
-
-    // Only consider traffic-light enforced stops here.
-    if (!mustStopForTrafficLight(nextIntersection)) return false;
+    const PauseReason controlReason = getIntersectionControlReason();
+    if (controlReason == PauseReason::None) return false;
 
     // Position of the nominal stop line a short distance before the road end.
-    constexpr double STOP_LINE_OFFSET = 1.5; // metres before road end
-    const double roadEnd = currentRoad->getDistance();
-    double stopLinePos = std::max(0.0, roadEnd - STOP_LINE_OFFSET);
+    double stopLinePos = getIntersectionStopPosition();
 
-    // If there's a paused leader ahead on this lane, queue behind it
-    Vehicle* leader = currentRoad->findLeader(currentLaneIndex, this);
-    if (leader != nullptr && leader->isPaused()) {
-        double leaderBack = leader->getProgressOnRoad() - leader->getLength();
-        double desiredPos = leaderBack - getMinGap();
-        // Don't allow desiredPos to go past the nominal stop line further upstream
-        if (desiredPos < stopLinePos) {
-            stopLinePos = desiredPos;
+    // A red-light queue is still waiting for the signal. By contrast, a
+    // vehicle held behind an intersection-waiting leader is stopped by that
+    // leader, not directly by the box reservation.
+    if (controlReason == PauseReason::TrafficLight) {
+        Vehicle* leader = currentRoad->findLeader(currentLaneIndex, this);
+        if (leader != nullptr && leader->isPaused()) {
+            double leaderBack = leader->getProgressOnRoad() - leader->getLength();
+            double desiredPos = leaderBack - getMinGap();
+            // Don't allow desiredPos to go past the nominal stop line further upstream
+            if (desiredPos < stopLinePos) {
+                stopLinePos = desiredPos;
+            }
         }
     }
 
-    if (stopLinePos <= currentPos) return false;
-
     // Pause only when this movement step actually reaches the stop line.
-    if (projectedPos < stopLinePos) return false;
+    if (stopLinePos > currentPos && projectedPos < stopLinePos) return false;
 
-    pausePos = stopLinePos;
-    pauseReason = PauseReason::TrafficLight;
+    // Never move backwards if the control state changed after the vehicle
+    // had already crossed the nominal stop line.
+    pausePos = std::max(currentPos, stopLinePos);
+    pauseReason = controlReason;
     return true;
 }
 
@@ -172,8 +225,7 @@ void Vehicle::setRoute(const std::vector<Road*>& route) {
     currentRouteIndex = 0;
     progressOnCurrentRoad = 0.0;
     currentSpeed = 0.0;
-    paused = false;
-    pauseReason = PauseReason::None;
+    clearPause();
     routeAssigned = true;
 
     if (!currentRoute.empty()) {
@@ -219,6 +271,7 @@ bool Vehicle::advanceToNextRoad() {
     }
     currentRoad = nullptr;
     progressOnCurrentRoad = 0.0;
+    onRoadChanged();
     return false;
 }
 
@@ -227,6 +280,35 @@ double Vehicle::getProgressRatio() const {
         return 0.0;
     }
     return progressOnCurrentRoad / currentRoad->getDistance();
+}
+
+bool Vehicle::tryRequiredLaneChange(int requiredLaneIndex) {
+    if (currentRoad == nullptr ||
+        !canChangeLanes() ||
+        requiredLaneIndex < 0 ||
+        requiredLaneIndex >= currentRoad->getLaneCount() ||
+        requiredLaneIndex == currentLaneIndex) {
+        return false;
+    }
+
+    const int adjacentLane = currentLaneIndex +
+        (requiredLaneIndex > currentLaneIndex ? 1 : -1);
+    const LaneChangeCandidate candidate = assessLaneChange(
+        *this,
+        *currentRoad,
+        adjacentLane,
+        LANE_CHANGE_REAR_SAFETY_TIME,
+        LANE_CHANGE_MIN_TTC);
+    if (!candidate.safe) {
+        laneChangeCooldownTimer = 0.25;
+        return false;
+    }
+
+    currentRoad->getLane(currentLaneIndex).removeVehicle(this);
+    currentLaneIndex = adjacentLane;
+    currentRoad->getLane(currentLaneIndex).addVehicle(this);
+    laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN;
+    return true;
 }
 
 void Vehicle::tryLaneChange(double freeFlowSpeed) {
@@ -347,7 +429,13 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
         return;
     }
 
-    recalculateTimer -= dt;
+    double remainingTime = std::max(0.0, dt);
+    if (remainingTime <= 0.0) {
+        return;
+    }
+    const double elapsedTimeThisUpdate = remainingTime;
+
+    recalculateTimer -= elapsedTimeThisUpdate;
     if (recalculateTimer <= 0.0) {
         recalculateTimer = 10.0 + static_cast<double>(std::rand() % 50) / 10.0; // 10-15s
         if (graph && strategy && currentRoad) {
@@ -365,7 +453,7 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
     }
 
     if (awaitingIntersectionTransition) {
-        intersectionTransitionTimer -= dt;
+        intersectionTransitionTimer -= elapsedTimeThisUpdate;
         if (intersectionTransitionTimer <= 0.0) {
             intersectionTransitionTimer = 0.0;
             awaitingIntersectionTransition = false;
@@ -377,18 +465,18 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
     }
 
     if (laneChangeCooldownTimer > 0.0) {
-        laneChangeCooldownTimer -= dt;
+        laneChangeCooldownTimer -= elapsedTimeThisUpdate;
         if (laneChangeCooldownTimer < 0.0) {
             laneChangeCooldownTimer = 0.0;
         }
     }
 
     if (uTurnCooldownTimer > 0.0) {
-        uTurnCooldownTimer -= dt;
+        uTurnCooldownTimer -= elapsedTimeThisUpdate;
     }
 
     if (yielding) {
-        yieldCooldownTimer -= dt;
+        yieldCooldownTimer -= elapsedTimeThisUpdate;
         if (yieldCooldownTimer <= 0.0) {
             yieldCooldownTimer = 0.0;
             yielding = false;
@@ -397,14 +485,24 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
     }
 
     if (paused) {
-        if (updatePause(dt)) {
-            paused = false;
-            pauseReason = PauseReason::None;
+        if (pauseReason == PauseReason::BusStop) {
+            const PauseUpdateResult result = updatePause(remainingTime);
+            remainingTime = std::clamp(
+                result.remainingTime, 0.0, remainingTime);
+            if (!result.resumed) {
+                return;
+            }
+            clearPause();
+        } else {
+            const PauseReason currentControlReason =
+                getIntersectionControlReason();
+            if (currentControlReason != PauseReason::None) {
+                beginPause(currentControlReason);
+                return;
+            }
+            clearPause();
         }
-        return;
     }
-
-    double remainingTime = dt;
 
     while (remainingTime > 0.0 && currentRoad != nullptr && !paused) {
         const double freeFlowSpeed = calculateCurrentSpeed();
@@ -423,11 +521,9 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
         if (currentRoad != nullptr) {
             Intersection* nextIntersectionForLight = currentRoad->getEnd();
             if (nextIntersectionForLight != nullptr) {
-                bool lightRequiresStop = mustStopForTrafficLight(nextIntersectionForLight);
-                bool boxRequiresStop = (reservedIntersection_ != nextIntersectionForLight)
-                       && !nextIntersectionForLight->canEnter(getId(), currentRoad); 
-
-                if (lightRequiresStop || boxRequiresStop) {
+                const PauseReason controlReason =
+                    getIntersectionControlReason();
+                if (controlReason != PauseReason::None) {
                     const double distToStopLine = currentRoad->getDistance() - progressOnCurrentRoad;
                     const double stoppingDistance = (currentSpeed * currentSpeed) / (2.0 * std::max(getDeceleration(), 1e-6));
                     const double safetyBuffer = 1.0; // metres: small margin
@@ -442,8 +538,18 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
             tryYieldLaneChange();
         }
 
+        const int requiredLaneIndex = getRequiredLaneIndex();
+        const bool hasRequiredLane =
+            requiredLaneIndex >= 0 &&
+            requiredLaneIndex < currentRoad->getLaneCount();
         if (laneChangeCooldownTimer <= 0.0) {
-            tryLaneChange(freeFlowSpeed);
+            if (hasRequiredLane) {
+                if (requiredLaneIndex != currentLaneIndex) {
+                    tryRequiredLaneChange(requiredLaneIndex);
+                }
+            } else {
+                tryLaneChange(freeFlowSpeed);
+            }
         }
 
 
@@ -500,6 +606,17 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
 
         double speed = currentSpeed;
         if (speed <= 0.0) {
+            const PauseReason controlReason =
+                getIntersectionControlReason();
+            const bool atIntersectionStopPosition =
+                progressOnCurrentRoad + 1e-6 >=
+                getIntersectionStopPosition();
+            if (controlReason != PauseReason::None &&
+                atIntersectionStopPosition) {
+                beginPause(controlReason);
+                break;
+            }
+
             stuckTimer += subDt;
             if (stuckTimer > patienceThreshold && graph != nullptr && strategy != nullptr) {
                 // Check if it's safe to U-turn (no vehicle closely behind)
@@ -539,12 +656,10 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
 
         double pausePos = -1.0;
         if (shouldPauseAt(currentPos, projectedPos, pausePos)
-            && pausePos > currentPos
+            && pausePos >= currentPos
             && pausePos <= currentRoad->getDistance()) {
             progressOnCurrentRoad = pausePos;
-            currentSpeed = 0.0;
-            paused = true;
-            onPauseStarted();
+            beginPause(pauseReason);
             break;
         }
 
@@ -554,15 +669,13 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
         } else {
             Intersection* nextIntersection = currentRoad->getEnd();
 
-            bool boxBlocked = false;
-            if (nextIntersection != nullptr && reservedIntersection_ != nextIntersection) {
-                boxBlocked = !nextIntersection->canEnter(getId(), currentRoad);
-            }
-
-            if (mustStopForTrafficLight(nextIntersection) || boxBlocked) {
-                progressOnCurrentRoad = currentRoad->getDistance();
-                currentSpeed = 0.0;
-                remainingTime = 0.0;
+            const PauseReason controlReason =
+                getIntersectionControlReason();
+            if (controlReason != PauseReason::None) {
+                progressOnCurrentRoad = std::min(
+                    currentRoad->getDistance(),
+                    std::max(currentPos, getIntersectionStopPosition()));
+                beginPause(controlReason);
                 break;
             }
 
@@ -570,9 +683,10 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
                 if (nextIntersection->tryEnter(getId(), currentRoad)) {
                     reservedIntersection_ = nextIntersection;
                 } else {
-                    progressOnCurrentRoad = currentRoad->getDistance();
-                    currentSpeed = 0.0;
-                    remainingTime = 0.0;
+                    progressOnCurrentRoad = std::min(
+                        currentRoad->getDistance(),
+                        std::max(currentPos, getIntersectionStopPosition()));
+                    beginPause(PauseReason::Intersection);
                     break;
                 }
             }
@@ -639,8 +753,6 @@ bool Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy
     }
 
     currentRoute = newRoute;
-    paused = false;
-    pauseReason = PauseReason::None;
     return true;
 }
 
@@ -676,14 +788,13 @@ bool Vehicle::performUTurn(const Graph& graph, PathFindingStrategy* strategy) {
         : 0;
     currentRoad->getLane(currentLaneIndex).addVehicle(this);
 
-    progressOnCurrentRoad = currentRoad->getDistance() - progressOnCurrentRoad;
-    if (progressOnCurrentRoad < 0) {
-        progressOnCurrentRoad = 0;
-    }
+    progressOnCurrentRoad = std::clamp(
+        currentRoad->getDistance() - progressOnCurrentRoad,
+        0.0,
+        currentRoad->getDistance());
 
     currentSpeed = 0.0;
-    paused = false;
-    pauseReason = PauseReason::None;
+    clearPause();
 
     std::vector<Road*> newRoute;
     for (int i = 0; i < currentRouteIndex; ++i) {
@@ -696,5 +807,6 @@ bool Vehicle::performUTurn(const Graph& graph, PathFindingStrategy* strategy) {
     }
 
     currentRoute = newRoute;
+    onRoadChanged();
     return true;
 }
