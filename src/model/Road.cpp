@@ -1,4 +1,5 @@
 #include "Road.h"
+#include "BusStop.h"
 #include "Intersection.h"
 #include "Vehicle.h" 
 #include <limits>
@@ -235,23 +236,85 @@ void Road::addLanes(int count) {
     }
 }
 
-void Road::addBusStop(double position) {
-    if (position <= 0.0 || position >= distance) {
-        return;
+bool Road::addBusStop(std::unique_ptr<BusStop> busStop) {
+    if (busStop == nullptr ||
+        busStop->getRoad() != this ||
+        busStop->getPositionOnRoad() <= 0.0 ||
+        busStop->getPositionOnRoad() >= distance ||
+        busStop->getLaneIndex() < 0 ||
+        busStop->getLaneIndex() >= laneCount ||
+        findBusStopById(busStop->getId()) != nullptr) {
+        return false;
     }
- 
-    for (double pos : busStopPositions) {
-        if (std::fabs(pos - position) < 0.01) {
-            return;
+
+    for (const auto& existing : busStops) {
+        if (std::fabs(existing->getPositionOnRoad() - busStop->getPositionOnRoad())
+            < BusStop::MIN_SPACING) {
+            return false;
         }
     }
- 
-    busStopPositions.push_back(position);
-    std::sort(busStopPositions.begin(), busStopPositions.end());
-}
- 
-void Road::clearBusStops() {
+
+    busStops.push_back(std::move(busStop));
+    std::sort(busStops.begin(), busStops.end(),
+              [](const std::unique_ptr<BusStop>& lhs,
+                 const std::unique_ptr<BusStop>& rhs) {
+                  return lhs->getPositionOnRoad() < rhs->getPositionOnRoad();
+              });
+
     busStopPositions.clear();
+    busStopPositions.reserve(busStops.size());
+    for (const auto& stop : busStops) {
+        busStopPositions.push_back(stop->getPositionOnRoad());
+    }
+    return true;
+}
+
+void Road::addBusStop(double position) {
+    // Compatibility API for existing code/tests. Negative IDs are local,
+    // generated identities and are never produced by the JSON loader.
+    int generatedId = -1;
+    while (findBusStopById(generatedId) != nullptr) {
+        --generatedId;
+    }
+    addBusStop(std::make_unique<BusStop>(
+        generatedId,
+        "Bus Stop",
+        this,
+        position,
+        0,
+        BusStop::DEFAULT_DWELL_TIME,
+        false));
+}
+
+void Road::clearBusStops() {
+    busStops.clear();
+    busStopPositions.clear();
+}
+
+const std::vector<std::unique_ptr<BusStop>>& Road::getBusStops() const {
+    return busStops;
+}
+
+const BusStop* Road::findBusStopById(int stopId) const {
+    for (const auto& stop : busStops) {
+        if (stop->getId() == stopId) {
+            return stop.get();
+        }
+    }
+    return nullptr;
+}
+
+const BusStop* Road::getNextBusStopInfo(double fromPosition, double toPosition) const {
+    for (const auto& stop : busStops) {
+        const double stopPos = stop->getPositionOnRoad();
+        if (stopPos > toPosition + 0.001) {
+            break;
+        }
+        if (stopPos > fromPosition + 0.001) {
+            return stop.get();
+        }
+    }
+    return nullptr;
 }
  
 const std::vector<double>& Road::getBusStopPositions() const {
@@ -259,21 +322,8 @@ const std::vector<double>& Road::getBusStopPositions() const {
 }
  
 double Road::getNextBusStop(double fromPosition, double toPosition) const {
-    if (busStopPositions.empty()) {
-        return -1.0;
-    }
- 
-    for (double stopPos : busStopPositions) {
-        if (stopPos > toPosition + 0.001) {
-            break; 
-        }
-
-        if (stopPos > fromPosition + 0.001) {
-            return stopPos; 
-        }
-    }
- 
-    return -1.0; 
+    const BusStop* stop = getNextBusStopInfo(fromPosition, toPosition);
+    return stop != nullptr ? stop->getPositionOnRoad() : -1.0;
 }
 
 

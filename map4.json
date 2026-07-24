@@ -423,6 +423,39 @@
             "twoWay": true
         }
     ],
+    "busStops": [
+        {
+            "id": 501,
+            "name": "West Gate",
+            "roadId": 100,
+            "positionRatio": 0.3,
+            "lane": 0,
+            "dwellTime": 10.0
+        },
+        {
+            "id": 502,
+            "name": "Central Market",
+            "roadId": 100,
+            "positionRatio": 0.7,
+            "lane": 0,
+            "dwellTime": 15.0
+        },
+        {
+            "id": 503,
+            "name": "Central Market Eastbound",
+            "roadId": 104,
+            "positionRatio": 0.55,
+            "lane": 1,
+            "dwellTime": 12.0
+        },
+        {
+            "id": 504,
+            "name": "West Gate Return",
+            "roadId": -100,
+            "positionRatio": 0.65,
+            "lane": 0
+        }
+    ],
     "pois": [
         {
             "id": 300,

@@ -9,6 +9,13 @@ class Graph;
 class PathFindingStrategy;
 class PointOfInterest;
 
+enum class PauseReason {
+    None,
+    TrafficLight,
+    Intersection,
+    BusStop
+};
+
 class Vehicle {
 public:
     static constexpr double INTERSECTION_TRANSITION_DURATION = 0.12;
@@ -39,6 +46,7 @@ protected:
     int currentRouteIndex;
     std::vector<Road*> travelHistory;
     bool paused;
+    PauseReason pauseReason;
     bool routeAssigned = false;
     int currentLaneIndex = 0;
     bool awaitingIntersectionTransition = false;
@@ -111,6 +119,7 @@ public:
     void setTargetPOI(PointOfInterest* poi) { targetPOI = poi; }
     Road* getCurrentRoad() const { return currentRoad; }
     bool isPaused() const { return paused; }
+    PauseReason getPauseReason() const { return pauseReason; }
     bool hasReachedDestination() const {
         return routeAssigned && currentRoad == nullptr && currentRouteIndex >= static_cast<int>(currentRoute.size());
     }

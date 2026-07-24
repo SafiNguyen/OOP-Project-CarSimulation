@@ -141,6 +141,13 @@ target_link_libraries(test_visualization PRIVATE
 )
 add_test(NAME visualization_test COMMAND test_visualization)
 
+add_executable(test_map_parser test_map_parser.cpp)
+target_link_libraries(test_map_parser PRIVATE urban_core)
+add_test(NAME map_parser_test COMMAND test_map_parser)
+set_tests_properties(map_parser_test PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
 # TEMPORARY: smoke test for the border-fix. Remove before commit.
 add_executable(test_crossing_render tests/test_crossing_render.cpp)
 target_link_libraries(test_crossing_render PRIVATE

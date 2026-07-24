@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include "model/Graph.h"
+#include "model/BusStop.h"
 #include "mapload.h"
 
 int main() {
@@ -10,6 +11,20 @@ int main() {
         std::cerr << "FAILED: " << err << std::endl;
         return 1;
     }
-    std::cout << "SUCCESS! Nodes: " << graph.getAllIntersections().size() << std::endl;
+    Road* forward = graph.getRoad(100);
+    Road* reverse = graph.getRoad(-100);
+    Road* oneDirectionOnly = graph.getRoad(-104);
+    if (forward == nullptr || reverse == nullptr || oneDirectionOnly == nullptr ||
+        forward->findBusStopById(501) == nullptr ||
+        forward->findBusStopById(502) == nullptr ||
+        reverse->findBusStopById(504) == nullptr ||
+        !oneDirectionOnly->getBusStops().empty()) {
+        std::cerr << "FAILED: map4 bus stops were not attached to the expected directed roads."
+                  << std::endl;
+        return 1;
+    }
+
+    std::cout << "SUCCESS! Nodes: " << graph.getAllIntersections().size()
+              << ", demo bus stops verified." << std::endl;
     return 0;
 }

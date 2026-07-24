@@ -21,6 +21,7 @@
 #include "../src/model/EmergencyVehicle.h"
 #include "../src/model/Motorbike.h"
 #include "../src/model/Bus.h"
+#include "../src/model/BusStop.h"
 #include "../src/model/TrafficLight.h"
 #include "../src/algorithm/DijkstraStrategy.h" 
 
@@ -41,6 +42,15 @@ public:
         progressOnCurrentRoad = progress;
         currentRoad->getLane(currentLaneIndex).addVehicle(this);
     }
+
+    void setTestSpeed(double speed) {
+        currentSpeed = speed;
+    }
+};
+
+class TestBus : public Bus {
+public:
+    using Bus::Bus;
 
     void setTestSpeed(double speed) {
         currentSpeed = speed;
@@ -129,8 +139,9 @@ void test_Bus_DwellTime_StateMachine() {
     road.addBusStop(20.0);
 
     // Bus starts with default 15s dwell time
-    Bus bus(1, 50.0, &i1, &i2, 15.0);
+    TestBus bus(1, 50.0, &i1, &i2, 15.0);
     bus.setRoute({&road});
+    bus.setTestSpeed(50.0);
 
     bus.update(1.6); // Đi hơi lố 1 xíu để kích hoạt trạm
 
@@ -165,8 +176,9 @@ void test_Vehicle_RouteAdvancement() {
     Road r1(101, "Test", &i1, &i2, 10.0, 10.0, 1.0);
     Road r2(102, "Test", &i2, &i3, 10.0, 10.0, 1.0);
 
-    Car car(1, 10.0, &i1, &i3);
+    LaneTestCar car(1, 10.0, &i1, &i3);
     car.setRoute({&r1, &r2});
+    car.setTestSpeed(10.0);
 
     // Speed = 10m/s. Update 1.5s -> Moves 15m.
     // Expected: Finishes r1 (10m), enters r2, progresses 5m on r2.
@@ -245,7 +257,11 @@ void test_Vehicle_StopsAtRedTrafficLight() {
     g.addRoad(new Road(101, "Test Road", g.getIntersection(1), g.getIntersection(2), 80.0, 20.0, 1.0));
 
     Road* road = g.getRoad(101);
+    g.getIntersection(2)->registerIncomingLight(road);
     TrafficLight* light = g.getIntersection(2)->getLightForIncomingRoad(road);
+    if (light != nullptr) {
+        light->forceState(LightState::RED);
+    }
     bool hasRedLight = (light != nullptr) && light->mustStop();
 
     Car car(1, 30.0, g.getIntersection(1), g.getIntersection(2));
@@ -257,7 +273,8 @@ void test_Vehicle_StopsAtRedTrafficLight() {
                         (car.getCurrentRoad() == road) &&
                         !car.hasReachedDestination() &&
                         nearlyEqual(car.getCurrentSpeed(), 0.0) &&
-                        nearlyEqual(car.getProgressRatio() * road->getDistance(), road->getDistance());
+                        nearlyEqual(car.getProgressRatio() * road->getDistance(),
+                                    road->getDistance() - 1.5);
 
     std::ostringstream d;
     d << "  Expected: vehicle remains on the road and stops at the red light near the stop line.\n";
@@ -266,6 +283,126 @@ void test_Vehicle_StopsAtRedTrafficLight() {
       << ", speed=" << car.getCurrentSpeed()
       << ", reached=" << car.hasReachedDestination()
       << ", progress=" << (car.getProgressRatio() * road->getDistance()) << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_MultipleStopsUsePerStopDwellAndDoNotRepeat() {
+    std::string testName = "Vehicle: Bus serves multiple stops in order with per-stop dwell";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 100.0, 0.0);
+    Road road(101, "Test", &i1, &i2, 100.0, 50.0);
+    road.addBusStop(std::make_unique<BusStop>(501, "First", &road, 10.0, 0, 2.0));
+    road.addBusStop(std::make_unique<BusStop>(502, "Second", &road, 30.0, 0, 4.0));
+
+    Bus bus(1, 50.0, &i1, &i2);
+    bus.setRoute({&road});
+    bus.update(10.0);
+    const bool firstStop = bus.isDwelling() &&
+                           nearlyEqual(bus.getProgressOnRoad(), 10.0) &&
+                           nearlyEqual(bus.getDwellTimer(), 2.0);
+
+    bus.update(2.0);
+    const bool firstResume = !bus.isDwelling() &&
+                             bus.getNextBusStop() != nullptr &&
+                             bus.getNextBusStop()->getId() == 502;
+
+    bus.update(10.0);
+    const bool secondStop = bus.isDwelling() &&
+                            nearlyEqual(bus.getProgressOnRoad(), 30.0) &&
+                            nearlyEqual(bus.getDwellTimer(), 4.0);
+
+    bus.update(4.0);
+    bus.update(0.5);
+    const bool noRepeat = !bus.isDwelling() &&
+                          bus.getProgressOnRoad() > 30.0 &&
+                          bus.getNextBusStop() == nullptr;
+
+    const bool passed = firstStop && firstResume && secondStop && noRepeat;
+    std::ostringstream d;
+    d << "  Expected: dwell 2s at 10m, then 4s at 30m, then move past 30m\n";
+    d << "  Actual: first=" << firstStop << " second=" << secondStop
+      << " noRepeat=" << noRepeat << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_NonBusVehicle_IgnoresBusStops() {
+    std::string testName = "Vehicle: Car ignores bus stops";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 100.0, 0.0);
+    Road road(101, "Test", &i1, &i2, 100.0, 50.0);
+    road.addBusStop(std::make_unique<BusStop>(501, "Only buses", &road, 20.0, 0, 15.0));
+
+    Car car(1, 50.0, &i1, &i2);
+    car.setRoute({&road});
+    car.update(1.5);
+
+    const bool passed = !car.isPaused() &&
+                        !nearlyEqual(car.getProgressOnRoad(), 20.0);
+    std::ostringstream d;
+    d << "  Expected: car does not enter a pause at 20m\n";
+    d << "  Actual: paused=" << car.isPaused()
+      << " progress=" << car.getProgressOnRoad() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_RedLightIsNotDwellAndDwellDoesNotBypassRed() {
+    std::string testName = "Vehicle: Bus stop dwell is distinct from red-light stopping";
+
+    Graph g;
+    g.addIntersection(new Intersection(1, 0.0, 0.0));
+    g.addIntersection(new Intersection(2, 80.0, 0.0));
+    g.addIntersection(new Intersection(3, 80.0, -80.0));
+    g.addRoad(new Road(100, "Cross", g.getIntersection(3), g.getIntersection(2), 80.0, 20.0));
+    g.addRoad(new Road(101, "Bus Road", g.getIntersection(1), g.getIntersection(2), 80.0, 20.0));
+
+    Road* road = g.getRoad(101);
+    road->addBusStop(std::make_unique<BusStop>(501, "Before light", road, 20.0, 0, 1.0));
+    g.getIntersection(2)->registerIncomingLight(road);
+    TrafficLight* light = g.getIntersection(2)->getLightForIncomingRoad(road);
+    if (light != nullptr) {
+        light->forceState(LightState::RED);
+    }
+
+    Bus bus(1, 30.0, g.getIntersection(1), g.getIntersection(2));
+    bus.setRoute({road});
+    bus.update(10.0);
+    const bool dwelled = bus.isDwelling() && nearlyEqual(bus.getDwellTimer(), 1.0);
+    bus.update(1.0);
+    bus.update(20.0);
+
+    const bool passed = light != nullptr && light->mustStop() &&
+                        dwelled &&
+                        !bus.isDwelling() &&
+                        bus.getPauseReason() != PauseReason::BusStop &&
+                        bus.getCurrentRoad() == road &&
+                        !bus.hasReachedDestination();
+    std::ostringstream d;
+    d << "  Expected: dwell at stop, then remain held by red without isDwelling\n";
+    d << "  Actual: dwelled=" << dwelled
+      << " finalDwelling=" << bus.isDwelling()
+      << " reached=" << bus.hasReachedDestination() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_NoStopsKeepsNormalBehavior() {
+    std::string testName = "Vehicle: Bus on a road without stops keeps moving normally";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 100.0, 0.0);
+    Road road(101, "No stops", &i1, &i2, 100.0, 50.0);
+    Bus bus(1, 50.0, &i1, &i2);
+    bus.setRoute({&road});
+    bus.update(1.0);
+
+    const bool passed = !bus.isDwelling() &&
+                        bus.getProgressOnRoad() > 0.0 &&
+                        bus.getNextBusStop() == nullptr;
+    std::ostringstream d;
+    d << "  Expected: positive progress and no dwelling\n";
+    d << "  Actual: progress=" << bus.getProgressOnRoad()
+      << " dwelling=" << bus.isDwelling() << "\n";
     reportResult(testName, passed, d.str());
 }
 
@@ -505,6 +642,10 @@ int main() {
     test_Polymorphic_Speed_Calculation();
     test_EmergencyVehicle_BlockedRoad();
     test_Bus_DwellTime_StateMachine();
+    test_Bus_MultipleStopsUsePerStopDwellAndDoNotRepeat();
+    test_NonBusVehicle_IgnoresBusStops();
+    test_Bus_RedLightIsNotDwellAndDwellDoesNotBypassRed();
+    test_Bus_NoStopsKeepsNormalBehavior();
     test_Vehicle_RouteAdvancement();
     test_Vehicle_RecalculateRoute_PreservesProgressNoGrowth();
     test_Vehicle_StopsAtRedTrafficLight();

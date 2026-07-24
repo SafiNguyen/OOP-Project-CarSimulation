@@ -4,9 +4,67 @@
 #include <cmath>
 
 #include "model/Graph.h"
+#include "model/BusStop.h"
 #include "model/Intersection.h"
 #include "model/PointOfInterest.h"
 #include "model/Road.h"
+
+void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& graph) const {
+    constexpr float laneWidth = 10.0f;
+
+    for (const Road* road : graph.getAllRoads()) {
+        if (road == nullptr || road->getStart() == nullptr || road->getEnd() == nullptr) {
+            continue;
+        }
+
+        const sf::Vector2f roadStart = getRoadEntryPoint(road, road->getStart());
+        const sf::Vector2f roadEnd = getRoadEntryPoint(road, road->getEnd());
+        const sf::Vector2f normal = roadNormal(roadStart, roadEnd);
+        const float totalWidth = laneWidth * static_cast<float>(std::max(1, road->getLaneCount()));
+
+        for (const auto& ownedStop : road->getBusStops()) {
+            const BusStop* stop = ownedStop.get();
+            if (stop == nullptr) {
+                continue;
+            }
+
+            const float ratio = static_cast<float>(stop->getPositionRatio());
+            const sf::Vector2f centerline = roadStart + (roadEnd - roadStart) * ratio;
+            const float laneCenterOffset =
+                -totalWidth * 0.5f +
+                (static_cast<float>(stop->getLaneIndex()) + 0.5f) * laneWidth;
+            const float edgeDirection = laneCenterOffset < 0.0f ? -1.0f : 1.0f;
+            const sf::Vector2f markerPos =
+                centerline + normal * (laneCenterOffset + edgeDirection * laneWidth * 0.45f);
+
+            sf::RectangleShape pole({2.0f, 9.0f});
+            pole.setOrigin(1.0f, 9.0f);
+            pole.setPosition(markerPos);
+            pole.setFillColor(sf::Color(225, 235, 245));
+            target.draw(pole);
+
+            sf::RectangleShape sign({9.0f, 7.0f});
+            sign.setOrigin(4.5f, 7.0f);
+            sign.setPosition(markerPos.x, markerPos.y - 7.0f);
+            sign.setFillColor(sf::Color(35, 145, 230));
+            sign.setOutlineThickness(1.0f);
+            sign.setOutlineColor(sf::Color::White);
+            target.draw(sign);
+
+            if (font_) {
+                sf::Text label;
+                label.setFont(*font_);
+                label.setString(stop->getName());
+                label.setCharacterSize(9);
+                label.setFillColor(sf::Color(120, 210, 255));
+                label.setOutlineColor(sf::Color::Black);
+                label.setOutlineThickness(1.0f);
+                label.setPosition(markerPos.x + 6.0f, markerPos.y - 17.0f);
+                target.draw(label);
+            }
+        }
+    }
+}
 
 void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Graph& graph) const {
     for (auto* intersection : graph.getAllIntersections()) {

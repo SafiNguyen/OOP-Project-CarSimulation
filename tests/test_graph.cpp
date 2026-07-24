@@ -16,10 +16,34 @@
 #include "../src/model/Graph.h"
 #include "../src/model/Intersection.h"
 #include "../src/model/Road.h"
+#include "../src/model/BusStop.h"
+#include "../src/Mapload.h"
 
 using TestFramework::reportResult;
 using TestFramework::nearlyEqual;
 using TestFramework::printSummary;
+
+namespace {
+
+std::string mapJsonWithBusStops(const std::string& busStopsJson) {
+    return std::string(R"JSON({
+        "intersections": [
+            {"id": 1, "x": 0.0, "y": 0.0},
+            {"id": 2, "x": 100.0, "y": 0.0}
+        ],
+        "roads": [
+            {"id": 12, "start": 1, "end": 2, "distance": 5.0,
+             "speedLimit": 40.0, "lanes": 2, "twoWay": true}
+        ],
+        "busStops": )JSON") + busStopsJson + "\n}";
+}
+
+bool loadMap(const std::string& json, Graph& graph, std::string& error) {
+    error.clear();
+    return MapLoad::loadGraphFromJsonString(json, graph, &error);
+}
+
+} // namespace
 
 // ----------------------------------------------------------------------------
 // Test Cases for Road
@@ -81,6 +105,141 @@ void test_Road_BusStopLogic() {
     std::ostringstream d;
     d << "  Expected: 2 stops [20.0, 50.0], next stops correctly identified\n";
     d << "  Actual:   count=" << stops.size() << " next1=" << road.getNextBusStop(0.0, 30.0) << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Road_BusStopModelLogic() {
+    std::string testName = "Road: BusStop models retain identity and are ordered by position";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 100.0, 0.0);
+    Road road(12, "Test", &i1, &i2, 100.0, 50.0, 1.0, 2);
+
+    bool addedSecond = road.addBusStop(std::make_unique<BusStop>(
+        502, "Second", &road, 70.0, 1, 8.0));
+    bool addedFirst = road.addBusStop(std::make_unique<BusStop>(
+        501, "First", &road, 25.0, 0, 4.0));
+
+    const auto& stops = road.getBusStops();
+    const BusStop* next = road.getNextBusStopInfo(25.0, 100.0);
+    const bool passed = addedSecond && addedFirst &&
+                        stops.size() == 2 &&
+                        stops[0]->getId() == 501 &&
+                        stops[1]->getId() == 502 &&
+                        road.findBusStopById(502) == stops[1].get() &&
+                        next == stops[1].get() &&
+                        nearlyEqual(stops[0]->getPositionRatio(), 0.25);
+
+    std::ostringstream d;
+    d << "  Expected: IDs [501, 502], lookup 502 succeeds, next after 25 is 502\n";
+    d << "  Actual:   count=" << stops.size()
+      << " next=" << (next ? next->getId() : -1) << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_MapLoad_ValidAndOptionalBusStops() {
+    std::string testName = "MapLoad: valid bus stops load and legacy maps remain compatible";
+    Graph withStops;
+    Graph legacy;
+    std::string error;
+
+    const bool loadedStops = loadMap(mapJsonWithBusStops(R"JSON([
+        {"id": 501, "name": "Central Market", "roadId": 12,
+         "positionRatio": 0.25, "lane": 1, "dwellTime": 7.5},
+        {"id": 502, "name": "Return Stop", "roadId": -12,
+         "positionRatio": 0.6, "lane": 0}
+    ])JSON"), withStops, error);
+
+    const std::string legacyJson = R"JSON({
+        "intersections": [{"id": 1}, {"id": 2}],
+        "roads": [{"id": 12, "start": 1, "end": 2,
+                   "distance": 5.0, "speedLimit": 40.0}]
+    })JSON";
+    std::string legacyError;
+    const bool loadedLegacy = loadMap(legacyJson, legacy, legacyError);
+
+    Road* forward = withStops.getRoad(12);
+    Road* reverse = withStops.getRoad(-12);
+    const BusStop* stop = forward ? forward->findBusStopById(501) : nullptr;
+    const bool passed = loadedStops && loadedLegacy &&
+                        forward != nullptr && reverse != nullptr &&
+                        forward->getBusStops().size() == 1 &&
+                        reverse->getBusStops().size() == 1 &&
+                        stop != nullptr &&
+                        stop->getName() == "Central Market" &&
+                        stop->getLaneIndex() == 1 &&
+                        nearlyEqual(stop->getPositionOnRoad(), forward->getDistance() * 0.25) &&
+                        nearlyEqual(stop->getDwellTime(), 7.5) &&
+                        legacy.getRoad(12)->getBusStops().empty();
+
+    std::ostringstream d;
+    d << "  Expected: direction-specific stops loaded; old JSON without busStops succeeds\n";
+    d << "  Errors: stops='" << error << "' legacy='" << legacyError << "'\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_MapLoad_RejectsInvalidBusStopContainerAndFields() {
+    std::string testName = "MapLoad: invalid bus stop container and field types are rejected";
+    const std::vector<std::string> invalidSections = {
+        "{}",
+        "[42]",
+        R"JSON([{"roadId":12,"positionRatio":0.5}])JSON",
+        R"JSON([{"id":501,"positionRatio":0.5}])JSON",
+        R"JSON([{"id":501,"roadId":12}])JSON",
+        R"JSON([{"id":501,"roadId":12,"positionRatio":0.5,"name":4}])JSON"
+    };
+
+    bool passed = true;
+    std::string lastError;
+    for (const auto& section : invalidSections) {
+        Graph graph;
+        if (loadMap(mapJsonWithBusStops(section), graph, lastError) ||
+            lastError.find("Bus stop") == std::string::npos &&
+            lastError.find("busStops") == std::string::npos) {
+            passed = false;
+            break;
+        }
+    }
+
+    std::ostringstream d;
+    d << "  Expected: every malformed section fails with bus-stop context\n";
+    d << "  Last error: " << lastError << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_MapLoad_RejectsInvalidBusStopValues() {
+    std::string testName = "MapLoad: invalid road, ratio, lane, dwell, duplicate ID and spacing are rejected";
+    const std::vector<std::string> invalidSections = {
+        R"JSON([{"id":501,"roadId":999,"positionRatio":0.5}])JSON",
+        R"JSON([{"id":501,"roadId":12,"positionRatio":0.0}])JSON",
+        R"JSON([{"id":501,"roadId":12,"positionRatio":1.0}])JSON",
+        R"JSON([{"id":501,"roadId":12,"positionRatio":-0.1}])JSON",
+        R"JSON([{"id":501,"roadId":12,"positionRatio":1.1}])JSON",
+        R"JSON([{"id":501,"roadId":12,"positionRatio":0.5,"lane":2}])JSON",
+        R"JSON([{"id":501,"roadId":12,"positionRatio":0.5,"dwellTime":-1.0}])JSON",
+        R"JSON([
+            {"id":501,"roadId":12,"positionRatio":0.2},
+            {"id":501,"roadId":-12,"positionRatio":0.8}
+        ])JSON",
+        R"JSON([
+            {"id":501,"roadId":12,"positionRatio":0.50000},
+            {"id":502,"roadId":12,"positionRatio":0.50001}
+        ])JSON"
+    };
+
+    bool passed = true;
+    std::string lastError;
+    for (const auto& section : invalidSections) {
+        Graph graph;
+        if (loadMap(mapJsonWithBusStops(section), graph, lastError)) {
+            passed = false;
+            break;
+        }
+    }
+
+    std::ostringstream d;
+    d << "  Expected: every invalid value is rejected\n";
+    d << "  Last error: " << lastError << "\n";
     reportResult(testName, passed, d.str());
 }
 
@@ -152,6 +311,10 @@ int main() {
 
     test_Road_TravelCost_And_Congestion();
     test_Road_BusStopLogic();
+    test_Road_BusStopModelLogic();
+    test_MapLoad_ValidAndOptionalBusStops();
+    test_MapLoad_RejectsInvalidBusStopContainerAndFields();
+    test_MapLoad_RejectsInvalidBusStopValues();
     
     test_Graph_AddAndRetrieve();
     test_Graph_CascadingRemoval();

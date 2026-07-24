@@ -64,6 +64,7 @@ private:
                               unsigned int gridH,
                               unsigned int cellSize) const;
     void drawTrafficLights(sf::RenderTarget& target, const Graph& graph) const;
+    void drawBusStops(sf::RenderTarget& target, const Graph& graph) const;
     void drawIntersectionNode(sf::RenderTarget& target, const Intersection* intersection) const;
     
     sf::Color lightColor(LightState state) const;

@@ -112,6 +112,7 @@ Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
       currentSpeed(0.0),
       currentRouteIndex(0),
       paused(false),
+      pauseReason(PauseReason::None),
       awaitingIntersectionTransition(false),
       intersectionTransitionTimer(0.0) {
     patienceThreshold = 3.0 + static_cast<double>(std::rand() % 50) / 10.0;
@@ -158,9 +159,12 @@ bool Vehicle::shouldPauseAt(double currentPos,
 
     if (stopLinePos <= currentPos) return false;
 
-    // We only pause if our projected position reaches or passes the pausePos
-    pausePos = std::min(stopLinePos, projectedPos);
-    return pausePos > currentPos;
+    // Pause only when this movement step actually reaches the stop line.
+    if (projectedPos < stopLinePos) return false;
+
+    pausePos = stopLinePos;
+    pauseReason = PauseReason::TrafficLight;
+    return true;
 }
 
 void Vehicle::setRoute(const std::vector<Road*>& route) {
@@ -169,6 +173,7 @@ void Vehicle::setRoute(const std::vector<Road*>& route) {
     progressOnCurrentRoad = 0.0;
     currentSpeed = 0.0;
     paused = false;
+    pauseReason = PauseReason::None;
     routeAssigned = true;
 
     if (!currentRoute.empty()) {
@@ -394,6 +399,7 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
     if (paused) {
         if (updatePause(dt)) {
             paused = false;
+            pauseReason = PauseReason::None;
         }
         return;
     }
@@ -536,6 +542,7 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
             && pausePos > currentPos
             && pausePos <= currentRoad->getDistance()) {
             progressOnCurrentRoad = pausePos;
+            currentSpeed = 0.0;
             paused = true;
             onPauseStarted();
             break;
@@ -633,6 +640,7 @@ bool Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy
 
     currentRoute = newRoute;
     paused = false;
+    pauseReason = PauseReason::None;
     return true;
 }
 
@@ -675,6 +683,7 @@ bool Vehicle::performUTurn(const Graph& graph, PathFindingStrategy* strategy) {
 
     currentSpeed = 0.0;
     paused = false;
+    pauseReason = PauseReason::None;
 
     std::vector<Road*> newRoute;
     for (int i = 0; i < currentRouteIndex; ++i) {

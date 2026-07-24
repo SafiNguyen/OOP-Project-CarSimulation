@@ -2,8 +2,11 @@
 #include "Mapload.h"
 	
 #include <cctype>
+#include <cmath>
 #include <fstream>
+#include <memory>
 #include <sstream>
+#include <unordered_set>
 
 #include <nlohmann/json.hpp>
 
@@ -16,6 +19,7 @@
 #include "model/PointOfInterest.h"
 #include "model/SpawnPoint.h"
 #include "model/Destination.h"
+#include "model/BusStop.h"
 
 using nlohmann::json;
 
@@ -369,6 +373,129 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 			graph.addRoad(revRoad);
 		}
 	}
+
+	// --- Parse bus stops (optional section) ---
+	if (root.contains("busStops")) {
+		if (!root.at("busStops").is_array()) {
+			if (error) {
+				*error = "Invalid 'busStops': expected an array.";
+			}
+			return false;
+		}
+
+		std::unordered_set<int> busStopIds;
+		const auto& busStopItems = root.at("busStops");
+		for (std::size_t index = 0; index < busStopItems.size(); ++index) {
+			const auto& item = busStopItems.at(index);
+			const std::string context = "Bus stop at index " + std::to_string(index);
+			if (!item.is_object()) {
+				if (error) {
+					*error = context + ": expected a JSON object.";
+				}
+				return false;
+			}
+
+			int stopId = 0;
+			int roadId = 0;
+			int lane = 0;
+			double positionRatio = 0.0;
+			double dwellTime = BusStop::DEFAULT_DWELL_TIME;
+			std::string name;
+			std::string localError;
+
+			if (!getInt(item, "id", stopId, localError)) {
+				if (error) *error = context + ": " + localError;
+				return false;
+			}
+			const std::string stopContext = "Bus stop " + std::to_string(stopId)
+			                              + " at index " + std::to_string(index);
+
+			if (!getInt(item, "roadId", roadId, localError) ||
+			    !getDouble(item, "positionRatio", positionRatio, localError)) {
+				if (error) *error = stopContext + ": " + localError;
+				return false;
+			}
+			if (!getIntOptional(item, "lane", lane, localError) ||
+			    !getDoubleOptional(item, "dwellTime", dwellTime, localError) ||
+			    !getStringOptional(item, "name", name, localError)) {
+				if (error) *error = stopContext + ": " + localError;
+				return false;
+			}
+
+			if (!busStopIds.insert(stopId).second) {
+				if (error) *error = stopContext + ": duplicate bus stop id.";
+				return false;
+			}
+
+			Road* road = graph.getRoad(roadId);
+			if (road == nullptr) {
+				if (error) {
+					*error = stopContext + ": roadId " + std::to_string(roadId)
+					       + " does not exist.";
+				}
+				return false;
+			}
+
+			if (!std::isfinite(positionRatio) ||
+			    positionRatio <= 0.0 ||
+			    positionRatio >= 1.0) {
+				if (error) {
+					*error = stopContext
+					       + ": positionRatio must be finite and strictly between 0 and 1.";
+				}
+				return false;
+			}
+			if (lane < 0 || lane >= road->getLaneCount()) {
+				if (error) {
+					*error = stopContext + ": lane " + std::to_string(lane)
+					       + " is outside [0, "
+					       + std::to_string(road->getLaneCount() - 1) + "].";
+				}
+				return false;
+			}
+			if (!std::isfinite(dwellTime) || dwellTime < 0.0) {
+				if (error) {
+					*error = stopContext + ": dwellTime must be finite and non-negative.";
+				}
+				return false;
+			}
+
+			const double positionOnRoad = positionRatio * road->getDistance();
+			for (const auto& existing : road->getBusStops()) {
+				if (std::fabs(existing->getPositionOnRoad() - positionOnRoad)
+				    < BusStop::MIN_SPACING) {
+					if (error) {
+						*error = stopContext + ": positionRatio places it within "
+						       + std::to_string(BusStop::MIN_SPACING)
+						       + " of bus stop " + std::to_string(existing->getId())
+						       + " on road " + std::to_string(roadId) + ".";
+					}
+					return false;
+				}
+			}
+
+			if (name.empty()) {
+				name = "Bus Stop " + std::to_string(stopId);
+			}
+			const bool hasConfiguredDwellTime = item.contains("dwellTime");
+			auto busStop = std::make_unique<BusStop>(
+				stopId,
+				name,
+				road,
+				positionOnRoad,
+				lane,
+				dwellTime,
+				hasConfiguredDwellTime);
+			if (!road->addBusStop(std::move(busStop))) {
+				if (error) {
+					*error = stopContext + ": could not be added to road "
+					       + std::to_string(roadId) + ".";
+				}
+				return false;
+			}
+		}
+	}
+
 	// --- Parse POIs (optional section) ---
 	if (root.contains("pois") && root.at("pois").is_array()) {
 		for (const auto& item : root.at("pois")) {

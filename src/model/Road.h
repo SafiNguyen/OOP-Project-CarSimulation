@@ -3,9 +3,11 @@
 
 #include <string>
 #include <vector>
+#include <memory>
 #include "Lane.h"
 class Intersection;
 class Vehicle;
+class BusStop;
 
 class Road {
 private:
@@ -19,7 +21,8 @@ private:
 
     int laneCount;
     std::vector<Lane> lanes;
-    std::vector<double> busStopPositions;   
+    std::vector<std::unique_ptr<BusStop>> busStops;
+    std::vector<double> busStopPositions;
 
 public:
     Road(int id, const std::string& name, Intersection* start, Intersection* end, 
@@ -95,8 +98,13 @@ public:
     void unblockLane(int laneIndex);
     void addLanes(int count);
 
+    // Road owns its bus stops. BusStop::getRoad() is a non-owning back-reference.
+    bool addBusStop(std::unique_ptr<BusStop> busStop);
     void addBusStop(double position);
     void clearBusStops();
+    const std::vector<std::unique_ptr<BusStop>>& getBusStops() const;
+    const BusStop* findBusStopById(int stopId) const;
+    const BusStop* getNextBusStopInfo(double fromPosition, double toPosition) const;
     const std::vector<double>& getBusStopPositions() const;
     double getNextBusStop(double fromPosition, double toPosition) const;
 

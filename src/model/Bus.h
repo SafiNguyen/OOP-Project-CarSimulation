@@ -3,6 +3,7 @@
 
 #include "Vehicle.h"
 #include "Road.h"
+#include "BusStop.h"
 #include <algorithm>
 #include <cassert>
 
@@ -17,16 +18,19 @@ private:
     double dwellTime;   ///< seconds to wait at each stop
 
     double dwellTimer;      ///< counts down during a dwell; 0 when not dwelling
+    const BusStop* nextStop;
     double nextStopPos;     ///< position of the upcoming stop on currentRoad;
                             ///< negative → no stop ahead on this road
     void refreshNextStop() {
         if (currentRoad == nullptr) {
+            nextStop = nullptr;
             nextStopPos = -1.0;
             return;
         }
-        nextStopPos = currentRoad->getNextBusStop(
+        nextStop = currentRoad->getNextBusStopInfo(
             progressOnCurrentRoad,
             currentRoad->getDistance());
+        nextStopPos = nextStop != nullptr ? nextStop->getPositionOnRoad() : -1.0;
     }
 
 public:
@@ -37,6 +41,7 @@ public:
         : Vehicle(id, speed, start, dest),
           dwellTime(std::max(0.0, dwellTime)),
           dwellTimer(0.0),
+          nextStop(nullptr),
           nextStopPos(-1.0)
     {}
 
@@ -50,27 +55,55 @@ public:
 
     void onRoadChanged() override {
         dwellTimer  = 0.0;
+        pauseReason = PauseReason::None;
         refreshNextStop();
     }
 
     bool shouldPauseAt(double currentPos,
                        double projectedPos,
                        double& pausePos) override {
-        if (nextStopPos < 0.0)          return false; // no stop ahead
-        if (nextStopPos <= currentPos)  return false; // stop already passed
-        if (projectedPos < nextStopPos) return false; // not there yet
+        double trafficPausePos = -1.0;
+        const bool trafficPause = Vehicle::shouldPauseAt(
+            currentPos, projectedPos, trafficPausePos);
 
-        pausePos = nextStopPos;
-        return true;
+        const bool busStopPause =
+            nextStop != nullptr &&
+            nextStopPos > currentPos &&
+            projectedPos >= nextStopPos;
+
+        if (busStopPause && (!trafficPause || nextStopPos <= trafficPausePos)) {
+            pausePos = nextStopPos;
+            pauseReason = PauseReason::BusStop;
+            return true;
+        }
+
+        if (trafficPause) {
+            pausePos = trafficPausePos;
+            pauseReason = PauseReason::TrafficLight;
+            return true;
+        }
+
+        pauseReason = PauseReason::None;
+        return false;
     }
 
 
     void onPauseStarted() override {
-        dwellTimer = dwellTime;
+        if (pauseReason == PauseReason::BusStop && nextStop != nullptr) {
+            dwellTimer = nextStop->hasConfiguredDwellTime()
+                ? nextStop->getDwellTime()
+                : dwellTime;
+        } else {
+            dwellTimer = 0.0;
+        }
     }
 
 
     bool updatePause(double dt) override {
+        if (pauseReason != PauseReason::BusStop) {
+            return true;
+        }
+
         dwellTimer -= dt;
         if (dwellTimer > 0.0) return false;
 
@@ -93,11 +126,14 @@ public:
     double getWeight() const override { return 12.0; } // tonnes — heavy vehicle
     double getMinGap() const override { return 3.0; }
 
-    bool   isDwelling()    const { return isPaused(); }
+    bool   isDwelling()    const {
+        return isPaused() && pauseReason == PauseReason::BusStop;
+    }
     double getDwellTimer() const { return dwellTimer; }
     double getDwellTime()  const { return dwellTime; }
     void   setDwellTime(double t) { dwellTime = std::max(0.0, t); }
     double getNextStopPos() const { return nextStopPos; }
+    const BusStop* getNextBusStop() const { return nextStop; }
 };
 
-#endif 
+#endif
