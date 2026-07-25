@@ -6,6 +6,7 @@
 #include "BusStop.h"
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 
 
 class Bus : public Vehicle {
@@ -14,6 +15,9 @@ public:
     static constexpr double CRUISE_FACTOR    = 0.85;
     static constexpr double DEFAULT_DWELL    = 15.0;
     static constexpr double STOP_LANE_APPROACH_DISTANCE = 60.0;
+    static constexpr double STOP_LANE_SAFETY_BUFFER = 15.0;
+    static constexpr double STOP_LANE_PREPARATION_TIME = 1.0;
+    static constexpr double STOP_LANE_MIN_ROLLING_SPEED = 1.5;
 
 private:
     double dwellTime;   ///< seconds to wait at each stop
@@ -22,6 +26,49 @@ private:
     const BusStop* nextStop;
     double nextStopPos;     ///< position of the upcoming stop on currentRoad;
                             ///< negative → no stop ahead on this road
+
+    bool hasValidNextStopAhead() const {
+        return currentRoad != nullptr &&
+               nextStop != nullptr &&
+               nextStop->getRoad() == currentRoad &&
+               nextStopPos > progressOnCurrentRoad;
+    }
+
+    double getStopLaneApproachDistance() const {
+        if (!hasValidNextStopAhead()) {
+            return 0.0;
+        }
+
+        const int stopLane = nextStop->getLaneIndex();
+        if (stopLane < 0 || stopLane >= currentRoad->getLaneCount()) {
+            return 0.0;
+        }
+
+        const int remainingLaneChanges =
+            std::abs(stopLane - currentLaneIndex);
+        const double speed = std::max(0.0, currentSpeed);
+        const double brakingDistance =
+            speed * speed / (2.0 * std::max(getDeceleration(), 1e-6));
+        const double laneChangeDistance =
+            speed * LANE_CHANGE_COOLDOWN * remainingLaneChanges;
+        const double speedBuffer = speed * STOP_LANE_PREPARATION_TIME;
+        const double desiredDistance = std::max(
+            STOP_LANE_APPROACH_DISTANCE,
+            brakingDistance + laneChangeDistance +
+                speedBuffer + STOP_LANE_SAFETY_BUFFER);
+
+        return std::min(
+            desiredDistance,
+            std::max(0.0, currentRoad->getDistance() -
+                              progressOnCurrentRoad));
+    }
+
+    bool isApproachingNextStop() const {
+        return hasValidNextStopAhead() &&
+               nextStopPos - progressOnCurrentRoad <=
+                   getStopLaneApproachDistance();
+    }
+
     void refreshNextStop() {
         nextStop = nullptr;
         nextStopPos = -1.0;
@@ -41,21 +88,41 @@ private:
 
 protected:
     int getRequiredLaneIndex() const override {
-        if (currentRoad == nullptr ||
-            nextStop == nullptr ||
-            nextStop->getRoad() != currentRoad ||
-            nextStopPos <= progressOnCurrentRoad ||
-            nextStopPos - progressOnCurrentRoad > STOP_LANE_APPROACH_DISTANCE) {
+        if (!isApproachingNextStop()) {
             return -1;
         }
 
         const int stopLane = nextStop->getLaneIndex();
         if (stopLane < 0 ||
-            stopLane >= currentRoad->getLaneCount() ||
-            currentRoad->getLane(stopLane).isBlocked()) {
+            stopLane >= currentRoad->getLaneCount()) {
             return -1;
         }
         return stopLane;
+    }
+
+    double getLanePreparationSpeedLimit(double freeFlowSpeed) const override {
+        if (!isApproachingNextStop() ||
+            nextStop->getLaneIndex() == currentLaneIndex) {
+            return freeFlowSpeed;
+        }
+
+        const int remainingLaneChanges =
+            std::abs(nextStop->getLaneIndex() - currentLaneIndex);
+        const double distanceToStop =
+            std::max(0.0, nextStopPos - progressOnCurrentRoad);
+        const double preparationTime =
+            STOP_LANE_PREPARATION_TIME +
+            LANE_CHANGE_COOLDOWN * remainingLaneChanges;
+        const double timeBasedLimit =
+            distanceToStop / std::max(preparationTime, 1e-6);
+        const double brakingBasedLimit = std::sqrt(
+            2.0 * std::max(getDeceleration(), 1e-6) *
+            std::max(0.0, distanceToStop - STOP_LANE_SAFETY_BUFFER));
+        const double controlledLimit = std::max(
+            STOP_LANE_MIN_ROLLING_SPEED,
+            std::min(timeBasedLimit, brakingBasedLimit));
+
+        return std::min(freeFlowSpeed, controlledLimit);
     }
 
 public:
@@ -101,9 +168,14 @@ public:
             currentPos, projectedPos, controlPausePos);
         const PauseReason controlReason = pauseReason;
 
+        const int stopLane =
+            nextStop != nullptr ? nextStop->getLaneIndex() : -1;
         const bool busStopPause =
             nextStop != nullptr &&
-            currentLaneIndex == nextStop->getLaneIndex() &&
+            stopLane >= 0 &&
+            stopLane < currentRoad->getLaneCount() &&
+            currentLaneIndex == stopLane &&
+            !currentRoad->getLane(stopLane).isBlocked() &&
             nextStopPos > currentPos &&
             projectedPos >= nextStopPos;
 

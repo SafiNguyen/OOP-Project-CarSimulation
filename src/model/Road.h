@@ -50,6 +50,11 @@ public:
     virtual bool isTunnel() const { return false; }
 
     int getLaneCount () const;
+    // Lane indices are ordered from the road centre/median toward the curb
+    // for this directional Road. A reverse Road uses the same ordering in
+    // its own direction, so its final lane is also its curb lane.
+    int getCurbLaneIndex() const;
+    bool isCurbLane(int laneIndex) const;
     const std::vector<Lane>& getLanes() const;
     const Lane& getLane(int laneIndex) const;
     Lane& getLane(int laneIndex);

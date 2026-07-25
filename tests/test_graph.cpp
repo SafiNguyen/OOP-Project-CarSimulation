@@ -11,6 +11,7 @@
 #include <sstream>
 #include <vector>
 #include <cmath>
+#include <filesystem>
 
 #include "../tests/TestFramework.h"
 #include "../src/model/Graph.h"
@@ -135,6 +136,69 @@ void test_Road_BusStopModelLogic() {
     d << "  Actual:   count=" << stops.size()
       << " next=" << (next ? next->getId() : -1) << "\n";
     reportResult(testName, passed, d.str());
+}
+
+void test_Road_CurbLaneConventionForBothDirections() {
+    std::string testName = "Road: curb lane is the final model lane in either direction";
+
+    Intersection west(1, 0.0, 0.0);
+    Intersection east(2, 100.0, 0.0);
+    Road forward(12, "Forward", &west, &east, 100.0, 40.0, 1.0, 2);
+    Road reverse(-12, "Reverse", &east, &west, 100.0, 40.0, 1.0, 2);
+
+    const bool passed =
+        forward.getCurbLaneIndex() == 1 &&
+        reverse.getCurbLaneIndex() == 1 &&
+        forward.isCurbLane(1) &&
+        reverse.isCurbLane(1) &&
+        !forward.isCurbLane(0) &&
+        !reverse.isCurbLane(0) &&
+        !forward.isCurbLane(2);
+
+    std::ostringstream d;
+    d << "  Expected: lane 1 is curb-side for forward and reverse Roads\n";
+    d << "  Actual: forward=" << forward.getCurbLaneIndex()
+      << " reverse=" << reverse.getCurbLaneIndex() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Map4_RoadsideBusStopsUseDirectionalCurbLane() {
+    std::string testName = "MapLoad: map4 roadside stops use each directional Road's curb lane";
+
+    std::string mapPath = "map4.json";
+    if (!std::filesystem::exists(mapPath)) {
+        mapPath = "../map4.json";
+    }
+
+    Graph graph;
+    std::string error;
+    const bool loaded = MapLoad::loadGraphFromJsonFile(mapPath, graph, &error);
+    const struct ExpectedStop {
+        int stopId;
+        int roadId;
+    } expectedStops[] = {
+        {501, 100},
+        {502, 100},
+        {503, 104},
+        {504, -100}
+    };
+
+    bool stopsValid = loaded;
+    for (const ExpectedStop& expected : expectedStops) {
+        Road* road = graph.getRoad(expected.roadId);
+        const BusStop* stop =
+            road != nullptr ? road->findBusStopById(expected.stopId) : nullptr;
+        stopsValid = stopsValid &&
+                     road != nullptr &&
+                     stop != nullptr &&
+                     stop->getRoad() == road &&
+                     road->isCurbLane(stop->getLaneIndex());
+    }
+
+    std::ostringstream d;
+    d << "  Expected: stops 501-504 belong to their directional Road and curb lane\n";
+    d << "  Load error: " << error << "\n";
+    reportResult(testName, stopsValid, d.str());
 }
 
 void test_MapLoad_ValidAndOptionalBusStops() {
@@ -312,6 +376,8 @@ int main() {
     test_Road_TravelCost_And_Congestion();
     test_Road_BusStopLogic();
     test_Road_BusStopModelLogic();
+    test_Road_CurbLaneConventionForBothDirections();
+    test_Map4_RoadsideBusStopsUseDirectionalCurbLane();
     test_MapLoad_ValidAndOptionalBusStops();
     test_MapLoad_RejectsInvalidBusStopContainerAndFields();
     test_MapLoad_RejectsInvalidBusStopValues();

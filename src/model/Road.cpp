@@ -58,6 +58,16 @@ bool Road::hasBlockedLane() const {
     return false;
 }
 int Road::getLaneCount() const { return laneCount; }
+
+int Road::getCurbLaneIndex() const {
+    return laneCount - 1;
+}
+
+bool Road::isCurbLane(int laneIndex) const {
+    return laneIndex >= 0 &&
+           laneIndex < laneCount &&
+           laneIndex == getCurbLaneIndex();
+}
  
 const std::vector<Lane>& Road::getLanes() const { return lanes; }
  

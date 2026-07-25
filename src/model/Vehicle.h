@@ -159,6 +159,9 @@ protected:
     void beginPause(PauseReason reason);
     void clearPause();
     virtual int getRequiredLaneIndex() const { return -1; }
+    virtual double getLanePreparationSpeedLimit(double freeFlowSpeed) const {
+        return freeFlowSpeed;
+    }
 
 private:
     bool advanceToNextRoad();

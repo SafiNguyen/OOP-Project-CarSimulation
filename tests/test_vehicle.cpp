@@ -847,6 +847,51 @@ void test_Bus_ChangesOneLaneAtATimeTowardStop() {
     reportResult(testName, passed, d.str());
 }
 
+void test_Bus_UsesAdaptiveDistanceAndDwellsInCurbLane() {
+    std::string testName = "Vehicle: Bus prepares early, enters the curb lane, and dwells there";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 400.0, 0.0);
+    Road road(101, "Adaptive bus approach", &i1, &i2, 400.0, 25.0, 1.0, 3);
+    road.addBusStop(std::make_unique<BusStop>(
+        501, "Curb stop", &road, 300.0, road.getCurbLaneIndex(), 2.0));
+
+    TestBus bus(1, 25.0, &i1, &i2);
+    bus.setRoute({&road});
+    bus.placeOnLane(road, 0, 150.0);
+    bus.setTestSpeed(20.0);
+
+    bus.update(0.05);
+    const bool preparedEarlierThanLegacyDistance =
+        bus.getCurrentLaneIndex() == 1 &&
+        bus.getProgressOnRoad() < 240.0;
+
+    bus.update(Vehicle::LANE_CHANGE_COOLDOWN + 0.1);
+    const bool reachedCurbBeforeStop =
+        bus.getCurrentLaneIndex() == road.getCurbLaneIndex() &&
+        bus.getProgressOnRoad() < 300.0;
+
+    for (int tick = 0; tick < 100 && !bus.isDwelling(); ++tick) {
+        bus.update(0.25);
+    }
+
+    const bool passed =
+        preparedEarlierThanLegacyDistance &&
+        reachedCurbBeforeStop &&
+        bus.isDwelling() &&
+        bus.getCurrentLaneIndex() == road.getCurbLaneIndex() &&
+        nearlyEqual(bus.getProgressOnRoad(), 300.0);
+
+    std::ostringstream d;
+    d << "  Expected: prepare beyond 60m, move 0 -> 1 -> 2, dwell at 300m\n";
+    d << "  Actual: early=" << preparedEarlierThanLegacyDistance
+      << " curbBeforeStop=" << reachedCurbBeforeStop
+      << " lane=" << bus.getCurrentLaneIndex()
+      << " progress=" << bus.getProgressOnRoad()
+      << " dwelling=" << bus.isDwelling() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
 void test_Bus_RejectsUnsafeFrontGapTowardStopLane() {
     std::string testName = "Vehicle: Bus does not enter stop lane with an unsafe front gap";
 
@@ -904,6 +949,166 @@ void test_Bus_RejectsUnsafeRearGapTowardStopLane() {
     d << "  Expected: remain in lane 0 because lane 1 rear gap/TTC is unsafe\n";
     d << "  Actual: lane=" << bus.getCurrentLaneIndex()
       << " progress=" << bus.getProgressOnRoad() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_RetriesRequiredLaneWhenGapBecomesSafe() {
+    std::string testName = "Vehicle: Bus retries its stop-lane merge after the gap becomes safe";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 180.0, 0.0);
+    Road road(101, "Retry bus approach", &i1, &i2, 180.0, 20.0, 1.0, 2);
+    road.addBusStop(std::make_unique<BusStop>(
+        501, "Curb stop", &road, 120.0, road.getCurbLaneIndex(), 1.0));
+
+    TestBus bus(1, 20.0, &i1, &i2);
+    LaneTestCar blocker(2, 10.0, &i1, &i2);
+    bus.setRoute({&road});
+    blocker.setRoute({&road});
+    bus.placeOnLane(road, 0, 60.0);
+    blocker.placeOnLane(road, 1, 70.0);
+    bus.setTestSpeed(10.0);
+    blocker.setTestSpeed(5.0);
+
+    bus.update(0.05);
+    const bool initiallyRejected =
+        bus.getCurrentLaneIndex() == 0 &&
+        !bus.isPaused();
+
+    blocker.placeOnLane(road, 1, 150.0);
+    blocker.setTestSpeed(10.0);
+    bus.update(0.3);
+
+    const bool passed =
+        initiallyRejected &&
+        bus.getCurrentLaneIndex() == road.getCurbLaneIndex() &&
+        !bus.isDwelling();
+
+    std::ostringstream d;
+    d << "  Expected: reject unsafe first attempt, then merge on a later tick\n";
+    d << "  Actual: initiallyRejected=" << initiallyRejected
+      << " lane=" << bus.getCurrentLaneIndex()
+      << " progress=" << bus.getProgressOnRoad() << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_SlowsGraduallyWhileWaitingForStopLaneGap() {
+    std::string testName = "Vehicle: Bus slows with deceleration while waiting for a stop-lane gap";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 160.0, 0.0);
+    Road road(101, "Controlled bus approach", &i1, &i2, 160.0, 20.0, 1.0, 2);
+    road.addBusStop(std::make_unique<BusStop>(
+        501, "Curb stop", &road, 100.0, road.getCurbLaneIndex(), 1.0));
+
+    TestBus bus(1, 20.0, &i1, &i2);
+    LaneTestCar blocker(2, 5.0, &i1, &i2);
+    bus.setRoute({&road});
+    blocker.setRoute({&road});
+    bus.placeOnLane(road, 0, 90.0);
+    blocker.placeOnLane(road, 1, 97.0);
+    bus.setTestSpeed(10.0);
+    blocker.setTestSpeed(2.0);
+
+    bus.update(0.05);
+
+    const bool passed =
+        bus.getCurrentLaneIndex() == 0 &&
+        bus.getCurrentSpeed() < 10.0 &&
+        bus.getCurrentSpeed() > 0.0 &&
+        !bus.isPaused() &&
+        bus.getPauseReason() == PauseReason::None;
+
+    std::ostringstream d;
+    d << "  Expected: remain in lane, reduce speed gradually, and do not pause/dwell\n";
+    d << "  Actual: lane=" << bus.getCurrentLaneIndex()
+      << " speed=" << bus.getCurrentSpeed()
+      << " reason=" << static_cast<int>(bus.getPauseReason()) << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_BlockedStopLaneIsMissedWithoutControlPause() {
+    std::string testName = "Vehicle: Bus never enters a blocked stop lane and deterministically misses the stop";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 300.0, 0.0);
+    Road road(101, "Blocked curb lane", &i1, &i2, 300.0, 20.0, 1.0, 2);
+    road.addBusStop(std::make_unique<BusStop>(
+        501, "Blocked stop", &road, 100.0, road.getCurbLaneIndex(), 2.0));
+    road.blockLane(road.getCurbLaneIndex());
+
+    TestBus bus(1, 20.0, &i1, &i2);
+    bus.setRoute({&road});
+    bus.placeOnLane(road, 0, 70.0);
+    bus.setTestSpeed(10.0);
+
+    for (int tick = 0;
+         tick < 200 && bus.getCurrentRoad() != nullptr &&
+             bus.getProgressOnRoad() <= 101.0;
+         ++tick) {
+        bus.update(0.25);
+    }
+
+    const bool passed =
+        bus.getCurrentLaneIndex() == 0 &&
+        !bus.isDwelling() &&
+        bus.getPauseReason() != PauseReason::BusStop &&
+        bus.getPauseReason() != PauseReason::Intersection &&
+        bus.getNextBusStop() == nullptr &&
+        (bus.getCurrentRoad() == nullptr ||
+         bus.getProgressOnRoad() > 100.0);
+
+    std::ostringstream d;
+    d << "  Expected: stay out of blocked lane, pass 100m, clear the missed stop\n";
+    d << "  Actual: lane=" << bus.getCurrentLaneIndex()
+      << " progress=" << bus.getProgressOnRoad()
+      << " next=" << (bus.getNextBusStop() ? bus.getNextBusStop()->getId() : 0)
+      << " reason=" << static_cast<int>(bus.getPauseReason()) << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_Bus_ReverseRoadUsesItsOwnCurbStopLane() {
+    std::string testName = "Vehicle: Bus serves the reverse Road's curb stop without using the forward stop";
+
+    Intersection west(1, 0.0, 0.0);
+    Intersection east(2, 200.0, 0.0);
+    Road forward(100, "Forward", &west, &east, 200.0, 20.0, 1.0, 2);
+    Road reverse(-100, "Reverse", &east, &west, 200.0, 20.0, 1.0, 2);
+    forward.addBusStop(std::make_unique<BusStop>(
+        501, "Forward stop", &forward, 100.0, forward.getCurbLaneIndex(), 2.0));
+    reverse.addBusStop(std::make_unique<BusStop>(
+        504, "Reverse stop", &reverse, 100.0, reverse.getCurbLaneIndex(), 2.0));
+
+    TestBus bus(1, 20.0, &east, &west);
+    bus.setRoute({&reverse});
+    bus.placeOnLane(reverse, 0, 40.0);
+    bus.setTestSpeed(10.0);
+
+    bus.update(0.05);
+    const BusStop* selectedStop = bus.getNextBusStop();
+    const bool selectedReverseStop =
+        selectedStop != nullptr &&
+        selectedStop->getId() == 504 &&
+        selectedStop->getRoad() == &reverse &&
+        bus.getCurrentLaneIndex() == reverse.getCurbLaneIndex();
+
+    for (int tick = 0; tick < 100 && !bus.isDwelling(); ++tick) {
+        bus.update(0.25);
+    }
+
+    const bool passed =
+        selectedReverseStop &&
+        bus.isDwelling() &&
+        bus.getCurrentRoad() == &reverse &&
+        bus.getCurrentLaneIndex() == reverse.getCurbLaneIndex() &&
+        nearlyEqual(bus.getProgressOnRoad(), 100.0);
+
+    std::ostringstream d;
+    d << "  Expected: select stop 504, enter reverse curb lane, dwell at 100m\n";
+    d << "  Actual: selected=" << (selectedStop ? selectedStop->getId() : 0)
+      << " lane=" << bus.getCurrentLaneIndex()
+      << " progress=" << bus.getProgressOnRoad()
+      << " dwelling=" << bus.isDwelling() << "\n";
     reportResult(testName, passed, d.str());
 }
 
@@ -1197,8 +1402,13 @@ int main() {
     test_Bus_DwellCompletionDoesNotBypassRedLight();
     test_Bus_DwellCompletionDoesNotBypassIntersection();
     test_Bus_ChangesOneLaneAtATimeTowardStop();
+    test_Bus_UsesAdaptiveDistanceAndDwellsInCurbLane();
     test_Bus_RejectsUnsafeFrontGapTowardStopLane();
     test_Bus_RejectsUnsafeRearGapTowardStopLane();
+    test_Bus_RetriesRequiredLaneWhenGapBecomesSafe();
+    test_Bus_SlowsGraduallyWhileWaitingForStopLaneGap();
+    test_Bus_BlockedStopLaneIsMissedWithoutControlPause();
+    test_Bus_ReverseRoadUsesItsOwnCurbStopLane();
     test_Bus_DoesNotServeStopFromWrongLane();
     test_Vehicle_RouteAdvancement();
     test_Vehicle_RecalculateRoute_PreservesProgressNoGrowth();

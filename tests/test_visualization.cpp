@@ -113,6 +113,8 @@ int main() {
     graph.addRoad(busRoad);
     assert(busRoad->addBusStop(std::make_unique<BusStop>(
         501, "Rendered Stop", busRoad, 50.0, 1, 15.0)));
+    assert(busRoad->addBusStop(std::make_unique<BusStop>(
+        502, "Inner Lane Stop", busRoad, 25.0, 0, 15.0)));
 
     sf::RenderTexture target;
     assert(target.create(800, 600));
@@ -123,16 +125,78 @@ int main() {
 
     const sf::Image rendered = target.getTexture().copyToImage();
     bool foundBusStopBlue = false;
-    for (unsigned int y = 0; y < rendered.getSize().y && !foundBusStopBlue; ++y) {
+    bool foundInnerLaneMarker = false;
+    bool foundOuterLaneMarker = false;
+    const float busRoadCenterY = engine.worldToScreen(0.0, 0.0).y;
+    for (unsigned int y = 0; y < rendered.getSize().y; ++y) {
         for (unsigned int x = 0; x < rendered.getSize().x; ++x) {
             const sf::Color pixel = rendered.getPixel(x, y);
             if (pixel.r < 80 && pixel.g > 110 && pixel.b > 180) {
                 foundBusStopBlue = true;
-                break;
+            }
+            if (pixel == sf::Color(35, 145, 230)) {
+                foundInnerLaneMarker =
+                    foundInnerLaneMarker ||
+                    static_cast<float>(y) < busRoadCenterY - 15.0f;
+                foundOuterLaneMarker =
+                    foundOuterLaneMarker ||
+                    static_cast<float>(y) > busRoadCenterY + 15.0f;
             }
         }
     }
     assert(foundBusStopBlue);
+    assert(foundInnerLaneMarker);
+    assert(foundOuterLaneMarker);
+
+    Graph directionalStopGraph;
+    directionalStopGraph.addIntersection(new Intersection(12, 0.0, 0.0));
+    directionalStopGraph.addIntersection(new Intersection(13, 100.0, 0.0));
+    auto* forwardStopRoad = new Road(
+        210, "Forward", directionalStopGraph.getIntersection(12),
+        directionalStopGraph.getIntersection(13), 100.0, 40.0, 1.0, 2);
+    auto* reverseStopRoad = new Road(
+        -210, "Reverse", directionalStopGraph.getIntersection(13),
+        directionalStopGraph.getIntersection(12), 100.0, 40.0, 1.0, 2);
+    directionalStopGraph.addRoad(forwardStopRoad);
+    directionalStopGraph.addRoad(reverseStopRoad);
+    assert(forwardStopRoad->addBusStop(std::make_unique<BusStop>(
+        510, "Forward curb", forwardStopRoad, 30.0,
+        forwardStopRoad->getCurbLaneIndex(), 5.0)));
+    assert(reverseStopRoad->addBusStop(std::make_unique<BusStop>(
+        511, "Reverse curb", reverseStopRoad, 30.0,
+        reverseStopRoad->getCurbLaneIndex(), 5.0)));
+
+    VisualizationEngine directionalStopEngine({800u, 600u});
+    directionalStopEngine.prepare(directionalStopGraph);
+    sf::RenderTexture directionalStopTarget;
+    assert(directionalStopTarget.create(800u, 600u));
+    directionalStopTarget.clear(sf::Color::Black);
+    directionalStopEngine.drawGraph(
+        directionalStopTarget, directionalStopGraph);
+    directionalStopTarget.display();
+
+    const sf::Image directionalStopImage =
+        directionalStopTarget.getTexture().copyToImage();
+    const float roadCenterY =
+        directionalStopEngine.worldToScreen(0.0, 0.0).y;
+    bool foundForwardCurbMarker = false;
+    bool foundReverseCurbMarker = false;
+    for (unsigned int y = 0; y < directionalStopImage.getSize().y; ++y) {
+        for (unsigned int x = 0; x < directionalStopImage.getSize().x; ++x) {
+            if (directionalStopImage.getPixel(x, y) !=
+                sf::Color(35, 145, 230)) {
+                continue;
+            }
+            foundForwardCurbMarker =
+                foundForwardCurbMarker ||
+                static_cast<float>(y) > roadCenterY + 15.0f;
+            foundReverseCurbMarker =
+                foundReverseCurbMarker ||
+                static_cast<float>(y) < roadCenterY - 15.0f;
+        }
+    }
+    assert(foundForwardCurbMarker);
+    assert(foundReverseCurbMarker);
 
     Graph spawnGraph;
     spawnGraph.addIntersection(new Intersection(20, 0.0, 0.0));

@@ -30,10 +30,19 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
 
             const float ratio = static_cast<float>(stop->getPositionRatio());
             const sf::Vector2f centerline = roadStart + (roadEnd - roadStart) * ratio;
+            const int laneIndex = std::clamp(
+                stop->getLaneIndex(), 0, road->getLaneCount() - 1);
+            const float laneCenterOffset =
+                -totalWidth * 0.5f +
+                (static_cast<float>(laneIndex) + 0.5f) * laneWidth;
+            const float edgeDirection =
+                laneCenterOffset < 0.0f ? -1.0f : 1.0f;
+            const sf::Vector2f laneCenter =
+                centerline + normal * laneCenterOffset;
             const sf::Vector2f roadEdge =
-                centerline + normal * (totalWidth * 0.5f);
+                laneCenter + normal * (edgeDirection * laneWidth * 0.5f);
             const sf::Vector2f markerPos =
-                roadEdge + normal * 9.0f;
+                roadEdge + normal * (edgeDirection * 9.0f);
 
             drawRoadStrip(
                 target, roadEdge, markerPos,

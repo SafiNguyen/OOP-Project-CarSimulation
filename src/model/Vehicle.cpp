@@ -552,6 +552,14 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
             }
         }
 
+        if (!yielding) {
+            targetSpeed = std::min(
+                targetSpeed,
+                std::clamp(
+                    getLanePreparationSpeedLimit(freeFlowSpeed),
+                    0.0,
+                    freeFlowSpeed));
+        }
 
         Vehicle* leader = currentRoad->findLeader(currentLaneIndex, this);
         const double minGap = getMinGap();
