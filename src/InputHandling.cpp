@@ -8,9 +8,11 @@
 #include "visualization/VisualizationEngine.h"
 #include "simulation/TrafficSimulator.h"
 #include "ui/DebugConsole.h"
+#include "ui/VehicleInspector.h"
 
 void handleEvent(const sf::Event& event, AppContext& ctx, DebugConsole& debugConsole,
-                  std::unique_ptr<TrafficSimulator>& simulator) {
+                  std::unique_ptr<TrafficSimulator>& simulator,
+                  VehicleInspector& vehicleInspector) {
     ImGui::SFML::ProcessEvent(ctx.window, event);
 
     if (event.type == sf::Event::Closed) {
@@ -35,6 +37,11 @@ void handleEvent(const sf::Event& event, AppContext& ctx, DebugConsole& debugCon
     }
 
     // 1. Early return for ImGui capture for all interactions (UI controls, buttons, text inputs)
+    // Quan trọng cho vehicle-picking: nếu click đang rơi vào một ImGui window
+    // (kể cả chính VehicleInspector panel đang mở), ta return ở đây TRƯỚC
+    // khi chạy tới đoạn vehicle-picking bên dưới. Nhờ vậy bấm nút "Close"
+    // hoặc kéo route-list bên trong panel không bị hiểu lầm thành
+    // "click ra khoảng trống trên map" và vô tình bỏ chọn xe.
     if (ImGui::GetIO().WantCaptureMouse || ImGui::GetIO().WantCaptureKeyboard) {
         ctx.isDragging = false;
         return;
@@ -80,6 +87,25 @@ void handleEvent(const sf::Event& event, AppContext& ctx, DebugConsole& debugCon
         const sf::Vector2f worldPixel = ctx.window.mapPixelToCoords(pixel, ctx.view);
         debugConsole.handleMapClick(ctx.graph, ctx.visualization, worldPixel);
     }
+
+    // --- Vehicle Inspector picking ---
+    // Đặt SAU đoạn debugConsole.isPicking() ở trên và có điều kiện
+    // !debugConsole.isPicking() để hai cơ chế picking không giẫm chân nhau:
+    // khi user đang bấm "Pick" để chọn Start/End cho Add Road hoặc Spawn
+    // Vehicle, một click trên map phải đi vào handleMapClick() ở trên,
+    // KHÔNG được vô tình chọn/bỏ chọn xe.
+    //
+    // tryPickVehicle tự xử lý cả hai chiều:
+    //   - click trúng xe        -> chọn xe đó (mở/thay nội dung panel)
+    //   - click vào khoảng trống -> bỏ chọn (đóng panel nếu đang mở)
+    if (event.type == sf::Event::MouseButtonPressed
+        && event.mouseButton.button == sf::Mouse::Left
+        && !debugConsole.isPicking()) {
+        const sf::Vector2i pixel(event.mouseButton.x, event.mouseButton.y);
+        const sf::Vector2f worldPixel = ctx.window.mapPixelToCoords(pixel, ctx.view);
+        vehicleInspector.tryPickVehicle(simulator.get(), ctx.visualization, worldPixel);
+    }
+
     if (event.type == sf::Event::MouseWheelScrolled) {
         const float factor = (event.mouseWheelScroll.delta > 0.0f) ? 0.9f : 1.1f;
         const sf::Vector2i mousePixel(event.mouseWheelScroll.x, event.mouseWheelScroll.y);

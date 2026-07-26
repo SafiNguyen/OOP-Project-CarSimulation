@@ -14,6 +14,7 @@
 #include "simulation/TrafficSimulator.h"
 #include "ui/DebugConsole.h"
 #include "ui/StatsPanel.h"
+#include "ui/VehicleInspector.h"
 #include "visualization/VehicleSprite.h"
 #include "visualization/VisualizationEngine.h"
 
@@ -67,10 +68,48 @@ void drawParkedVehicles(sf::RenderWindow& window, const VisualizationEngine& vis
     }
 }
 
+// Draws a highlight ring above whichever vehicle is currently selected in
+// the VehicleInspector, so the user can see which car the panel refers to.
+// Searches both active and finished vehicles (mirrors
+// VehicleInspector::findSelectedVehicle) so a completed trip's vehicle can
+// still be highlighted if its "parked" box is visible.
+void drawSelectedVehicleHighlight(sf::RenderWindow& window,
+                                   const VisualizationEngine& visualization,
+                                   TrafficSimulator& simulator,
+                                   const VehicleInspector& vehicleInspector) {
+    if (!vehicleInspector.hasSelection()) {
+        return;
+    }
+
+    const int selectedId = vehicleInspector.getSelectedId();
+    Vehicle* target = nullptr;
+    for (Vehicle* v : simulator.getVehicles()) {
+        if (v->getId() == selectedId) {
+            target = v;
+            break;
+        }
+    }
+    if (target == nullptr || target->getCurrentRoad() == nullptr) {
+        return; // finished vehicles are drawn inside their "parked" box, not on the road
+    }
+
+    VehicleSprite sprite(target, &visualization);
+    const sf::Vector2f pos = sprite.getPosition();
+
+    sf::CircleShape ring(14.0f);
+    ring.setOrigin(14.0f, 14.0f);
+    ring.setPosition(pos);
+    ring.setFillColor(sf::Color::Transparent);
+    ring.setOutlineThickness(2.0f);
+    ring.setOutlineColor(sf::Color::Yellow);
+    window.draw(ring);
+}
+
 } // namespace
 
 void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
-                  std::unique_ptr<TrafficSimulator>& simulator, StatsPanel& statsPanel, float dt) {
+                  std::unique_ptr<TrafficSimulator>& simulator, StatsPanel& statsPanel,
+                  VehicleInspector& vehicleInspector, float dt) {
     sf::RenderWindow& window = ctx.window;
 
     window.setView(ctx.view);
@@ -95,6 +134,7 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
             }
         }
         debugConsole.drawFailedRecalcMarkers(window, simulator.get(), ctx.visualization);
+        drawSelectedVehicleHighlight(window, ctx.visualization, *simulator, vehicleInspector);
         if (ctx.showParkedVehicles) {
             drawParkedVehicles(window, ctx.visualization, *simulator);
         }
@@ -106,6 +146,8 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
 
     debugConsole.draw(window, simulator, ctx.view, ctx.zoomFactor, ctx.heatMapEnabled,
                        ctx.showParkedVehicles, ctx.mapPathInput, ctx.usingDemoMap, ctx.loadError);
+
+    vehicleInspector.draw(simulator.get(), ctx.visualization);
 
     ImGui::SFML::Render(window);
     window.display();

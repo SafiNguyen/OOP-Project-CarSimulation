@@ -19,6 +19,7 @@
 #include "simulation/TrafficSimulator.h"
 #include "ui/DebugConsole.h"
 #include "ui/StatsPanel.h"
+#include "ui/VehicleInspector.h"
 #include "visualization/VisualizationEngine.h"
 
 namespace {
@@ -97,6 +98,7 @@ int main(int argc, char** argv) {
 
     std::unique_ptr<TrafficSimulator> simulator = resetSimulation();
     StatsPanel statsPanel;
+    VehicleInspector vehicleInspector;
 
     sf::Clock clock;
 
@@ -105,7 +107,7 @@ int main(int argc, char** argv) {
 
         sf::Event event;
         while (window.pollEvent(event)) {
-            handleEvent(event, ctx, debugConsole, simulator);
+            handleEvent(event, ctx, debugConsole, simulator, vehicleInspector);
         }
 
         updateCamera(ctx, dt);
@@ -116,7 +118,7 @@ int main(int argc, char** argv) {
             simulator->update(dt);
         }
 
-        renderFrame(ctx, debugConsole, simulator, statsPanel, dt);
+        renderFrame(ctx, debugConsole, simulator, statsPanel, vehicleInspector, dt);
     }
 
     ImGui::SFML::Shutdown();
