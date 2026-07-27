@@ -231,13 +231,19 @@ public:
     // than a car so standing passengers aren't thrown around.
     double getAcceleration() const override { return 8.0; }
     double getDeceleration() const override { return 12.0; }
+    double getMaxLateralAcceleration() const override { return 1.5; }
+    VehicleKind getVehicleKind() const override { return VehicleKind::Bus; }
+    double getJunctionLanePreparationDistance() const override {
+        return 60.0;
+    }
 
     // Buses are long vehicles and keep a slightly larger safety gap so
     // passengers aren't jolted by sudden stops behind other traffic.
     double getLength() const override { return 12.0; }
+    double getWidth() const override { return 2.5; }
     double getHeight() const override { return 3.5; }  // metres — tall vehicle
     double getWeight() const override { return 12.0; } // tonnes — heavy vehicle
-    double getMinGap() const override { return 3.0; }
+    double getMinGap() const override { return 4.0; }
 
     bool   isDwelling()    const {
         return isPaused() && pauseReason == PauseReason::BusStop;

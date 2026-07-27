@@ -1,10 +1,13 @@
 #include <cassert>
+#include <cmath>
 #include <filesystem>
 #include <iostream>
 #include <vector>
 
 #include "Mapload.h"
 #include "visualization/VisualizationEngine.h"
+#include "visualization/VehicleRenderGeometry.h"
+#include "visualization/VehicleSprite.h"
 #include "visualization/SimulatorFactory.h"
 #include "algorithm/DijkstraStrategy.h"
 #include "model/Bus.h"
@@ -18,6 +21,15 @@
 #include "simulation/TrafficSimulator.h"
 
 namespace {
+
+class PoseTestCar : public Car {
+public:
+    using Car::Car;
+    void place(double progress, double speed) {
+        progressOnCurrentRoad = progress;
+        currentSpeed = speed;
+    }
+};
 
 int countColorComponents(const sf::Image& image,
                          const sf::Color& color,
@@ -198,6 +210,55 @@ int main() {
     assert(foundForwardCurbMarker);
     assert(foundReverseCurbMarker);
 
+    Graph poseGraph;
+    poseGraph.addIntersection(new Intersection(30, -50.0, 0.0));
+    poseGraph.addIntersection(new Intersection(31, 0.0, 0.0));
+    poseGraph.addIntersection(new Intersection(32, 0.0, 50.0));
+    poseGraph.addRoad(new Road(
+        401, "Pose incoming", poseGraph.getIntersection(30),
+        poseGraph.getIntersection(31), 50.0, 20.0));
+    poseGraph.addRoad(new Road(
+        402, "Pose outgoing", poseGraph.getIntersection(31),
+        poseGraph.getIntersection(32), 50.0, 20.0));
+    PoseTestCar poseCar(
+        900, 20.0, poseGraph.getIntersection(30),
+        poseGraph.getIntersection(32));
+    poseCar.setRoute(
+        {poseGraph.getRoad(401), poseGraph.getRoad(402)});
+    poseCar.place(49.0, 20.0);
+    poseCar.update(0.1);
+    assert(poseCar.getMovementState() ==
+           MovementState::TraversingJunction);
+    VisualizationEngine poseEngine({800u, 600u});
+    poseEngine.prepare(poseGraph);
+    Bus visualBus(
+        901, 15.0, poseGraph.getIntersection(30),
+        poseGraph.getIntersection(31));
+    visualBus.setRoute({poseGraph.getRoad(401)});
+    const VehicleScreenSize carScreenSize =
+        getVehicleScreenSize(poseCar, poseEngine);
+    const VehicleScreenSize busScreenSize =
+        getVehicleScreenSize(visualBus, poseEngine);
+    assert(std::fabs(
+        busScreenSize.lengthPixels /
+            carScreenSize.lengthPixels -
+        visualBus.getLength() / poseCar.getLength()) < 1e-4f);
+    assert(std::fabs(
+        busScreenSize.widthPixels /
+            carScreenSize.widthPixels -
+        visualBus.getWidth() / poseCar.getWidth()) < 1e-4f);
+    VehicleSprite poseSprite(&poseCar, &poseEngine);
+    const Pose2D simulationPose = poseCar.getPose();
+    const sf::Vector2f expectedScreen = poseEngine.worldToScreen(
+        simulationPose.position.x, simulationPose.position.y);
+    const sf::Vector2f spriteScreen = poseSprite.getPosition();
+    assert(std::fabs(spriteScreen.x - expectedScreen.x) < 1e-4f);
+    assert(std::fabs(spriteScreen.y - expectedScreen.y) < 1e-4f);
+    assert(std::fabs(
+        poseSprite.getAngle() +
+        simulationPose.headingRadians * 180.0 /
+            3.14159265358979323846) < 1e-4);
+
     Graph spawnGraph;
     spawnGraph.addIntersection(new Intersection(20, 0.0, 0.0));
     spawnGraph.addIntersection(new Intersection(21, 100.0, 0.0));
@@ -214,7 +275,15 @@ int main() {
     int motorbikeCount = 0;
     int busCount = 0;
     int emergencyCount = 0;
-    for (Vehicle* vehicle : simulator->getVehicles()) {
+    std::vector<Vehicle*> spawnedVehicles =
+        simulator->getVehicles();
+    const std::vector<Vehicle*> pendingVehicles =
+        simulator->getPendingVehicles();
+    spawnedVehicles.insert(
+        spawnedVehicles.end(),
+        pendingVehicles.begin(),
+        pendingVehicles.end());
+    for (Vehicle* vehicle : spawnedVehicles) {
         if (dynamic_cast<Bus*>(vehicle) != nullptr) {
             ++busCount;
         } else if (dynamic_cast<Motorbike*>(vehicle) != nullptr) {
@@ -229,6 +298,7 @@ int main() {
     const int spawnedCount =
         carCount + motorbikeCount + busCount + emergencyCount;
     assert(spawnedCount == 1000);
+    assert(simulator->getPendingVehicleCount() > 0);
     assert(busCount >= 30 && busCount <= 70);
     assert(carCount > busCount);
     assert(motorbikeCount > busCount);
@@ -249,8 +319,9 @@ int main() {
     map4Engine.drawGraph(map4Target, map4Graph);
     map4Target.display();
     const sf::Image map4Image = map4Target.getTexture().copyToImage();
-    assert(countColorComponents(
-        map4Image, sf::Color(35, 145, 230), 20) >= 4);
+    const int map4Components = countColorComponents(
+        map4Image, sf::Color(35, 145, 230), 20);
+    assert(map4Components >= 4);
 
     std::cout << "Visualization tests passed" << std::endl;
     return 0;

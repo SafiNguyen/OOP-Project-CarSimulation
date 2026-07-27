@@ -22,12 +22,15 @@ public:
     // Ordinary passenger car: moderate, everyday acceleration/braking.
     double getAcceleration() const override { return 18.0; }
     double getDeceleration() const override { return 28.0; }
+    double getMaxLateralAcceleration() const override { return 3.0; }
+    VehicleKind getVehicleKind() const override { return VehicleKind::Car; }
 
     // Physical dimensions
     double getLength() const override { return 4.5; }  // metres
+    double getWidth() const override { return 1.8; }   // metres
     double getHeight() const override { return 1.5; }  // metres
     double getWeight() const override { return 1.5; }  // tonnes
-    double getMinGap()  const override { return 2.0; } // metres
+    double getMinGap()  const override { return 3.0; } // metres
 };
 
-#endif 
+#endif

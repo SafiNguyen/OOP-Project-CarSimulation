@@ -1,5 +1,6 @@
 #include "SimulatorFactory.h"
 
+#include <algorithm>
 #include <random>
 
 #include "model/Bus.h"
@@ -23,10 +24,33 @@ constexpr double MOTORBIKE_WEIGHT = 48.0;
 constexpr double BUS_WEIGHT = 5.0;
 constexpr double EMERGENCY_WEIGHT = 2.0;
 
+std::size_t recommendedActiveVehicleLimit(
+    const Graph& graph) {
+    std::size_t directionalLaneCount = 0;
+    for (const Road* road : graph.getAllRoads()) {
+        if (road != nullptr) {
+            directionalLaneCount +=
+                static_cast<std::size_t>(
+                    std::max(1, road->getLaneCount()));
+        }
+    }
+
+    // The demo still owns all 1000 requested trips, but releases only a
+    // readable amount of simultaneous traffic for the map's lane count.
+    // Roughly two active vehicles per directional lane keeps traffic visible
+    // without turning every road into a permanent jam at startup.
+    return std::clamp<std::size_t>(
+        directionalLaneCount * 2u,
+        24u,
+        320u);
+}
+
 } // namespace
 
 std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingStrategy* strategy) {
     auto simulator = std::make_unique<TrafficSimulator>(&graph, strategy);
+    simulator->setMaximumActiveVehicles(
+        recommendedActiveVehicleLimit(graph));
 
     auto intersections = graph.getAllIntersections();
     if (intersections.size() < 2) {

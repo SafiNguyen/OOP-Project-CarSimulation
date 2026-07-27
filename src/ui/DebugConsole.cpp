@@ -323,6 +323,11 @@ void DebugConsole::drawOverviewTab(std::unique_ptr<TrafficSimulator>& simulator,
     ImGui::Text("Roads  %zu", roadsSnapshot_.size());
     ImGui::Text("Active vehicles  %zu",
                 simulator ? simulator->getVehicles().size() : 0u);
+    ImGui::SameLine(200.0f);
+    ImGui::Text("Waiting to enter  %zu",
+                simulator
+                    ? simulator->getPendingVehicleCount()
+                    : 0u);
     ImGui::Text("Heatmap  %s", heatMapEnabled ? "ON" : "OFF");
     ImGui::SameLine(200.0f);
     ImGui::Text("Parked  %s", showParkedVehicles ? "ON" : "OFF");

@@ -16,21 +16,35 @@
  */
 class Roundabout : public Intersection {
 private:
-    double radius; // radius of the roundabout in km (affects transition time)
+    double radiusMetres_;
+
+protected:
+    std::shared_ptr<const JunctionConnector> createConnector(
+        const Road& incoming,
+        int incomingLane,
+        const Road& outgoing,
+        int outgoingLane) const override;
 
 public:
-    Roundabout(int id, double x = 0.0, double y = 0.0, double radius = 0.02)
-        : Intersection(id, x, y), radius(radius) {
-        // Small circular junction: only 1 vehicle allowed inside the
-        // central box at a time, regardless of how many approaches exist.
-        setCapacity(1);
-    }
+    Roundabout(int id,
+               double x = 0.0,
+               double y = 0.0,
+               double radiusMetres = 20.0);
 
-    double getRadius() const { return radius; }
+    double getRadius() const { return radiusMetres_; }
+    double getTraversalRadiusMetres() const override {
+        return radiusMetres_;
+    }
 
     /// Roundabouts do not use traffic lights — vehicles yield instead.
     /// Override mustStopForRoad to always return false.
     bool isRoundabout() const override { return true; }
+    bool canEnterMovement(
+        int vehicleId,
+        const std::shared_ptr<const JunctionConnector>& connector,
+        double requiredGapMetres,
+        double vehicleLengthMetres = 4.5,
+        double vehicleWidthMetres = 1.8) const override;
 };
 
 #endif

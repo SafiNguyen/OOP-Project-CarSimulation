@@ -136,6 +136,7 @@ private:
     double totalSimulatedTime = 0.0;
     long long totalRecalculations = 0;
     long long tickCounter = 0;
+    int completedTrips = 0;
 
     TravelMetric& getOrCreateTravelMetric(int vehicleId);
 };

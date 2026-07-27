@@ -8,10 +8,16 @@
 #include "model/Intersection.h"
 #include "model/PointOfInterest.h"
 #include "model/Road.h"
+#include "model/RoadGeometry.h"
+
+namespace {
+
+constexpr unsigned int kMinimumRoadLabelSize = 9u;
+constexpr unsigned int kMaximumRoadLabelSize = 13u;
+
+} // namespace
 
 void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& graph) const {
-    constexpr float laneWidth = 10.0f;
-
     for (const Road* road : graph.getAllRoads()) {
         if (road == nullptr || road->getStart() == nullptr || road->getEnd() == nullptr) {
             continue;
@@ -20,7 +26,10 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
         const sf::Vector2f roadStart = getRoadEntryPoint(road, road->getStart());
         const sf::Vector2f roadEnd = getRoadEntryPoint(road, road->getEnd());
         const sf::Vector2f normal = roadNormal(roadStart, roadEnd);
-        const float totalWidth = laneWidth * static_cast<float>(std::max(1, road->getLaneCount()));
+        const float laneWidth = getLaneWidthPixels(road);
+        const float totalWidth =
+            laneWidth *
+            static_cast<float>(std::max(1, road->getLaneCount()));
 
         for (const auto& ownedStop : road->getBusStops()) {
             const BusStop* stop = ownedStop.get();
@@ -120,7 +129,7 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
 
             // Compute road width and offset
             const int laneCount = std::max(1, road->getLaneCount());
-            const float laneWidth = 10.0f;
+            const float laneWidth = getLaneWidthPixels(road);
             const float totalWidth = static_cast<float>(laneCount) * laneWidth;
 
             bool hasReverse = false;
@@ -209,11 +218,21 @@ void VisualizationEngine::drawIntersectionNode(sf::RenderTarget& target, const I
 
     const sf::Vector2f point = worldToScreen(intersection->getX(), intersection->getY());
     if (intersection->isRoundabout()) {
-        sf::CircleShape hub(20.0f);
-        hub.setOrigin(20.0f, 20.0f);
+        const float metricScale = static_cast<float>(
+            RoadGeometry::metresPerWorldUnit(*intersection));
+        const float laneWidth = static_cast<float>(
+            RoadGeometry::LANE_WIDTH_METRES /
+            std::max(1e-6f, metricScale) * scale_);
+        const float circulationRadius = static_cast<float>(
+            intersection->getTraversalRadiusMetres() /
+            std::max(1e-6f, metricScale) * scale_);
+        const float hubRadius =
+            std::max(2.0f, circulationRadius - laneWidth * 0.5f);
+        sf::CircleShape hub(hubRadius);
+        hub.setOrigin(hubRadius, hubRadius);
         hub.setPosition(point);
         hub.setFillColor(sf::Color(100, 150, 100));
-        hub.setOutlineThickness(8.0f);
+        hub.setOutlineThickness(laneWidth);
         hub.setOutlineColor(sf::Color(110, 110, 110));
         target.draw(hub);
     } else {
@@ -240,29 +259,13 @@ sf::Vector2f VisualizationEngine::getRoadEntryPoint(const Road* road, const Inte
     if (road == nullptr || intersection == nullptr) {
         return {};
     }
-    const Intersection* start = road->getStart();
-    const Intersection* end = road->getEnd();
-    if (start == nullptr || end == nullptr) {
+    if (road->getStart() == nullptr || road->getEnd() == nullptr) {
         return worldToScreen(intersection->getX(), intersection->getY());
     }
-
-    const sf::Vector2f roadStart = worldToScreen(start->getX(), start->getY());
-    const sf::Vector2f roadEnd = worldToScreen(end->getX(), end->getY());
-    const sf::Vector2f normal = roadNormal(roadStart, roadEnd);
-
-    const float laneWidth = 10.0f;
-    const int laneCount = std::max(1, road->getLaneCount());
-    const float totalWidth = static_cast<float>(laneCount) * laneWidth;
-
-    bool hasReverse = false;
-    if (end && start) {
-        for (Road* r : end->getOutgoingRoads()) {
-            if (r->getEnd() == start) { hasReverse = true; break; }
-        }
-    }
-    const float offsetAmount = hasReverse ? (totalWidth * 0.5f + 1.0f) : 0.0f;
-
-    return getRoadCenterlineEntryPoint(road, intersection) + normal * offsetAmount;
+    const bool atStart = intersection == road->getStart();
+    const Vec2 point =
+        RoadGeometry::roadSurfaceEndpoint(*road, atStart);
+    return worldToScreen(point.x, point.y);
 }
 
 
@@ -270,26 +273,13 @@ sf::Vector2f VisualizationEngine::getRoadCenterlineEntryPoint(const Road* road, 
     if (road == nullptr || intersection == nullptr) {
         return {};
     }
-    const Intersection* start = road->getStart();
-    const Intersection* end = road->getEnd();
-    if (start == nullptr || end == nullptr) {
+    if (road->getStart() == nullptr || road->getEnd() == nullptr) {
         return worldToScreen(intersection->getX(), intersection->getY());
     }
-
-    const sf::Vector2f intersectionPoint = worldToScreen(intersection->getX(), intersection->getY());
-    const sf::Vector2f roadStart = worldToScreen(start->getX(), start->getY());
-    const sf::Vector2f roadEnd = worldToScreen(end->getX(), end->getY());
-
-    sf::Vector2f towardOtherEnd = (intersection == start) ? (roadEnd - roadStart) : (roadStart - roadEnd);
-    const float length = std::sqrt(towardOtherEnd.x * towardOtherEnd.x + towardOtherEnd.y * towardOtherEnd.y);
-    if (length <= 0.01f) {
-        return intersectionPoint;
-    }
-    towardOtherEnd /= length;
-
-    const float boxHalfExtent = getIntersectionBoxHalfExtent(intersection);
-    const float inset = std::min(boxHalfExtent, length * 0.5f);
-    return intersectionPoint + towardOtherEnd * inset; // no normal/offsetAmount here
+    const bool atStart = intersection == road->getStart();
+    const Vec2 point =
+        RoadGeometry::roadReferenceEndpoint(*road, atStart);
+    return worldToScreen(point.x, point.y);
 }
 
 float VisualizationEngine::getIntersectionBoxHalfExtent(const Intersection* intersection) const {
@@ -297,50 +287,40 @@ float VisualizationEngine::getIntersectionBoxHalfExtent(const Intersection* inte
         return 12.0f;
     }
 
-    if (intersection->isRoundabout()) {
-        return 20.0f;
-    }
+    float halfExtent = std::max(
+        0.0f,
+        static_cast<float>(
+            RoadGeometry::junctionBoundaryRadiusWorld(*intersection) *
+            scale_));
 
-    const auto collectMaxRoadWidth = [](const std::vector<Road*>& roads) {
-        float maxWidth = 0.0f;
-        for (const auto* road : roads) {
+    const auto includeRoadWidth = [this, &halfExtent](const std::vector<Road*>& roads) {
+        for (const Road* road : roads) {
             if (road == nullptr) {
                 continue;
             }
-            const int laneCount = std::max(1, road->getLaneCount());
-            maxWidth = std::max(maxWidth, static_cast<float>(laneCount) * 10.0f);
-        }
-        return maxWidth;
-    };
 
-    const float maxWidth = std::max(collectMaxRoadWidth(intersection->getIncomingRoads()),
-                                     collectMaxRoadWidth(intersection->getOutgoingRoads()));
-    float halfExtent = std::max(14.0f, maxWidth * 0.5f + 8.0f);
-
-    constexpr float kMaxShareOfRoad = 0.35f;
-    float shortestRoadLength = -1.0f;
-
-    const auto trackShortest = [&](const std::vector<Road*>& roads) {
-        for (const Road* road : roads) {
-            if (road == nullptr || road->getStart() == nullptr || road->getEnd() == nullptr) {
-                continue;
-            }
-            const sf::Vector2f a = worldToScreen(road->getStart()->getX(), road->getStart()->getY());
-            const sf::Vector2f b = worldToScreen(road->getEnd()->getX(), road->getEnd()->getY());
-            const float len = distanceBetween(a, b);
-            if (shortestRoadLength < 0.0f || len < shortestRoadLength) {
-                shortestRoadLength = len;
-            }
+            const float carriagewayWidth =
+                getLaneWidthPixels(road) *
+                static_cast<float>(std::max(1, road->getLaneCount()));
+            const float roadHalfWidth = RoadGeometry::hasReverseDirection(*road)
+                ? carriagewayWidth
+                : carriagewayWidth * 0.5f;
+            halfExtent = std::max(halfExtent, roadHalfWidth + 1.0f);
         }
     };
-    trackShortest(intersection->getIncomingRoads());
-    trackShortest(intersection->getOutgoingRoads());
+    includeRoadWidth(intersection->getIncomingRoads());
+    includeRoadWidth(intersection->getOutgoingRoads());
+    return halfExtent;
+}
 
-    if (shortestRoadLength >= 0.0f) {
-        halfExtent = std::min(halfExtent, shortestRoadLength * kMaxShareOfRoad);
-    }
-
-    return std::max(6.0f, halfExtent); 
+float VisualizationEngine::getLaneWidthPixels(
+    const Road* road) const {
+    if (road == nullptr) return 1.0f;
+    return std::max(
+        MIN_LANE_WIDTH_PIXELS,
+        static_cast<float>(
+            RoadGeometry::LANE_WIDTH_METRES /
+            RoadGeometry::metresPerWorldUnit(*road) * scale_));
 }
 
 sf::Color VisualizationEngine::getIntersectionBoxColor(const Intersection* intersection) const {
@@ -426,18 +406,48 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
 void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vector<Road*>& roads) const {
     if (!font_) return;
 
-    for (const auto* road : roads) {
+    for (std::size_t roadIndex = 0; roadIndex < roads.size(); ++roadIndex) {
+        const Road* road = roads[roadIndex];
         if (!road || road->getName().empty()) continue;
         const Intersection* start = road->getStart();
         const Intersection* end = road->getEnd();
         if (!start || !end) continue;
 
-        // Use the same box-edge points the road is actually drawn between
-        // (see getRoadEntryPoint), not the raw intersection centers - so
-        // the label centers on the visible road segment instead of a point
-        // that may sit inside one of the intersection boxes on short roads.
-        const sf::Vector2f a = getRoadEntryPoint(road, start);
-        const sf::Vector2f b = getRoadEntryPoint(road, end);
+        // A two-way road is represented by two directional Road objects.
+        // Draw one physical-road label instead of stacking both names.
+        const int firstIntersectionId =
+            std::min(start->getId(), end->getId());
+        const int secondIntersectionId =
+            std::max(start->getId(), end->getId());
+        const bool labelAlreadyDrawn = std::any_of(
+            roads.begin(),
+            roads.begin() + static_cast<std::ptrdiff_t>(roadIndex),
+            [&](const Road* candidate) {
+                if (candidate == nullptr ||
+                    candidate->getName() != road->getName() ||
+                    candidate->getStart() == nullptr ||
+                    candidate->getEnd() == nullptr) {
+                    return false;
+                }
+                const int candidateFirstId = std::min(
+                    candidate->getStart()->getId(),
+                    candidate->getEnd()->getId());
+                const int candidateSecondId = std::max(
+                    candidate->getStart()->getId(),
+                    candidate->getEnd()->getId());
+                return candidateFirstId == firstIntersectionId &&
+                       candidateSecondId == secondIntersectionId;
+            });
+        if (labelAlreadyDrawn) {
+            continue;
+        }
+
+        // Labels belong on the shared physical centreline. Directional road
+        // surfaces are offset to either side of this line.
+        const sf::Vector2f a =
+            getRoadCenterlineEntryPoint(road, start);
+        const sf::Vector2f b =
+            getRoadCenterlineEntryPoint(road, end);
         const sf::Vector2f mid = (a + b) * 0.5f;
 
         const float dx = b.x - a.x;
@@ -452,13 +462,29 @@ void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vec
         sf::Text text;
         text.setFont(*font_);
         text.setString(road->getName());
-        text.setCharacterSize(13);
+        const float carriagewayWidth =
+            getLaneWidthPixels(road) *
+            static_cast<float>(std::max(1, road->getLaneCount()));
+        const float physicalRoadWidth = carriagewayWidth *
+            (RoadGeometry::hasReverseDirection(*road) ? 2.0f : 1.0f);
+        unsigned int characterSize = static_cast<unsigned int>(std::lround(
+            std::clamp(
+                physicalRoadWidth * 0.36f,
+                static_cast<float>(kMinimumRoadLabelSize),
+                static_cast<float>(kMaximumRoadLabelSize))));
+        text.setCharacterSize(characterSize);
         text.setStyle(sf::Text::Bold);
         text.setFillColor(sf::Color::White);
-
-        const sf::FloatRect bounds = text.getLocalBounds();
+        text.setOutlineColor(sf::Color(12, 18, 22, 220));
+        text.setOutlineThickness(1.0f);
 
         constexpr float kEdgeMargin = 6.0f;
+        sf::FloatRect bounds = text.getLocalBounds();
+        while (characterSize > kMinimumRoadLabelSize &&
+               visibleLength < bounds.width + kEdgeMargin * 2.0f) {
+            text.setCharacterSize(--characterSize);
+            bounds = text.getLocalBounds();
+        }
         if (visibleLength < bounds.width + kEdgeMargin * 2.0f) {
             continue;
         }
@@ -468,13 +494,13 @@ void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vec
         text.setRotation(angle);
 
 
-        constexpr float kPlatePaddingX = 5.0f;
-        constexpr float kPlatePaddingY = 2.0f;
+        constexpr float kPlatePaddingX = 3.0f;
+        constexpr float kPlatePaddingY = 1.0f;
         sf::RectangleShape plate({bounds.width + kPlatePaddingX * 2.0f, bounds.height + kPlatePaddingY * 2.0f});
         plate.setOrigin(plate.getSize().x * 0.5f, plate.getSize().y * 0.5f);
         plate.setPosition(mid);
         plate.setRotation(angle);
-        plate.setFillColor(sf::Color(15, 15, 15, 165));
+        plate.setFillColor(sf::Color(12, 18, 22, 105));
         target.draw(plate);
 
         target.draw(text);

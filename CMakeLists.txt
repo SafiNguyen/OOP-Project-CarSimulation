@@ -148,11 +148,18 @@ set_tests_properties(map_parser_test PROPERTIES
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# TEMPORARY: smoke test for the border-fix. Remove before commit.
 add_executable(test_crossing_render tests/test_crossing_render.cpp)
 target_link_libraries(test_crossing_render PRIVATE
     urban_core
     sfml-graphics
     sfml-window
     sfml-system
+)
+add_test(NAME crossing_render_test COMMAND test_crossing_render)
+
+add_executable(test_motion tests/test_motion.cpp)
+target_link_libraries(test_motion PRIVATE urban_core)
+add_test(NAME motion_test COMMAND test_motion)
+set_tests_properties(motion_test PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )

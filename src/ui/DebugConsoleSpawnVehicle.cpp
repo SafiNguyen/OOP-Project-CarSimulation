@@ -102,7 +102,10 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
                 }
             }
             if (successCount > 0) {
-                spawnMessage_ = "Successfully spawned " + std::to_string(successCount) + " vehicles.";
+                spawnMessage_ =
+                    "Created " +
+                    std::to_string(successCount) +
+                    " vehicles. Busy entrances use the safe spawn queue.";
                 setNotice(NoticeTone::SUCCESS, spawnMessage_);
             } else {
                 spawnMessage_ = "No path exists between those two points; vehicles were not spawned.";
@@ -115,7 +118,8 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
         UiTheme::tooltip("Select two different intersections and keep a simulation active");
     }
     if (!spawnMessage_.empty()) {
-        const bool success = spawnMessage_.rfind("Successfully", 0) == 0;
+        const bool success =
+            spawnMessage_.rfind("Created", 0) == 0;
         ImGui::TextColored(success ? UiTheme::Success : UiTheme::Error,
                            "%s", spawnMessage_.c_str());
     }

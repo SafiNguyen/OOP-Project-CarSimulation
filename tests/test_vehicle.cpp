@@ -24,6 +24,7 @@
 #include "../src/model/BusStop.h"
 #include "../src/model/TrafficLight.h"
 #include "../src/algorithm/DijkstraStrategy.h" 
+#include "../src/simulation/TrafficSimulator.h"
 
 using TestFramework::reportResult;
 using TestFramework::nearlyEqual;
@@ -287,8 +288,11 @@ void test_Vehicle_StopsAtRedTrafficLight() {
                         (car.getCurrentRoad() == road) &&
                         !car.hasReachedDestination() &&
                         nearlyEqual(car.getCurrentSpeed(), 0.0) &&
-                        nearlyEqual(car.getProgressRatio() * road->getDistance(),
-                                    road->getDistance() - 1.5);
+                        nearlyEqual(
+                            car.getProgressRatio() *
+                                road->getDistance(),
+                            road->getDistance() -
+                                1.5 - car.getLength() * 0.5);
 
     std::ostringstream d;
     d << "  Expected: vehicle remains on the road and stops at the red light near the stop line.\n";
@@ -745,7 +749,7 @@ void test_Bus_DwellCompletionDoesNotBypassRedLight() {
     Intersection i2(2, 80.0, 0.0);
     Road road(101, "Signal bus road", &i1, &i2, 80.0, 20.0);
     road.addBusStop(std::make_unique<BusStop>(
-        501, "Before signal", &road, 75.0, 0, 1.0));
+        501, "Before signal", &road, 70.0, 0, 1.0));
     i2.addIncomingRoad(&road);
     i2.registerIncomingLight(&road);
     TrafficLight* light = i2.getLightForIncomingRoad(&road);
@@ -755,7 +759,7 @@ void test_Bus_DwellCompletionDoesNotBypassRedLight() {
 
     TestBus bus(1, 20.0, &i1, &i2);
     bus.setRoute({&road});
-    bus.setTestProgress(74.9);
+    bus.setTestProgress(69.9);
     bus.setTestSpeed(10.0);
     bus.update(0.05);
     const bool startedDwell = bus.isDwelling();
@@ -767,10 +771,12 @@ void test_Bus_DwellCompletionDoesNotBypassRedLight() {
                         bus.isPaused() &&
                         bus.getPauseReason() == PauseReason::TrafficLight &&
                         bus.getCurrentRoad() == &road &&
-                        bus.getProgressOnRoad() <= 78.5 + 1e-6 &&
+                        bus.getProgressOnRoad() <=
+                            road.getDistance() - 1.5 -
+                                bus.getLength() * 0.5 + 1e-6 &&
                         !bus.hasReachedDestination();
     std::ostringstream d;
-    d << "  Expected: finish dwell, then stop at red no later than 78.5m\n";
+    d << "  Expected: finish dwell, then stop with its front bumper before the signal\n";
     d << "  Actual: reason=" << static_cast<int>(bus.getPauseReason())
       << " progress=" << bus.getProgressOnRoad()
       << " reached=" << bus.hasReachedDestination() << "\n";
@@ -784,12 +790,12 @@ void test_Bus_DwellCompletionDoesNotBypassIntersection() {
     Intersection i2(2, 80.0, 0.0);
     Road road(101, "Reserved bus road", &i1, &i2, 80.0, 20.0);
     road.addBusStop(std::make_unique<BusStop>(
-        501, "Before box", &road, 75.0, 0, 1.0));
+        501, "Before box", &road, 70.0, 0, 1.0));
     const bool occupied = i2.tryEnter(900, &road);
 
     TestBus bus(1, 20.0, &i1, &i2);
     bus.setRoute({&road});
-    bus.setTestProgress(74.9);
+    bus.setTestProgress(69.9);
     bus.setTestSpeed(10.0);
     bus.update(0.05);
     const bool startedDwell = bus.isDwelling();
@@ -801,7 +807,9 @@ void test_Bus_DwellCompletionDoesNotBypassIntersection() {
                         bus.isPaused() &&
                         bus.getPauseReason() == PauseReason::Intersection &&
                         bus.getCurrentRoad() == &road &&
-                        bus.getProgressOnRoad() <= 78.5 + 1e-6 &&
+                        bus.getProgressOnRoad() <=
+                            road.getDistance() - 1.5 -
+                                bus.getLength() * 0.5 + 1e-6 &&
                         !bus.hasReachedDestination();
     i2.exit(900);
 
@@ -1375,6 +1383,143 @@ void test_Yielding_DoesNotSlowVehiclesAlreadyOutsideEmergencyLane() {
     d << "  Actual:   speed=" << subject.getCurrentSpeed() << "\n";
     reportResult(testName, passed, d.str());
 }
+
+void test_MixedLengthVehiclesUseBumperToBumperGap() {
+    std::string testName =
+        "Vehicle: mixed-length following uses both rectangular bodies";
+
+    Intersection i1(1, 0.0, 0.0);
+    Intersection i2(2, 200.0, 0.0);
+    Road road(101, "Mixed vehicle lane", &i1, &i2,
+              200.0, 20.0);
+
+    TestBus follower(1, 20.0, &i1, &i2);
+    LaneTestCar leader(2, 0.0, &i1, &i2);
+    follower.setRoute({&road});
+    leader.setRoute({&road});
+    follower.placeOnLane(road, 0, 50.0);
+    leader.placeOnLane(road, 0, 60.0);
+    follower.setTestSpeed(10.0);
+
+    const double initialProgress =
+        follower.getProgressOnRoad();
+    follower.update(0.5);
+    const double bodyGap =
+        leader.getProgressOnRoad() -
+        follower.getProgressOnRoad() -
+        (leader.getLength() + follower.getLength()) * 0.5;
+    const bool passed =
+        nearlyEqual(follower.getProgressOnRoad(), initialProgress) &&
+        bodyGap >= -1e-6;
+
+    std::ostringstream d;
+    d << "  Expected: a 12m bus must not advance into a 4.5m car\n";
+    d << "  Actual: progress=" << follower.getProgressOnRoad()
+      << " bodyGap=" << bodyGap << "\n";
+    reportResult(testName, passed, d.str());
+}
+
+void test_SimulatorDefersUnsafeSpawnUntilEntranceIsClear() {
+    std::string testName =
+        "Simulator: burst spawning queues vehicles outside the road";
+
+    Graph graph;
+    graph.addIntersection(new Intersection(1, 0.0, 0.0));
+    graph.addIntersection(new Intersection(2, 500.0, 0.0));
+    graph.addRoad(new Road(
+        101, "Spawn lane",
+        graph.getIntersection(1),
+        graph.getIntersection(2),
+        500.0, 20.0));
+
+    DijkstraStrategy strategy;
+    TrafficSimulator simulator(&graph, &strategy);
+    bool accepted = true;
+    constexpr int vehicleCount = 12;
+    for (int id = 0; id < vehicleCount; ++id) {
+        Vehicle* vehicle = nullptr;
+        if (id % 3 == 0) {
+            vehicle = new Bus(
+                id, 15.0,
+                graph.getIntersection(1),
+                graph.getIntersection(2));
+        } else if (id % 3 == 1) {
+            vehicle = new Car(
+                id, 20.0,
+                graph.getIntersection(1),
+                graph.getIntersection(2));
+        } else {
+            vehicle = new Motorbike(
+                id, 20.0,
+                graph.getIntersection(1),
+                graph.getIntersection(2));
+        }
+        accepted = simulator.addVehicle(vehicle) && accepted;
+    }
+
+    const bool initialQueueIsSafe =
+        simulator.getVehicles().size() == 1 &&
+        simulator.getPendingVehicleCount() ==
+            vehicleCount - 1;
+    bool bodyClearancesAreSafe = true;
+    for (int step = 0; step < 100; ++step) {
+        simulator.update(0.05);
+        std::vector<Vehicle*> activeOnRoad;
+        for (Vehicle* vehicle : simulator.getVehicles()) {
+            if (vehicle->getCurrentRoad() == graph.getRoad(101)) {
+                activeOnRoad.push_back(vehicle);
+            }
+        }
+        std::sort(
+            activeOnRoad.begin(),
+            activeOnRoad.end(),
+            [](const Vehicle* first, const Vehicle* second) {
+                return first->getProgressOnRoad() <
+                       second->getProgressOnRoad();
+            });
+        for (std::size_t index = 1;
+             index < activeOnRoad.size();
+             ++index) {
+            const Vehicle* follower =
+                activeOnRoad[index - 1];
+            const Vehicle* leader =
+                activeOnRoad[index];
+            const double bodyGap =
+                leader->getProgressOnRoad() -
+                follower->getProgressOnRoad() -
+                (leader->getLength() +
+                 follower->getLength()) * 0.5;
+            bodyClearancesAreSafe =
+                bodyClearancesAreSafe &&
+                bodyGap + 1e-6 >=
+                    std::max(
+                        follower->getMinGap(),
+                        leader->getMinGap());
+        }
+    }
+
+    const bool pendingPoolProgressed =
+        simulator.getPendingVehicleCount() <
+            vehicleCount - 1;
+    const bool allVehiclesOwned =
+        simulator.getVehicles().size() +
+            simulator.getPendingVehicleCount() +
+            simulator.getFinishedVehicles().size() ==
+        vehicleCount;
+    const bool passed =
+        accepted &&
+        initialQueueIsSafe &&
+        pendingPoolProgressed &&
+        bodyClearancesAreSafe &&
+        allVehiclesOwned;
+
+    std::ostringstream d;
+    d << "  Expected: one safe initial spawn, then gradual activation\n";
+    d << "  Actual: active=" << simulator.getVehicles().size()
+      << " pending=" << simulator.getPendingVehicleCount()
+      << " clearancesSafe=" << bodyClearancesAreSafe << "\n";
+    reportResult(testName, passed, d.str());
+}
 // ----------------------------------------------------------------------------
 // main
 // ----------------------------------------------------------------------------
@@ -1422,6 +1567,8 @@ int main() {
     test_LaneChange_AllowsBlockedLaneEscapeNearIntersection();
     test_LaneChange_UsesAdaptiveIntersectionZoneOnShortRoad();
     test_Yielding_DoesNotSlowVehiclesAlreadyOutsideEmergencyLane();
+    test_MixedLengthVehiclesUseBumperToBumperGap();
+    test_SimulatorDefersUnsafeSpawnUntilEntranceIsClear();
 
 
     printSummary();

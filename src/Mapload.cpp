@@ -20,6 +20,7 @@
 #include "model/SpawnPoint.h"
 #include "model/Destination.h"
 #include "model/BusStop.h"
+#include "common/Units.h"
 
 using nlohmann::json;
 
@@ -99,32 +100,52 @@ bool getStringOptional(const json& obj, const char* key, std::string& value, std
 	return true;
 }
 
-// Road::getDistance()/getTravelTime() and Road::getSpeedLimit() are meant
-// to be read together as kilometers / (kilometers-per-hour), so internally
-// every road's distance is stored in kilometers. Map authors, however,
-// often find it far more natural to lay out a city block in meters (e.g.
-// "distance": 120 for a ~120m street) rather than fractional kilometers.
-// To support both without breaking any existing map file, an optional
-// "distanceUnit" string (per-road, or "defaultDistanceUnit" at the map
-// root as a fallback for every road that doesn't override it) selects
-// how the raw "distance" number should be interpreted before it's
-// converted to kilometers. If no unit is specified anywhere, "km" is
-// assumed - i.e. the exact previous behaviour, so old map files (whose
-// "distance" values were already being used as-is) load identically.
-bool distanceUnitToKmFactor(const std::string& unit, double& factor, std::string& error) {
+bool distanceUnitToMetresFactor(
+	const std::string& unit,
+	double& factor,
+	std::string& error) {
 	std::string normalized = unit;
 	for (char& c : normalized) {
 		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 	}
 
-	if (normalized == "km" || normalized == "kilometer" || normalized == "kilometers" || normalized.empty()) {
-		factor = 1.0;
+	if (normalized == "legacy" || normalized == "legacy-map-unit" ||
+		normalized.empty()) {
+		// Historical maps used distance * 20. Keeping this named adapter
+		// preserves their travel times while all downstream physics sees SI.
+		factor = 20.0;
+	} else if (normalized == "km" || normalized == "kilometer" ||
+			   normalized == "kilometers") {
+		factor = Units::KM_TO_M_FACTOR;
 	} else if (normalized == "m" || normalized == "meter" || normalized == "meters") {
-		factor = 0.001;
+		factor = 1.0;
 	} else if (normalized == "mi" || normalized == "mile" || normalized == "miles") {
-		factor = 1.609344;
+		factor = 1609.344;
 	} else {
-		error = "Unknown distanceUnit: " + unit + " (expected 'km', 'm', or 'mi')";
+		error = "Unknown distanceUnit: " + unit +
+			" (expected 'legacy', 'km', 'm', or 'mi')";
+		return false;
+	}
+	return true;
+}
+
+bool speedUnitToMetresPerSecondFactor(
+	const std::string& unit,
+	double& factor,
+	std::string& error) {
+	std::string normalized = unit;
+	for (char& c : normalized) {
+		c = static_cast<char>(
+			std::tolower(static_cast<unsigned char>(c)));
+	}
+	if (normalized == "km/h" || normalized == "kmh" ||
+		normalized == "kph" || normalized.empty()) {
+		factor = 1.0 / Units::KMH_TO_MPS_FACTOR;
+	} else if (normalized == "m/s" || normalized == "mps") {
+		factor = 1.0;
+	} else {
+		error = "Unknown speedUnit: " + unit +
+			" (expected 'km/h' or 'm/s')";
 		return false;
 	}
 	return true;
@@ -168,13 +189,16 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 
 	graph.clearGraph();
 
-	//root-level fallback unit applied to every road that doesn't
-	// specify its own "distanceUnit". Defaults to "km" (no-op conversion),
-	// so maps written before this feature existed are unaffected.
-	std::string defaultDistanceUnit = "km";
+	// Explicit boundary contract: the loader normalizes every physical value
+	// to SI. The named legacy distance scale keeps pre-schema maps compatible.
+	std::string defaultDistanceUnit = "legacy";
+	std::string defaultSpeedUnit = "km/h";
+	std::string defaultRadiusUnit = "km";
 	{
 		std::string rootUnitError;
-		if (!getStringOptional(root, "defaultDistanceUnit", defaultDistanceUnit, rootUnitError)) {
+		if (!getStringOptional(root, "defaultDistanceUnit", defaultDistanceUnit, rootUnitError) ||
+			!getStringOptional(root, "defaultSpeedUnit", defaultSpeedUnit, rootUnitError) ||
+			!getStringOptional(root, "defaultRadiusUnit", defaultRadiusUnit, rootUnitError)) {
 			if (error) {
 				*error = rootUnitError;
 			}
@@ -233,8 +257,25 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 
 		if (intersectionType == "roundabout") {
 			double radius = 0.02;
-			getDoubleOptional(item, "radius", radius, localError);
-			graph.addIntersection(new Roundabout(id, x, y, radius));
+			std::string radiusUnit = defaultRadiusUnit;
+			if (!getDoubleOptional(item, "radius", radius, localError) ||
+				!getStringOptional(item, "radiusUnit", radiusUnit, localError)) {
+				if (error) *error = localError;
+				return false;
+			}
+			double radiusFactor = 1.0;
+			if (!distanceUnitToMetresFactor(
+					radiusUnit, radiusFactor, localError) ||
+				!std::isfinite(radius) || radius <= 0.0) {
+				if (error) {
+					*error = !localError.empty()
+						? localError
+						: "Roundabout radius must be finite and positive.";
+				}
+				return false;
+			}
+			graph.addIntersection(new Roundabout(
+				id, x, y, radius * radiusFactor));
 		} else {
 			graph.addIntersection(new Intersection(id, x, y));
 		}
@@ -280,9 +321,7 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 			return false;
 		}
 
-		// interpret "distance" using this road's own unit if given,
-		// otherwise the map-wide default, and normalize to kilometers -
-		// the unit Road/Vehicle travel-time math is written in terms of.
+		// Interpret boundary units once and normalize Road to metres and m/s.
 		std::string distanceUnit = defaultDistanceUnit;
 		if (!getStringOptional(item, "distanceUnit", distanceUnit, localError)) {
 			if (error) {
@@ -292,14 +331,36 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 		}
 
 		double distanceUnitFactor = 1.0;
-		if (!distanceUnitToKmFactor(distanceUnit, distanceUnitFactor, localError)) {
+		if (!distanceUnitToMetresFactor(distanceUnit, distanceUnitFactor, localError)) {
 			if (error) {
 				*error = "Road " + std::to_string(id) + ": " + localError;
 			}
 			return false;
 		}
-		const double distanceKm = distance * distanceUnitFactor;
-		const double distanceMeters = distanceKm * 20.0;
+		const double distanceMeters = distance * distanceUnitFactor;
+		std::string speedUnit = defaultSpeedUnit;
+		if (!getStringOptional(item, "speedUnit", speedUnit, localError)) {
+			if (error) *error = localError;
+			return false;
+		}
+		double speedFactor = 1.0;
+		if (!speedUnitToMetresPerSecondFactor(
+				speedUnit, speedFactor, localError)) {
+			if (error) {
+				*error = "Road " + std::to_string(id) + ": " + localError;
+			}
+			return false;
+		}
+		const double speedMetresPerSecond = speedLimit * speedFactor;
+		if (!std::isfinite(distanceMeters) || distanceMeters <= 0.0 ||
+			!std::isfinite(speedMetresPerSecond) ||
+			speedMetresPerSecond <= 0.0) {
+			if (error) {
+				*error = "Road " + std::to_string(id) +
+					": distance and speedLimit must be finite and positive.";
+			}
+			return false;
+		}
 
 		if (graph.getRoad(id) != nullptr) {
 			if (error) {
@@ -333,15 +394,15 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 			double weightLimit = 30.0;
 			getDoubleOptional(item, "heightLimit", heightLimit, localError);
 			getDoubleOptional(item, "weightLimit", weightLimit, localError);
-			road = new Bridge(id, roadName, start, end, distanceMeters, speedLimit,
+			road = new Bridge(id, roadName, start, end, distanceMeters, speedMetresPerSecond,
 			                  congestionLevel, lanes, heightLimit, weightLimit);
 		} else if (roadType == "tunnel") {
 			double heightLimit = 3.5;
 			getDoubleOptional(item, "heightLimit", heightLimit, localError);
-			road = new Tunnel(id, roadName, start, end, distanceMeters, speedLimit,
+			road = new Tunnel(id, roadName, start, end, distanceMeters, speedMetresPerSecond,
 			                  congestionLevel, lanes, heightLimit);
 		} else {
-			road = new Road(id, roadName, start, end, distanceMeters, speedLimit, congestionLevel, lanes);
+			road = new Road(id, roadName, start, end, distanceMeters, speedMetresPerSecond, congestionLevel, lanes);
 		}
 		if (blocked) {
 			road->blockRoad();
@@ -359,15 +420,15 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 				double heightLimit = 4.5, weightLimit = 30.0;
 				getDoubleOptional(item, "heightLimit", heightLimit, localError);
 				getDoubleOptional(item, "weightLimit", weightLimit, localError);
-				revRoad = new Bridge(-id, revRoadName, end, start, distanceMeters, speedLimit,
+				revRoad = new Bridge(-id, revRoadName, end, start, distanceMeters, speedMetresPerSecond,
 				                     congestionLevel, lanes, heightLimit, weightLimit);
 			} else if (roadType == "tunnel") {
 				double heightLimit = 3.5;
 				getDoubleOptional(item, "heightLimit", heightLimit, localError);
-				revRoad = new Tunnel(-id, revRoadName, end, start, distanceMeters, speedLimit,
+				revRoad = new Tunnel(-id, revRoadName, end, start, distanceMeters, speedMetresPerSecond,
 				                     congestionLevel, lanes, heightLimit);
 			} else {
-				revRoad = new Road(-id, revRoadName, end, start, distanceMeters, speedLimit, congestionLevel, lanes);
+				revRoad = new Road(-id, revRoadName, end, start, distanceMeters, speedMetresPerSecond, congestionLevel, lanes);
 			}
 			if (blocked) revRoad->blockRoad();
 			graph.addRoad(revRoad);

@@ -152,7 +152,11 @@ void DebugConsole::drawTopHud(sf::RenderWindow& window,
 
             ImGui::TableNextColumn();
             metricBlock("VEHICLES",
-                        std::to_string(simulator ? simulator->getVehicles().size() : 0u),
+                        std::to_string(
+                            simulator
+                                ? simulator->getVehicles().size() +
+                                      simulator->getPendingVehicleCount()
+                                : 0u),
                         narrow);
 
             if (!narrow) {

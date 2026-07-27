@@ -6,6 +6,7 @@
 #include "model/Graph.h"
 #include "model/Intersection.h"
 #include "model/Road.h"
+#include "model/RoadGeometry.h"
 #include "model/PointOfInterest.h"
 
 VisualizationEngine::VisualizationEngine(sf::Vector2u windowSize, float margin)
@@ -46,7 +47,33 @@ void VisualizationEngine::prepare(const Graph& graph) {
             maxX_ = std::max(maxX_, x);
             minY_ = std::min(minY_, y);
             maxY_ = std::max(maxY_, y);
-     }
+        }
+
+        const auto includePoint = [this](Vec2 point) {
+            minX_ = std::min(minX_, point.x);
+            maxX_ = std::max(maxX_, point.x);
+            minY_ = std::min(minY_, point.y);
+            maxY_ = std::max(maxY_, point.y);
+        };
+        for (const Road* road : graph.getAllRoads()) {
+            if (road == nullptr) continue;
+            for (int lane = 0; lane < road->getLaneCount(); ++lane) {
+                includePoint(
+                    RoadGeometry::laneEndpoint(*road, lane, true));
+                includePoint(
+                    RoadGeometry::laneEndpoint(*road, lane, false));
+            }
+        }
+        for (const Intersection* intersection : intersections) {
+            const double radius =
+                RoadGeometry::junctionBoundaryRadiusWorld(*intersection);
+            includePoint(
+                {intersection->getX() - radius,
+                 intersection->getY() - radius});
+            includePoint(
+                {intersection->getX() + radius,
+                 intersection->getY() + radius});
+        }
 
     } else {
         minX_ = 0.0;
@@ -94,6 +121,7 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
         sf::Vector2f norm;
         sf::Vector2f dirUnit;
         float length;
+        float laneWidth;
         float totalWidth;
         int laneCount;
         bool isBridge;
@@ -115,7 +143,7 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
 
         const sf::Vector2f a = worldToScreen(start->getX(), start->getY());
         const sf::Vector2f b = worldToScreen(end->getX(), end->getY());
-        const float laneWidth = 10.0f;
+        const float laneWidth = getLaneWidthPixels(road);
         const int laneCount = road->getLaneCount();
         const float totalWidth = static_cast<float>(laneCount) * laneWidth;
         sf::Vector2f dir = b - a;
@@ -131,6 +159,7 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
         rd.offsetB = offsetB;
         rd.norm = norm;
         rd.length = length;
+        rd.laneWidth = laneWidth;
         rd.totalWidth = totalWidth;
         rd.laneCount = laneCount;
         rd.isBridge = road->isBridge();
@@ -174,17 +203,26 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
         Road* roadObj = roads[roadIndex++];
         for (int i = 0; i < rd.laneCount; ++i) {
             if (roadObj->getLane(i).isBlocked() && !roadObj->isBlocked() && heatMapEnabled_) {
-                const float laneBoundaryOffset = -rd.totalWidth * 0.5f + static_cast<float>(i) * 10.0f + 5.0f;
+                const float laneBoundaryOffset =
+                    -rd.totalWidth * 0.5f +
+                    (static_cast<float>(i) + 0.5f) * rd.laneWidth;
                 const sf::Vector2f laneCenterA = rd.offsetA + rd.norm * laneBoundaryOffset;
                 const sf::Vector2f laneCenterB = rd.offsetB + rd.norm * laneBoundaryOffset;
-                drawRoadStrip(target, laneCenterA, laneCenterB, sf::Color(180, 40, 40), 9.0f);
+                drawRoadStrip(
+                    target,
+                    laneCenterA,
+                    laneCenterB,
+                    sf::Color(180, 40, 40),
+                    std::max(1.0f, rd.laneWidth - 1.0f));
             }
         }
 
         // Lane divider lines for multi-lane roads.
         if (rd.laneCount > 1) {
             for (int i = 1; i < rd.laneCount; ++i) {
-                const float laneBoundaryOffset = -rd.totalWidth * 0.5f + static_cast<float>(i) * 10.0f;
+                const float laneBoundaryOffset =
+                    -rd.totalWidth * 0.5f +
+                    static_cast<float>(i) * rd.laneWidth;
                 const sf::Vector2f laneLineA = rd.offsetA + rd.norm * laneBoundaryOffset;
                 const sf::Vector2f laneLineB = rd.offsetB + rd.norm * laneBoundaryOffset;
 

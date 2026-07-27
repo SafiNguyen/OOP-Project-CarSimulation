@@ -35,6 +35,9 @@ inline int nextFreeVehicleId(TrafficSimulator* simulator) {
         for (Vehicle* v : simulator->getVehicles()) {
             maxId = std::max(maxId, v->getId());
         }
+        for (Vehicle* v : simulator->getPendingVehicles()) {
+            maxId = std::max(maxId, v->getId());
+        }
         for (Vehicle* v : simulator->getFinishedVehicles()) {
             maxId = std::max(maxId, v->getId());
         }

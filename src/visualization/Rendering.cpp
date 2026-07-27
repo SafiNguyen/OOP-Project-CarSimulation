@@ -1,5 +1,6 @@
 #include "Rendering.h"
 
+#include <cmath>
 #include <map>
 #include <vector>
 
@@ -15,10 +16,150 @@
 #include "ui/DebugConsole.h"
 #include "ui/StatsPanel.h"
 #include "ui/VehicleInspector.h"
+#include "visualization/VehicleRenderGeometry.h"
 #include "visualization/VehicleSprite.h"
 #include "visualization/VisualizationEngine.h"
 
 namespace {
+
+constexpr float kVehicleOutlinePixels = 0.55f;
+
+struct VehicleVisual {
+    float halfLength;
+    float halfWidth;
+    sf::Color color;
+};
+
+VehicleVisual getVehicleVisual(
+    const Vehicle& vehicle,
+    const VisualizationEngine& visualization,
+    double simulationTime) {
+    const VehicleScreenSize size =
+        getVehicleScreenSize(vehicle, visualization);
+    const float halfLength = size.lengthPixels * 0.5f;
+    const float halfWidth = size.widthPixels * 0.5f;
+    switch (vehicle.getVehicleKind()) {
+        case VehicleKind::Bus:
+            return {
+                halfLength,
+                halfWidth,
+                sf::Color(200, 162, 50)
+            };
+        case VehicleKind::Motorbike:
+            return {
+                halfLength,
+                halfWidth,
+                sf::Color(255, 200, 0)
+            };
+        case VehicleKind::Emergency: {
+            const double flashPhase = std::fmod(
+                simulationTime + static_cast<double>(vehicle.getId()) * 0.037,
+                0.4);
+            return {
+                halfLength,
+                halfWidth,
+                flashPhase < 0.2 ? sf::Color::Red : sf::Color::Blue
+            };
+        }
+        case VehicleKind::Car:
+        default:
+            return {
+                halfLength,
+                halfWidth,
+                sf::Color(50, 150, 255)
+            };
+    }
+}
+
+void appendVehicleQuad(std::vector<sf::Vertex>& vertices,
+                       const sf::Vector2f& center,
+                       const sf::Vector2f& forward,
+                       const sf::Vector2f& side,
+                       float halfLength,
+                       float halfWidth,
+                       sf::Color color) {
+    const sf::Vector2f longitudinal = forward * halfLength;
+    const sf::Vector2f lateral = side * halfWidth;
+    vertices.emplace_back(center - longitudinal - lateral, color);
+    vertices.emplace_back(center + longitudinal - lateral, color);
+    vertices.emplace_back(center + longitudinal + lateral, color);
+    vertices.emplace_back(center - longitudinal + lateral, color);
+}
+
+void drawActiveVehicles(sf::RenderWindow& window,
+                        const VisualizationEngine& visualization,
+                        TrafficSimulator& simulator,
+                        const sf::View& view) {
+    // Reuse the allocation between frames. Every vehicle contributes an
+    // outline quad and a body quad, but the whole fleet is submitted in one
+    // draw call instead of one SFML Shape draw per vehicle.
+    static std::vector<sf::Vertex> vehicleVertices;
+    vehicleVertices.clear();
+    const std::size_t requiredVertices =
+        simulator.getVehicles().size() * 8u;
+    if (vehicleVertices.capacity() < requiredVertices) {
+        vehicleVertices.reserve(requiredVertices);
+    }
+
+    const sf::Vector2f viewCenter = view.getCenter();
+    const sf::Vector2f viewSize = view.getSize();
+    constexpr float margin = 60.0f;
+    const float minX = viewCenter.x - viewSize.x * 0.5f - margin;
+    const float maxX = viewCenter.x + viewSize.x * 0.5f + margin;
+    const float minY = viewCenter.y - viewSize.y * 0.5f - margin;
+    const float maxY = viewCenter.y + viewSize.y * 0.5f + margin;
+    const double simulationTime = simulator.getElapsedTime();
+
+    for (Vehicle* vehicle : simulator.getVehicles()) {
+        if (vehicle == nullptr || vehicle->getCurrentRoad() == nullptr) {
+            continue;
+        }
+
+        // One pose sample supplies both position and heading. The old sprite
+        // path sampled the same pose once for culling and twice again to draw.
+        const Pose2D pose = vehicle->getPose();
+        const sf::Vector2f position = visualization.worldToScreen(
+            pose.position.x, pose.position.y);
+        if (position.x < minX || position.x > maxX ||
+            position.y < minY || position.y > maxY) {
+            continue;
+        }
+
+        const float cosine =
+            static_cast<float>(std::cos(pose.headingRadians));
+        const float sine =
+            static_cast<float>(std::sin(pose.headingRadians));
+        const sf::Vector2f forward(cosine, -sine);
+        const sf::Vector2f side(sine, cosine);
+        const VehicleVisual visual =
+            getVehicleVisual(
+                *vehicle, visualization, simulationTime);
+
+        appendVehicleQuad(
+            vehicleVertices,
+            position,
+            forward,
+            side,
+            visual.halfLength + kVehicleOutlinePixels,
+            visual.halfWidth + kVehicleOutlinePixels,
+            sf::Color::Black);
+        appendVehicleQuad(
+            vehicleVertices,
+            position,
+            forward,
+            side,
+            visual.halfLength,
+            visual.halfWidth,
+            visual.color);
+    }
+
+    if (!vehicleVertices.empty()) {
+        window.draw(
+            vehicleVertices.data(),
+            vehicleVertices.size(),
+            sf::Quads);
+    }
+}
 
 void drawParkedVehicles(sf::RenderWindow& window, const VisualizationEngine& visualization,
                          TrafficSimulator& simulator) {
@@ -117,22 +258,8 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
     ctx.visualization.drawGraph(window, ctx.graph);
 
     if (simulator) {
-        const sf::Vector2f viewCenter = ctx.view.getCenter();
-        const sf::Vector2f viewSize = ctx.view.getSize();
-        const float margin = 60.0f;
-        const float minX = viewCenter.x - viewSize.x * 0.5f - margin;
-        const float maxX = viewCenter.x + viewSize.x * 0.5f + margin;
-        const float minY = viewCenter.y - viewSize.y * 0.5f - margin;
-        const float maxY = viewCenter.y + viewSize.y * 0.5f + margin;
-
-        for (Vehicle* v : simulator->getVehicles()) {
-            VehicleSprite sprite(v, &ctx.visualization);
-            const sf::Vector2f pos = sprite.getPosition();
-            if (pos.x >= minX && pos.x <= maxX && pos.y >= minY && pos.y <= maxY) {
-                sprite.update(dt);
-                sprite.draw(window);
-            }
-        }
+        drawActiveVehicles(
+            window, ctx.visualization, *simulator, ctx.view);
         debugConsole.drawFailedRecalcMarkers(window, simulator.get(), ctx.visualization);
         drawSelectedVehicleHighlight(window, ctx.visualization, *simulator, vehicleInspector);
         if (ctx.showParkedVehicles) {

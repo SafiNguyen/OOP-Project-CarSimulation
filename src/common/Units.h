@@ -7,8 +7,8 @@
 // CONTRACT: Toan bo he thong vat ly noi bo (Vehicle, Road, Graph, pathfinding)
 // chi lam viec voi don vi SI: MET (m), GIAY (s), M/S.
 //
-// km/h va km CHI duoc phep xuat hien o 2 "bien" (boundary) cua he thong:
-//   1) Luc doc map JSON (mapload.cpp)      -> convert km/h, km  =>  m/s, m
+// Non-SI units CHI duoc phep xuat hien o 2 "bien" (boundary) cua he thong:
+//   1) Luc doc map JSON (Mapload.cpp)      -> normalize to m/s and m
 //   2) Luc hien thi len UI cho nguoi dung  -> convert m/s, m    =>  km/h, km
 //
 // KHONG mot ham tinh toan vat ly nao (Vehicle::update, calculateCurrentSpeed,

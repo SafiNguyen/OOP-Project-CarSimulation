@@ -4,14 +4,40 @@
 #include "Intersection.h"
 #include "TrafficLight.h"
 #include "Graph.h"
+#include "JunctionConnector.h"
+#include "LaneMapping.h"
+#include "RoadGeometry.h"
 #include "algorithm/PathFindingStrategy.h"
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <cstdlib>
 
 namespace {
 
 constexpr double INTERSECTION_STOP_LINE_OFFSET = 1.5;
+
+double combinedHalfLength(const Vehicle& first,
+                          const Vehicle& second) {
+    return (first.getLength() + second.getLength()) * 0.5;
+}
+
+double bumperGap(const Vehicle& follower,
+                 const Vehicle& leader) {
+    return leader.getProgressOnRoad()
+         - follower.getProgressOnRoad()
+         - combinedHalfLength(follower, leader);
+}
+
+double outgoingReleaseGap(const Vehicle& entering,
+                          const Vehicle& leader) {
+    // A connector remains reserved until the entering vehicle's rear bumper
+    // clears the junction boundary. At release, its centre is half its own
+    // length down the outgoing road, which must be included in the headroom.
+    return leader.getProgressOnRoad()
+         - entering.getLength() * 0.5
+         - combinedHalfLength(entering, leader);
+}
 
 struct LaneChangeCandidate {
     int laneIndex = -1;
@@ -24,18 +50,14 @@ double gapAheadOf(const Vehicle& vehicle, const Vehicle* leader) {
     if (leader == nullptr) {
         return std::numeric_limits<double>::infinity();
     }
-    return leader->getProgressOnRoad()
-         - vehicle.getProgressOnRoad()
-         - leader->getLength();
+    return bumperGap(vehicle, *leader);
 }
 
 double gapBehindOf(const Vehicle& vehicle, const Vehicle* follower) {
     if (follower == nullptr) {
         return std::numeric_limits<double>::infinity();
     }
-    return vehicle.getProgressOnRoad()
-         - follower->getProgressOnRoad()
-         - vehicle.getLength();
+    return bumperGap(*follower, vehicle);
 }
 
 LaneChangeCandidate assessLaneChange(const Vehicle& vehicle,
@@ -114,9 +136,7 @@ Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
       currentSpeed(0.0),
       currentRouteIndex(0),
       paused(false),
-      pauseReason(PauseReason::None),
-      awaitingIntersectionTransition(false),
-      intersectionTransitionTimer(0.0) {
+      pauseReason(PauseReason::None) {
     patienceThreshold = 3.0 + static_cast<double>(std::rand() % 50) / 10.0;
     recalculateTimer = 5.0 + static_cast<double>(std::rand() % 100) / 10.0;
 }
@@ -147,9 +167,49 @@ PauseReason Vehicle::getIntersectionControlReason() const {
     }
 
     if (reservedIntersection_ != nextIntersection &&
-        !currentRoad->getLane(currentLaneIndex).isBlocked() &&
-        !nextIntersection->canEnter(getId(), currentRoad)) {
-        return PauseReason::Intersection;
+        !currentRoad->getLane(currentLaneIndex).isBlocked()) {
+        Road* outgoing = getNextRoad();
+        if (outgoing != nullptr) {
+            const LaneMapping mapping =
+                TurnLanePolicy::map(
+                    *currentRoad,
+                    currentLaneIndex,
+                    *outgoing,
+                    true);
+            if (!mapping.valid ||
+                currentLaneIndex != mapping.incomingLane) {
+                return PauseReason::Intersection;
+            }
+            Vehicle* outgoingLeader =
+                outgoing->getFirstVehicleInLane(
+                    mapping.outgoingLane);
+            if (outgoingLeader != nullptr &&
+                outgoingReleaseGap(
+                    *this, *outgoingLeader) <
+                    std::max(
+                        getMinGap(),
+                        outgoingLeader->getMinGap())) {
+                return PauseReason::Intersection;
+            }
+            auto connector = nextIntersection->getConnector(
+                currentRoad,
+                mapping.incomingLane,
+                outgoing,
+                mapping.outgoingLane);
+            const double requiredGap =
+                getMinGap() + currentSpeed * getTimeHeadway();
+            if (!nextIntersection->canEnterMovement(
+                    getId(),
+                    connector,
+                    requiredGap,
+                    getLength(),
+                    getWidth())) {
+                return PauseReason::Intersection;
+            }
+        } else if (!nextIntersection->canEnter(
+                       getId(), currentRoad)) {
+            return PauseReason::Intersection;
+        }
     }
 
     return PauseReason::None;
@@ -159,9 +219,21 @@ double Vehicle::getIntersectionStopPosition() const {
     if (currentRoad == nullptr) {
         return 0.0;
     }
-    return std::max(
+    const double nominalStopPosition = std::max(
         0.0,
-        currentRoad->getDistance() - INTERSECTION_STOP_LINE_OFFSET);
+        currentRoad->getDistance() -
+            INTERSECTION_STOP_LINE_OFFSET -
+            getLength() * 0.5);
+    Intersection* intersection = currentRoad->getEnd();
+    if (intersection == nullptr) {
+        return nominalStopPosition;
+    }
+    return intersection->constrainIncomingStopPosition(
+        currentRoad,
+        currentLaneIndex,
+        nominalStopPosition,
+        getLength(),
+        getMinGap());
 }
 
 void Vehicle::beginPause(PauseReason reason) {
@@ -173,6 +245,9 @@ void Vehicle::beginPause(PauseReason reason) {
     const bool pauseJustStarted = !paused || pauseReason != reason;
     paused = true;
     pauseReason = reason;
+    movementState_ = reason == PauseReason::BusStop
+        ? MovementState::DwellingAtBusStop
+        : MovementState::WaitingAtIntersection;
     currentSpeed = 0.0;
     if (pauseJustStarted) {
         onPauseStarted();
@@ -182,6 +257,9 @@ void Vehicle::beginPause(PauseReason reason) {
 void Vehicle::clearPause() {
     paused = false;
     pauseReason = PauseReason::None;
+    if (movementState_ != MovementState::TraversingJunction) {
+        movementState_ = MovementState::OnRoad;
+    }
 }
 
 bool Vehicle::shouldPauseAt(double currentPos,
@@ -201,8 +279,12 @@ bool Vehicle::shouldPauseAt(double currentPos,
     if (controlReason == PauseReason::TrafficLight) {
         Vehicle* leader = currentRoad->findLeader(currentLaneIndex, this);
         if (leader != nullptr && leader->isPaused()) {
-            double leaderBack = leader->getProgressOnRoad() - leader->getLength();
-            double desiredPos = leaderBack - getMinGap();
+            const double requiredGap =
+                std::max(getMinGap(), leader->getMinGap());
+            const double desiredPos =
+                leader->getProgressOnRoad() -
+                combinedHalfLength(*this, *leader) -
+                requiredGap;
             // Don't allow desiredPos to go past the nominal stop line further upstream
             if (desiredPos < stopLinePos) {
                 stopLinePos = desiredPos;
@@ -221,17 +303,47 @@ bool Vehicle::shouldPauseAt(double currentPos,
 }
 
 void Vehicle::setRoute(const std::vector<Road*>& route) {
+    setRouteAt(route, -1, 0.0);
+}
+
+bool Vehicle::setRouteAt(const std::vector<Road*>& route,
+                         int initialLaneIndex,
+                         double initialProgressMetres) {
+    if (reservedIntersection_ != nullptr) {
+        reservedIntersection_->exit(getId());
+        reservedIntersection_ = nullptr;
+    }
+    if (currentRoad != nullptr &&
+        movementState_ != MovementState::TraversingJunction &&
+        currentLaneIndex >= 0 &&
+        currentLaneIndex < currentRoad->getLaneCount()) {
+        currentRoad->getLane(currentLaneIndex).removeVehicle(this);
+    }
     currentRoute = route;
     currentRouteIndex = 0;
     progressOnCurrentRoad = 0.0;
     currentSpeed = 0.0;
     clearPause();
+    activeConnector_.reset();
+    junctionOutgoingRoad_ = nullptr;
+    junctionProgressMetres_ = 0.0;
+    movementState_ = MovementState::OnRoad;
     routeAssigned = true;
 
     if (!currentRoute.empty()) {
         currentRoad = currentRoute[0];
         if (currentRoad) {
-            currentLaneIndex = currentRoad->getFreestLaneIndex();
+            if (initialLaneIndex >= 0 &&
+                initialLaneIndex < currentRoad->getLaneCount() &&
+                !currentRoad->getLane(initialLaneIndex).isBlocked()) {
+                currentLaneIndex = initialLaneIndex;
+            } else {
+                currentLaneIndex = currentRoad->getFreestLaneIndex();
+            }
+            progressOnCurrentRoad = std::clamp(
+                initialProgressMetres,
+                0.0,
+                currentRoad->getDistance());
             currentRoad->getLane(currentLaneIndex).addVehicle(this);
         }
     } else {
@@ -239,6 +351,7 @@ void Vehicle::setRoute(const std::vector<Road*>& route) {
     }
 
     onRoadChanged();
+    return currentRoute.empty() || currentRoad != nullptr;
 }
 
 bool Vehicle::advanceToNextRoad() {
@@ -280,6 +393,199 @@ double Vehicle::getProgressRatio() const {
         return 0.0;
     }
     return progressOnCurrentRoad / currentRoad->getDistance();
+}
+
+Pose2D Vehicle::getPose() const {
+    if (movementState_ == MovementState::TraversingJunction &&
+        activeConnector_ != nullptr) {
+        return activeConnector_->sampleByDistance(
+            junctionProgressMetres_);
+    }
+    if (currentRoad == nullptr) {
+        return {};
+    }
+    return RoadGeometry::sampleLane(
+        *currentRoad, currentLaneIndex, progressOnCurrentRoad);
+}
+
+LaneMapping Vehicle::getUpcomingLaneMapping() const {
+    Road* nextRoad = getNextRoad();
+    if (currentRoad == nullptr || nextRoad == nullptr) {
+        return {};
+    }
+    return TurnLanePolicy::map(
+        *currentRoad, currentLaneIndex, *nextRoad, true);
+}
+
+bool Vehicle::beginJunctionTraversal(
+    const LaneMapping& mapping,
+    Intersection* intersection) {
+    if (currentRoad == nullptr || junctionOutgoingRoad_ != nullptr ||
+        intersection == nullptr || !mapping.valid ||
+        currentLaneIndex != mapping.incomingLane) {
+        return false;
+    }
+
+    Road* outgoing = getNextRoad();
+    if (outgoing == nullptr) return false;
+    Vehicle* outgoingLeader =
+        outgoing->getFirstVehicleInLane(mapping.outgoingLane);
+    if (outgoingLeader != nullptr) {
+        const double availableAtExit =
+            outgoingReleaseGap(*this, *outgoingLeader);
+        if (availableAtExit <
+            std::max(
+                getMinGap(), outgoingLeader->getMinGap())) {
+            return false;
+        }
+    }
+    auto connector = intersection->getConnector(
+        currentRoad,
+        mapping.incomingLane,
+        outgoing,
+        mapping.outgoingLane);
+    if (connector == nullptr) return false;
+
+    const double requiredGap =
+        getMinGap() + currentSpeed * getTimeHeadway();
+    if (!intersection->tryEnterMovement(
+            getId(),
+            connector,
+            requiredGap,
+            getLength(),
+            getWidth())) {
+        return false;
+    }
+
+    reservedIntersection_ = intersection;
+    incomingLaneIndex_ = mapping.incomingLane;
+    outgoingLaneIndex_ = mapping.outgoingLane;
+    junctionOutgoingRoad_ = outgoing;
+    activeConnector_ = std::move(connector);
+    junctionProgressMetres_ = 0.0;
+    currentRoad->getLane(incomingLaneIndex_).removeVehicle(this);
+    progressOnCurrentRoad = currentRoad->getDistance();
+    paused = false;
+    pauseReason = PauseReason::None;
+    movementState_ = MovementState::TraversingJunction;
+    return true;
+}
+
+void Vehicle::completeJunctionTraversal(
+    double outgoingProgressMetres) {
+    Road* incoming = currentRoad;
+    Road* outgoing = junctionOutgoingRoad_;
+    if (incoming != nullptr) {
+        addTravelHistory(incoming);
+    }
+    ++currentRouteIndex;
+    currentRoad = outgoing;
+    currentLaneIndex = outgoingLaneIndex_;
+    progressOnCurrentRoad = std::max(0.0, outgoingProgressMetres);
+
+    if (reservedIntersection_ != nullptr) {
+        reservedIntersection_->exit(getId());
+        reservedIntersection_ = nullptr;
+    }
+    activeConnector_.reset();
+    junctionOutgoingRoad_ = nullptr;
+    junctionProgressMetres_ = 0.0;
+    movementState_ = MovementState::OnRoad;
+    paused = false;
+    pauseReason = PauseReason::None;
+
+    if (currentRoad != nullptr) {
+        progressOnCurrentRoad = std::min(
+            progressOnCurrentRoad, currentRoad->getDistance());
+        currentRoad->getLane(currentLaneIndex).addVehicle(this);
+    }
+    onRoadChanged();
+}
+
+double Vehicle::advanceJunction(double availableTime) {
+    if (movementState_ != MovementState::TraversingJunction ||
+        activeConnector_ == nullptr || availableTime <= 0.0) {
+        return 0.0;
+    }
+
+    const double pathLength = activeConnector_->getLength();
+    const double clearanceDistance =
+        pathLength > 1e-6 ? getLength() * 0.5 : 0.0;
+    const double completionDistance =
+        pathLength + clearanceDistance;
+    if (completionDistance <= junctionProgressMetres_ + 1e-9) {
+        completeJunctionTraversal(
+            std::max(0.0, junctionProgressMetres_ - pathLength));
+        return 0.0;
+    }
+
+    const double subDt =
+        std::min(availableTime, MAX_PHYSICS_SUBSTEP);
+    double targetSpeed = std::max(
+        1.0,
+        std::min(baseSpeed, currentRoad->getSpeedLimit()) /
+            std::max(1.0, currentRoad->getCongestionLevel()));
+    const Pose2D pose = activeConnector_->sampleByDistance(
+        junctionProgressMetres_);
+    const double curvature = std::fabs(pose.curvature);
+    if (curvature > 1e-8) {
+        const double curveSpeed = std::sqrt(
+            getMaxLateralAcceleration() / curvature);
+        targetSpeed = std::min(targetSpeed, curveSpeed);
+    }
+
+    if (currentSpeed < targetSpeed) {
+        currentSpeed = std::min(
+            targetSpeed,
+            currentSpeed + getAcceleration() * subDt);
+    } else if (currentSpeed > targetSpeed) {
+        currentSpeed = std::max(
+            targetSpeed,
+            currentSpeed - getDeceleration() * subDt);
+    }
+    currentSpeed = std::max(currentSpeed, 1e-3);
+
+    const double remainingDistance =
+        completionDistance - junctionProgressMetres_;
+    const double possibleDistance = currentSpeed * subDt;
+    double travelled =
+        std::min(remainingDistance, possibleDistance);
+    bool constrainedByOccupant = false;
+    if (reservedIntersection_ != nullptr) {
+        const double safeTravelled =
+            reservedIntersection_->limitTraversalAdvance(
+                getId(),
+                activeConnector_,
+                junctionProgressMetres_,
+                travelled,
+                getLength(),
+                getWidth(),
+                getMinGap());
+        constrainedByOccupant =
+            safeTravelled + 1e-9 < travelled;
+        travelled = safeTravelled;
+        if (constrainedByOccupant) {
+            currentSpeed = travelled > 1e-9
+                ? travelled / subDt
+                : 0.0;
+        }
+    }
+    const double consumedTime = constrainedByOccupant
+        ? subDt
+        : (currentSpeed > 1e-9
+               ? travelled / currentSpeed
+               : subDt);
+    junctionProgressMetres_ += travelled;
+    if (reservedIntersection_ != nullptr) {
+        reservedIntersection_->updateReservationProgress(
+            getId(), junctionProgressMetres_);
+    }
+
+    if (junctionProgressMetres_ + 1e-9 >= completionDistance) {
+        completeJunctionTraversal(
+            std::max(0.0, junctionProgressMetres_ - pathLength));
+    }
+    return consumedTime;
 }
 
 bool Vehicle::tryRequiredLaneChange(int requiredLaneIndex) {
@@ -438,7 +744,8 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
     recalculateTimer -= elapsedTimeThisUpdate;
     if (recalculateTimer <= 0.0) {
         recalculateTimer = 10.0 + static_cast<double>(std::rand() % 50) / 10.0; // 10-15s
-        if (graph && strategy && currentRoad) {
+        if (graph && strategy && currentRoad &&
+            movementState_ == MovementState::OnRoad) {
             bool hasCongestion = false;
             for (size_t i = currentRouteIndex + 1; i < currentRoute.size(); ++i) {
                 if (currentRoute[i]->getDynamicCongestionLevel() > 1.5 || currentRoute[i]->isBlocked()) {
@@ -448,18 +755,6 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
             }
             if (hasCongestion) {
                 recalculateRoute(*graph, strategy);
-            }
-        }
-    }
-
-    if (awaitingIntersectionTransition) {
-        intersectionTransitionTimer -= elapsedTimeThisUpdate;
-        if (intersectionTransitionTimer <= 0.0) {
-            intersectionTransitionTimer = 0.0;
-            awaitingIntersectionTransition = false;
-            if (reservedIntersection_ != nullptr) {
-                reservedIntersection_->exit(getId());
-                reservedIntersection_ = nullptr;
             }
         }
     }
@@ -505,6 +800,17 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
     }
 
     while (remainingTime > 0.0 && currentRoad != nullptr && !paused) {
+        if (movementState_ == MovementState::TraversingJunction) {
+            const double consumed = advanceJunction(remainingTime);
+            remainingTime =
+                std::max(0.0, remainingTime - consumed);
+            if (consumed <= 0.0 &&
+                movementState_ == MovementState::TraversingJunction) {
+                break;
+            }
+            continue;
+        }
+
         const double freeFlowSpeed = calculateCurrentSpeed();
         double targetSpeed = freeFlowSpeed;
 
@@ -538,7 +844,21 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
             tryYieldLaneChange();
         }
 
-        const int requiredLaneIndex = getRequiredLaneIndex();
+        const LaneMapping upcomingMapping =
+            getUpcomingLaneMapping();
+        const double distanceToJunction =
+            currentRoad->getDistance() - progressOnCurrentRoad;
+        const bool preparingForJunction =
+            upcomingMapping.valid &&
+            distanceToJunction <=
+                getJunctionLanePreparationDistance();
+        const int stopOrServiceLane = getRequiredLaneIndex();
+        const int requiredLaneIndex =
+            stopOrServiceLane >= 0
+                ? stopOrServiceLane
+                : (preparingForJunction
+                       ? upcomingMapping.incomingLane
+                       : -1);
         const bool hasRequiredLane =
             requiredLaneIndex >= 0 &&
             requiredLaneIndex < currentRoad->getLaneCount();
@@ -551,6 +871,12 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
                 tryLaneChange(freeFlowSpeed);
             }
         }
+        if (preparingForJunction &&
+            currentLaneIndex != upcomingMapping.incomingLane &&
+            distanceToJunction <=
+                INTERSECTION_STOP_LINE_OFFSET + 0.25) {
+            targetSpeed = 0.0;
+        }
 
         if (!yielding) {
             targetSpeed = std::min(
@@ -562,30 +888,36 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
         }
 
         Vehicle* leader = currentRoad->findLeader(currentLaneIndex, this);
-        const double minGap = getMinGap();
+        double minGap = getMinGap();
         double gapToLeader = std::numeric_limits<double>::infinity();
 
         if (leader != nullptr) {
-            gapToLeader = leader->getProgressOnRoad() - progressOnCurrentRoad - leader->getLength();
+            gapToLeader = bumperGap(*this, *leader);
         } else {
             Road* nextRoad = getNextRoad();
             if (nextRoad != nullptr) {
-                int nextLaneIndex = currentLaneIndex;
-                if (nextLaneIndex >= nextRoad->getLaneCount()) {
-                    nextLaneIndex = nextRoad->getLaneCount() - 1; // clamp phong khi so lane khac nhau
-                }
+                const LaneMapping leaderMapping =
+                    getUpcomingLaneMapping();
+                const int nextLaneIndex = leaderMapping.valid
+                    ? leaderMapping.outgoingLane
+                    : std::clamp(
+                          currentLaneIndex,
+                          0,
+                          nextRoad->getLaneCount() - 1);
                 Vehicle* nextLeader = nextRoad->getFirstVehicleInLane(nextLaneIndex);
                 if (nextLeader != nullptr) {
                     const double distToEndOfCurrentRoad = currentRoad->getDistance() - progressOnCurrentRoad;
                     gapToLeader = distToEndOfCurrentRoad
                                 + nextLeader->getProgressOnRoad()
-                                - nextLeader->getLength();
+                                - combinedHalfLength(
+                                      *this, *nextLeader);
                     leader = nextLeader; 
                 }
             }
         }
 
         if (leader != nullptr) {
+            minGap = std::max(minGap, leader->getMinGap());
             double leaderTargetSpeed = freeFlowSpeed;
             if (gapToLeader <= minGap) {
                 targetSpeed = 0.0;
@@ -631,7 +963,8 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
                 Vehicle* follower = currentRoad->findFollower(currentLaneIndex, this);
                 bool safeToUTurn = true;
                 if (follower != nullptr) {
-                    double gapBehind = progressOnCurrentRoad - getLength() - follower->getProgressOnRoad();
+                    const double gapBehind =
+                        bumperGap(*follower, *this);
                     if (gapBehind < 5.0 && follower->getCurrentSpeed() > 0.01) {
                         safeToUTurn = false;
                     } else if (gapBehind < 1.0) { // they are very close, still unsafe
@@ -687,8 +1020,26 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
                 break;
             }
 
-            if (nextIntersection != nullptr && reservedIntersection_ != nextIntersection) {
-                if (nextIntersection->tryEnter(getId(), currentRoad)) {
+            const bool hasNextRoad =
+                currentRouteIndex + 1 <
+                static_cast<int>(currentRoute.size());
+            if (hasNextRoad) {
+                const LaneMapping mapping =
+                    getUpcomingLaneMapping();
+                if (!mapping.valid ||
+                    currentLaneIndex != mapping.incomingLane ||
+                    !beginJunctionTraversal(
+                        mapping, nextIntersection)) {
+                    progressOnCurrentRoad = std::min(
+                        currentRoad->getDistance(),
+                        std::max(currentPos, getIntersectionStopPosition()));
+                    beginPause(PauseReason::Intersection);
+                    break;
+                }
+            } else if (nextIntersection != nullptr &&
+                       reservedIntersection_ != nextIntersection) {
+                if (nextIntersection->tryEnter(
+                        getId(), currentRoad)) {
                     reservedIntersection_ = nextIntersection;
                 } else {
                     progressOnCurrentRoad = std::min(
@@ -698,20 +1049,15 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
                     break;
                 }
             }
-            double distToEnd = currentRoad->getDistance() - currentPos;
-            double timeToEnd = (speed > 0.0) ? distToEnd / speed : 0.0;
+            const double distToEnd =
+                currentRoad->getDistance() - currentPos;
+            const double timeToEnd =
+                (speed > 0.0) ? distToEnd / speed : 0.0;
 
             remainingTime -= timeToEnd;
-            if (remainingTime < 0.0) {
-                remainingTime = 0.0;
-            }
-            progressOnCurrentRoad = 0.0;
+            remainingTime = std::max(0.0, remainingTime);
 
-
-            if (currentRouteIndex + 1 < static_cast<int>(currentRoute.size())) {
-                awaitingIntersectionTransition = true;
-                intersectionTransitionTimer = INTERSECTION_TRANSITION_DURATION;
-                if (!advanceToNextRoad()) break;
+            if (hasNextRoad) {
                 continue;
             } else {
                 if (reservedIntersection_ != nullptr) {
@@ -737,7 +1083,8 @@ bool Vehicle::isRoadInUpcomingRoute(int roadId) const {
 }
 
 bool Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy) {
-    if (currentRoad == nullptr || destination == nullptr) {
+    if (currentRoad == nullptr || destination == nullptr ||
+        movementState_ == MovementState::TraversingJunction) {
         return false;
     }
 
@@ -765,7 +1112,8 @@ bool Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy
 }
 
 bool Vehicle::performUTurn(const Graph& graph, PathFindingStrategy* strategy) {
-    if (currentRoad == nullptr || destination == nullptr) {
+    if (currentRoad == nullptr || destination == nullptr ||
+        movementState_ == MovementState::TraversingJunction) {
         return false;
     }
 

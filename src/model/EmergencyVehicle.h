@@ -26,15 +26,20 @@ public:
     // than everyday traffic.
     double getAcceleration() const override { return 30.0; }
     double getDeceleration() const override { return 40.0; }
+    double getMaxLateralAcceleration() const override { return 3.5; }
+    VehicleKind getVehicleKind() const override {
+        return VehicleKind::Emergency;
+    }
     bool mustStopForTrafficLight(Intersection* nextIntersection) const override {
     return false; // xe cứu thương được ưu tiên vượt đèn đỏ
     }
 
     // Sturdier brakes let emergency vehicles safely run a tighter gap.
     double getLength() const override { return 6.0; }  // metres — ambulance/fire truck
+    double getWidth() const override { return 2.2; }   // metres
     double getHeight() const override { return 2.5; }  // metres — tall with equipment
     double getWeight() const override { return 3.5; }  // tonnes
-    double getMinGap() const override { return 1.5; }
+    double getMinGap() const override { return 2.5; }
     //ambulance yielding: ambulance will not yield to any vehicle
     double getYieldSpeedFactor() const override { return 1.0; }
     void notifyEmergencyApproaching(int /*emergencyLaneIndex*/) override { /* no-op */ }

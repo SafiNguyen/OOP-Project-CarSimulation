@@ -1,6 +1,9 @@
 #include "Intersection.h"
 #include "Road.h" 
 #include "TrafficLight.h"
+#include "LaneMapping.h"
+#include "MotionPath.h"
+#include "RoadGeometry.h"
 #include <algorithm>
 #include <cmath>
 
@@ -19,6 +22,64 @@ constexpr double PI = 3.14159265358979323846;
 // and stays GREEN/YELLOW forever - it can never turn RED, so vehicles on
 // either approach never get stopped at all.
 constexpr double OPPOSITE_TOLERANCE_RAD = PI / 9.0; // 20 degrees
+
+struct OrientedVehicleBounds {
+    Vec2 centreMetres;
+    Vec2 forward;
+    Vec2 side;
+    double halfLengthMetres = 0.0;
+    double halfWidthMetres = 0.0;
+};
+
+OrientedVehicleBounds makeVehicleBounds(
+    const Pose2D& pose,
+    double metresPerWorldUnit,
+    double lengthMetres,
+    double widthMetres,
+    double clearanceMetres) {
+    const Vec2 forward{
+        std::cos(pose.headingRadians),
+        std::sin(pose.headingRadians)
+    };
+    const double padding =
+        std::max(0.0, clearanceMetres) * 0.5;
+    return {
+        pose.position * metresPerWorldUnit,
+        forward,
+        rightNormal(forward),
+        std::max(0.1, lengthMetres) * 0.5 + padding,
+        std::max(0.1, widthMetres) * 0.5 + padding
+    };
+}
+
+bool boundsOverlap(const OrientedVehicleBounds& first,
+                   const OrientedVehicleBounds& second) {
+    const Vec2 delta =
+        second.centreMetres - first.centreMetres;
+    const Vec2 axes[] = {
+        first.forward,
+        first.side,
+        second.forward,
+        second.side
+    };
+    for (const Vec2& axis : axes) {
+        const double firstRadius =
+            first.halfLengthMetres *
+                std::fabs(dot(first.forward, axis)) +
+            first.halfWidthMetres *
+                std::fabs(dot(first.side, axis));
+        const double secondRadius =
+            second.halfLengthMetres *
+                std::fabs(dot(second.forward, axis)) +
+            second.halfWidthMetres *
+                std::fabs(dot(second.side, axis));
+        if (std::fabs(dot(delta, axis)) + 1e-9 >=
+            firstRadius + secondRadius) {
+            return false;
+        }
+    }
+    return true;
+}
 }
 
 Intersection::Intersection(int id, double x, double y)
@@ -70,6 +131,7 @@ std::string Intersection::getIntersectionTypeLabel() const {
 void Intersection::addIncomingRoad(Road* road) {
     if (road!= nullptr) {
         incomingRoads.push_back(road);
+        invalidateConnectorCache();
         // Traffic lights are NOT auto-registered. Use registerIncomingLight()
         // explicitly or through the debug console to add lights.
     }
@@ -78,6 +140,7 @@ void Intersection::addIncomingRoad(Road* road) {
 void Intersection::addOutgoingRoad(Road* road) {
     if (road != nullptr) {
         outgoingRoads.push_back(road);
+        invalidateConnectorCache();
     }
 }
 
@@ -88,11 +151,13 @@ void Intersection::removeIncomingRoad(Road* road) {
                         incomingRoads.end(), road), incomingRoads.end());
     trafficLights.erase(road->getId());
     rebuildPhaseGroups();
+    invalidateConnectorCache();
 }
 
 void Intersection::removeOutgoingRoad(Road* road) {
     outgoingRoads.erase(std::remove(outgoingRoads.begin(),
                         outgoingRoads.end(), road), outgoingRoads.end());
+    invalidateConnectorCache();
 }
 
 //Traffic light management 
@@ -297,6 +362,94 @@ bool Intersection::mustStopForRoad(const Road *road) const{
     return (light != nullptr) && light->mustStop();
 }
 
+std::shared_ptr<const JunctionConnector> Intersection::createConnector(
+    const Road& incoming,
+    int incomingLane,
+    const Road& outgoing,
+    int outgoingLane) const {
+    const Vec2 start =
+        RoadGeometry::laneEndpoint(incoming, incomingLane, false);
+    const Vec2 finish =
+        RoadGeometry::laneEndpoint(outgoing, outgoingLane, true);
+    const Vec2 startTangent = RoadGeometry::roadDirection(incoming);
+    const Vec2 endTangent = RoadGeometry::roadDirection(outgoing);
+    const MovementType movement =
+        TurnLanePolicy::classify(incoming, outgoing);
+    const double chord = distance(start, finish);
+    const double junctionRadiusWorld =
+        RoadGeometry::junctionBoundaryRadiusWorld(*this);
+
+    double movementFactor = 0.75;
+    switch (movement) {
+        case MovementType::Straight: movementFactor = 0.45; break;
+        case MovementType::Right: movementFactor = 0.60; break;
+        case MovementType::Left: movementFactor = 0.85; break;
+        case MovementType::UTurn: movementFactor = 1.15; break;
+    }
+    const double scale =
+        RoadGeometry::metresPerWorldUnit(*this);
+    const double controlDistance = std::max({
+        chord * 0.30,
+        junctionRadiusWorld * movementFactor,
+        junctionRadiusWorld > 1e-9
+            ? RoadGeometry::LANE_WIDTH_METRES / scale
+            : 0.0
+    });
+
+    auto path = std::make_shared<BezierJunctionPath>(
+        start,
+        start + startTangent * controlDistance,
+        finish - endTangent * controlDistance,
+        finish,
+        scale);
+    const ConnectorKey key{
+        incoming.getId(), incomingLane,
+        outgoing.getId(), outgoingLane
+    };
+    return std::make_shared<JunctionConnector>(
+        key,
+        &incoming,
+        &outgoing,
+        movement,
+        startTangent,
+        endTangent,
+        RoadGeometry::metresPerWorldUnit(outgoing),
+        std::move(path));
+}
+
+std::shared_ptr<const JunctionConnector> Intersection::getConnector(
+    const Road* incoming,
+    int incomingLane,
+    const Road* outgoing,
+    int outgoingLane) const {
+    if (incoming == nullptr || outgoing == nullptr ||
+        incomingLane < 0 || incomingLane >= incoming->getLaneCount() ||
+        outgoingLane < 0 || outgoingLane >= outgoing->getLaneCount() ||
+        incoming->getEnd() != this || outgoing->getStart() != this) {
+        return nullptr;
+    }
+
+    const ConnectorKey key{
+        incoming->getId(), incomingLane,
+        outgoing->getId(), outgoingLane
+    };
+    const auto found = connectorCache_.find(key);
+    if (found != connectorCache_.end()) {
+        return found->second;
+    }
+
+    auto connector = createConnector(
+        *incoming, incomingLane, *outgoing, outgoingLane);
+    if (connector != nullptr) {
+        connectorCache_.emplace(key, connector);
+    }
+    return connector;
+}
+
+void Intersection::invalidateConnectorCache() {
+    connectorCache_.clear();
+}
+
 // --- Intersection-box reservation ---
 // Deliberately independent from the traffic-light phase logic above: a
 // green light only means "your approach's turn according to the signal
@@ -310,11 +463,22 @@ bool Intersection::canEnter(int vehicleId, const Road* fromRoad) const {
         return true; // dang giu cho roi
     }
     for (const auto& occupant : occupants_) {
-        if (!areRoadsInSamePhase(fromRoad, occupant.second)) {
+        if (!areRoadsInSamePhase(
+                fromRoad, occupant.second.fromRoad)) {
             return false; 
         }
     }
     return static_cast<int>(occupants_.size()) < capacity_;
+}
+
+bool Intersection::canEnterMovement(
+    int vehicleId,
+    const std::shared_ptr<const JunctionConnector>& connector,
+    double /*requiredGapMetres*/,
+    double /*vehicleLengthMetres*/,
+    double /*vehicleWidthMetres*/) const {
+    return connector != nullptr &&
+           canEnter(vehicleId, connector->getIncomingRoad());
 }
 
 bool Intersection::tryEnter(int vehicleId, const Road* fromRoad) {
@@ -324,8 +488,205 @@ bool Intersection::tryEnter(int vehicleId, const Road* fromRoad) {
     if (!canEnter(vehicleId, fromRoad)) {
         return false;
     }
-    occupants_.emplace(vehicleId, fromRoad);
+    occupants_.emplace(
+        vehicleId,
+        Reservation{fromRoad, nullptr, 0.0, 4.5, 1.8});
     return true;
+}
+
+bool Intersection::tryEnterMovement(
+    int vehicleId,
+    const std::shared_ptr<const JunctionConnector>& connector,
+    double requiredGapMetres,
+    double vehicleLengthMetres,
+    double vehicleWidthMetres) {
+    auto existing = occupants_.find(vehicleId);
+    if (existing != occupants_.end()) {
+        if (connector != nullptr) {
+            existing->second.connector = connector;
+        }
+        existing->second.vehicleLengthMetres =
+            std::max(0.1, vehicleLengthMetres);
+        existing->second.vehicleWidthMetres =
+            std::max(0.1, vehicleWidthMetres);
+        return true;
+    }
+    if (!canEnterMovement(
+            vehicleId,
+            connector,
+            requiredGapMetres,
+            vehicleLengthMetres,
+            vehicleWidthMetres)) {
+        return false;
+    }
+    occupants_.emplace(
+        vehicleId,
+        Reservation{
+            connector->getIncomingRoad(),
+            connector,
+            0.0,
+            std::max(0.1, vehicleLengthMetres),
+            std::max(0.1, vehicleWidthMetres)
+        });
+    return true;
+}
+
+void Intersection::updateReservationProgress(
+    int vehicleId,
+    double progressMetres) {
+    auto found = occupants_.find(vehicleId);
+    if (found != occupants_.end()) {
+        found->second.progressMetres =
+            std::max(0.0, progressMetres);
+    }
+}
+
+double Intersection::limitTraversalAdvance(
+    int vehicleId,
+    const std::shared_ptr<const JunctionConnector>& connector,
+    double currentProgressMetres,
+    double desiredAdvanceMetres,
+    double vehicleLengthMetres,
+    double vehicleWidthMetres,
+    double clearanceMetres) const {
+    if (connector == nullptr ||
+        desiredAdvanceMetres <= 0.0 ||
+        occupants_.size() <= 1) {
+        return std::max(0.0, desiredAdvanceMetres);
+    }
+
+    const double metricScale =
+        RoadGeometry::metresPerWorldUnit(*this);
+    const auto isSafeAt = [&](double progressMetres) {
+        const OrientedVehicleBounds candidate =
+            makeVehicleBounds(
+                connector->sampleByDistance(progressMetres),
+                metricScale,
+                vehicleLengthMetres,
+                vehicleWidthMetres,
+                clearanceMetres);
+        for (const auto& entry : occupants_) {
+            if (entry.first == vehicleId) continue;
+            const Reservation& reservation = entry.second;
+            if (reservation.connector == nullptr) {
+                return false;
+            }
+            const OrientedVehicleBounds other =
+                makeVehicleBounds(
+                    reservation.connector->sampleByDistance(
+                        reservation.progressMetres),
+                    metricScale,
+                    reservation.vehicleLengthMetres,
+                    reservation.vehicleWidthMetres,
+                    clearanceMetres);
+            if (boundsOverlap(candidate, other)) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    if (!isSafeAt(currentProgressMetres)) {
+        return 0.0;
+    }
+
+    // Sweep in short increments so a large caller step cannot tunnel through
+    // another rectangle merely because both end positions are collision-free.
+    const double sweepStepMetres = std::max(
+        0.25,
+        std::min(
+            std::max(0.1, vehicleLengthMetres),
+            std::max(0.1, vehicleWidthMetres)) * 0.25);
+    const int sweepSteps = std::max(
+        1,
+        static_cast<int>(std::ceil(
+            desiredAdvanceMetres / sweepStepMetres)));
+    double safeAdvance = 0.0;
+    for (int step = 1; step <= sweepSteps; ++step) {
+        const double candidateAdvance =
+            desiredAdvanceMetres *
+            static_cast<double>(step) /
+            static_cast<double>(sweepSteps);
+        if (isSafeAt(
+                currentProgressMetres + candidateAdvance)) {
+            safeAdvance = candidateAdvance;
+            continue;
+        }
+
+        double unsafeAdvance = candidateAdvance;
+        for (int iteration = 0; iteration < 14; ++iteration) {
+            const double candidate =
+                (safeAdvance + unsafeAdvance) * 0.5;
+            if (isSafeAt(
+                    currentProgressMetres + candidate)) {
+                safeAdvance = candidate;
+            } else {
+                unsafeAdvance = candidate;
+            }
+        }
+        return safeAdvance;
+    }
+    return desiredAdvanceMetres;
+}
+
+double Intersection::constrainIncomingStopPosition(
+    const Road* incomingRoad,
+    int incomingLane,
+    double nominalStopPositionMetres,
+    double waitingVehicleLengthMetres,
+    double requiredClearanceMetres) const {
+    if (incomingRoad == nullptr || incomingLane < 0) {
+        return std::max(0.0, nominalStopPositionMetres);
+    }
+
+    double stopPosition =
+        std::max(0.0, nominalStopPositionMetres);
+    const double waitingHalfLength =
+        std::max(0.1, waitingVehicleLengthMetres) * 0.5;
+    const double clearance =
+        std::max(0.0, requiredClearanceMetres);
+    for (const auto& entry : occupants_) {
+        const Reservation& reservation = entry.second;
+        if (reservation.connector == nullptr ||
+            reservation.connector->getIncomingRoad() != incomingRoad ||
+            reservation.connector->getIncomingLane() != incomingLane) {
+            continue;
+        }
+
+        // Connector progress is measured from the incoming lane endpoint.
+        // Until the reserved vehicle's rear bumper clears that endpoint, its
+        // body still occupies part of the approach lane even though it has
+        // already been removed from Lane::vehicles.
+        const double reservedRearFromBoundary =
+            reservation.progressMetres -
+            reservation.vehicleLengthMetres * 0.5;
+        const double safeFollowerCentre =
+            incomingRoad->getDistance() +
+            reservedRearFromBoundary -
+            clearance -
+            waitingHalfLength;
+        stopPosition = std::min(
+            stopPosition,
+            std::max(0.0, safeFollowerCentre));
+    }
+    return stopPosition;
+}
+
+bool Intersection::isOutgoingLaneReserved(
+    const Road* outgoingRoad,
+    int outgoingLane) const {
+    if (outgoingRoad == nullptr || outgoingLane < 0) {
+        return false;
+    }
+    for (const auto& entry : occupants_) {
+        const auto& connector = entry.second.connector;
+        if (connector != nullptr &&
+            connector->getOutgoingRoad() == outgoingRoad &&
+            connector->getOutgoingLane() == outgoingLane) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void Intersection::exit(int vehicleId) {

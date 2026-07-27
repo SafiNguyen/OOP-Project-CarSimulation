@@ -1,6 +1,5 @@
-// TEMPORARY: smoke test for the new "no ugly borders at intersections"
-// rendering. Renders a tiny graph with crossing roads to a PNG and exits.
-// Remove before committing.
+// Deterministic smoke test for overlap-aware intersection rendering.
+// Renders a tiny graph with crossing roads to a PNG and exits.
 #include <SFML/Graphics.hpp>
 
 #include <cstdlib>
@@ -13,23 +12,25 @@
 #include "visualization/VisualizationEngine.h"
 
 int main() {
-    Intersection top(1, 0.0, 50.0);
-    Intersection bottom(2, 0.0, -50.0);
-    Intersection left(3, -50.0, 0.0);
-    Intersection right(4, 50.0, 0.0);
-    Intersection center(5, 0.0, 0.0);
-
     Graph g;
-    g.addIntersection(&top);
-    g.addIntersection(&bottom);
-    g.addIntersection(&left);
-    g.addIntersection(&right);
-    g.addIntersection(&center);
+    g.addIntersection(new Intersection(1, 0.0, 50.0));
+    g.addIntersection(new Intersection(2, 0.0, -50.0));
+    g.addIntersection(new Intersection(3, -50.0, 0.0));
+    g.addIntersection(new Intersection(4, 50.0, 0.0));
+    g.addIntersection(new Intersection(5, 0.0, 0.0));
 
-    auto* r1 = new Road(101, "Vertical", &top, &center, 50.0, 20.0, 1.0, 2);
-    auto* r2 = new Road(102, "Vertical", &center, &bottom, 50.0, 20.0, 1.0, 2);
-    auto* r3 = new Road(103, "Horizontal", &left, &center, 50.0, 20.0, 1.0, 2);
-    auto* r4 = new Road(104, "Horizontal", &center, &right, 50.0, 20.0, 1.0, 2);
+    auto* r1 = new Road(
+        101, "Vertical", g.getIntersection(1), g.getIntersection(5),
+        50.0, 20.0, 1.0, 2);
+    auto* r2 = new Road(
+        102, "Vertical", g.getIntersection(5), g.getIntersection(2),
+        50.0, 20.0, 1.0, 2);
+    auto* r3 = new Road(
+        103, "Horizontal", g.getIntersection(3), g.getIntersection(5),
+        50.0, 20.0, 1.0, 2);
+    auto* r4 = new Road(
+        104, "Horizontal", g.getIntersection(5), g.getIntersection(4),
+        50.0, 20.0, 1.0, 2);
     g.addRoad(r1);
     g.addRoad(r2);
     g.addRoad(r3);

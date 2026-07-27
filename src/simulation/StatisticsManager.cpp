@@ -86,16 +86,14 @@ void StatisticsManager::recordRecalculation(int vehicleId) {
 
 void StatisticsManager::markVehicleCompleted(int vehicleId) {
     TravelMetric& metric = getOrCreateTravelMetric(vehicleId);
+    if (!metric.completed) {
+        ++completedTrips;
+    }
     metric.completed = true;
 }
 
 void StatisticsManager::printPeriodicReport(long long tickCount, int everyNTicks) const {
     if (everyNTicks <= 0 || tickCount % everyNTicks != 0) return;
-
-    int completedTrips = 0;
-    for (const auto& pair : travelMetrics) {
-        if (pair.second.completed) ++completedTrips;
-    }
 
     std::cout << "---- [StatisticsManager] Report @ tick " << tickCount << " ----\n";
     std::cout << "  Simulated time     : " << totalSimulatedTime << "s\n";
@@ -132,10 +130,7 @@ StatisticsSummary StatisticsManager::getSummary() const {
     summary.totalSimulatedTime = totalSimulatedTime;
     summary.totalVehiclesTracked = static_cast<int>(travelMetrics.size());
     summary.totalRecalculations = totalRecalculations;
-
-    for (const auto& pair : travelMetrics) {
-        if (pair.second.completed) ++summary.totalCompletedTrips;
-    }
+    summary.totalCompletedTrips = completedTrips;
 
     summary.perAlgorithm.reserve(algorithmMetrics.size());
     for (const auto& pair : algorithmMetrics) {

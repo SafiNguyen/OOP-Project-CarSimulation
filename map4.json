@@ -1,4 +1,8 @@
 {
+    "coordinateUnit": "world",
+    "defaultDistanceUnit": "legacy",
+    "defaultSpeedUnit": "km/h",
+    "defaultRadiusUnit": "km",
     "intersections": [
         {
             "id": 0,

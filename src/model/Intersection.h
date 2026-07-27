@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <memory>
+#include "JunctionConnector.h"
 
 class Road;  
 class TrafficLight;
@@ -20,6 +21,15 @@ enum class IntersectionType {
 
 // attributes
 class Intersection {
+protected:
+    struct Reservation {
+        const Road* fromRoad = nullptr;
+        std::shared_ptr<const JunctionConnector> connector;
+        double progressMetres = 0.0;
+        double vehicleLengthMetres = 4.5;
+        double vehicleWidthMetres = 1.8;
+    };
+
 private:
     int id;
     double x;
@@ -40,11 +50,26 @@ private:
     // --- Intersection-box reservation (prevents multiple vehicles from
     // different roads overlapping inside the junction at the same time,
     // independent of the traffic-light phase groups above) ---
-    int capacity_ = 1;                  // max vehicles allowed inside the box at once
-    std::unordered_map<int, const Road*> occupants_; // ids of vehicles currently holding a slot
+    int capacity_ = 1;
+
+protected:
+    std::unordered_map<int, Reservation> occupants_;
+
+private:
+    mutable std::unordered_map<
+        ConnectorKey,
+        std::shared_ptr<const JunctionConnector>,
+        ConnectorKeyHash> connectorCache_;
 
     const Road* preemptedRoad_ = nullptr;
     double preemptionTimer_ = 0.0; // time remaining for preemption to be active    
+
+protected:
+    virtual std::shared_ptr<const JunctionConnector> createConnector(
+        const Road& incoming,
+        int incomingLane,
+        const Road& outgoing,
+        int outgoingLane) const;
 
 public:
     Intersection(int id, double x = 0.0, double y = 0.0);
@@ -65,6 +90,7 @@ public:
     std::string getIntersectionTypeLabel() const;
 
     virtual bool isRoundabout() const { return false; }
+    virtual double getTraversalRadiusMetres() const { return 0.0; }
 
     //methods
     void addIncomingRoad(Road* road);
@@ -80,6 +106,15 @@ public:
     // Goi moi tick tu TrafficSimulator::update(dt)
     void updateTrafficLights(double dt);
     bool mustStopForRoad(const Road* road) const;
+    std::shared_ptr<const JunctionConnector> getConnector(
+        const Road* incoming,
+        int incomingLane,
+        const Road* outgoing,
+        int outgoingLane) const;
+    void invalidateConnectorCache();
+    std::size_t getConnectorCacheSize() const {
+        return connectorCache_.size();
+    }
 
     // Number of independent signal phases this intersection cycles
     // through (e.g. 2 for a typical nga tu with opposing through-roads
@@ -90,7 +125,13 @@ public:
     bool areRoadsInSamePhase(const Road* a, const Road* b) const;
 
     void requestEmergencyPreemption(const Road* incomingRoad, double holdDuration);
-    bool canEnter(int vehicleId, const Road* fromRoad) const;
+    virtual bool canEnter(int vehicleId, const Road* fromRoad) const;
+    virtual bool canEnterMovement(
+        int vehicleId,
+        const std::shared_ptr<const JunctionConnector>& connector,
+        double requiredGapMetres,
+        double vehicleLengthMetres = 4.5,
+        double vehicleWidthMetres = 1.8) const;
 
     // --- Intersection-box reservation ---
     // Attempts to claim one of the `capacity_` slots for `vehicleId`. Returns
@@ -98,12 +139,36 @@ public:
     // already held one - calling this again is safe/idempotent). Returns
     // false if the box is full and the vehicle must keep waiting at the
     // stop line.
-    bool tryEnter(int vehicleId, const Road* fromRoad);
+    virtual bool tryEnter(int vehicleId, const Road* fromRoad);
+    virtual bool tryEnterMovement(
+        int vehicleId,
+        const std::shared_ptr<const JunctionConnector>& connector,
+        double requiredGapMetres,
+        double vehicleLengthMetres = 4.5,
+        double vehicleWidthMetres = 1.8);
+    void updateReservationProgress(int vehicleId, double progressMetres);
+    double limitTraversalAdvance(
+        int vehicleId,
+        const std::shared_ptr<const JunctionConnector>& connector,
+        double currentProgressMetres,
+        double desiredAdvanceMetres,
+        double vehicleLengthMetres,
+        double vehicleWidthMetres,
+        double clearanceMetres) const;
+    double constrainIncomingStopPosition(
+        const Road* incomingRoad,
+        int incomingLane,
+        double nominalStopPositionMetres,
+        double waitingVehicleLengthMetres,
+        double requiredClearanceMetres) const;
+    bool isOutgoingLaneReserved(
+        const Road* outgoingRoad,
+        int outgoingLane) const;
     // Releases the slot held by `vehicleId`, if any. Safe to call even if
     // the vehicle never held a slot.
     void exit(int vehicleId);
     // True if every slot is currently occupied.
-    bool isFull() const;
+    virtual bool isFull() const;
     void setCapacity(int cap);
     int getCapacity() const { return capacity_; }
 

@@ -17,6 +17,8 @@ public:
     void prepare(const Graph& graph);
     void setWindowSize(sf::Vector2u windowSize);
     sf::Vector2f worldToScreen(double x, double y) const;
+    float metresToScreenPixels(double metres,
+                               const Road* referenceRoad) const;
     const std::vector<sf::Vector2f>& getRoutePoints() const;
     sf::Color colorForRoad(const Road* road) const;
 
@@ -37,6 +39,8 @@ public:
     bool isHeatMapEnabled() const;
 
 private:
+    static constexpr float MIN_LANE_WIDTH_PIXELS = 8.0f;
+
     static sf::Color mixColor(const sf::Color& a, const sf::Color& b, float t);
     static float distanceBetween(const sf::Vector2f& a, const sf::Vector2f& b);
 
@@ -73,6 +77,7 @@ private:
     void drawPOIs(sf::RenderTarget& target, const Graph& graph) const;
     void drawRoadNames(sf::RenderTarget& target, const std::vector<Road*>& roads) const;
     float getIntersectionBoxHalfExtent(const Intersection* intersection) const;
+    float getLaneWidthPixels(const Road* road) const;
     sf::Color getIntersectionBoxColor(const Intersection* intersection) const;
 
     sf::Vector2u windowSize_;

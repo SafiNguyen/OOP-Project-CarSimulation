@@ -4,8 +4,11 @@
 #include <vector>
 #include <memory>
 #include <set>
+#include <limits>
+#include <unordered_map>
 
 class Graph;
+class Road;
 class Vehicle;
 class EventManager;
 class TrafficEvent;
@@ -41,6 +44,10 @@ public:
 
     const std::vector<Vehicle*>& getVehicles() const;
     const std::vector<Vehicle*>& getFinishedVehicles() const;
+    std::size_t getPendingVehicleCount() const;
+    std::vector<Vehicle*> getPendingVehicles() const;
+    void setMaximumActiveVehicles(std::size_t maximum);
+    std::size_t getMaximumActiveVehicles() const;
     const Graph& getGraph() const;
     StatisticsManager* getStatisticsManager() const;
 
@@ -60,20 +67,35 @@ public:
     const std::set<int>& getFailedRecalcIds() const;
 
 private:
+    struct PendingVehicle {
+        Vehicle* vehicle = nullptr;
+        std::vector<Road*> route;
+    };
+
     static constexpr double MAX_RAW_DT = 0.1;
     static constexpr double MAX_SUBSTEP = 0.05;
     static constexpr int MAX_SUBSTEPS_PER_CALL = 200;
     static constexpr double MAX_LEFTOVER_DT = 5.0;
+    static constexpr double MIN_SPAWN_HEADWAY_SECONDS = 0.9;
 
 
     void recalculateAllVehicleRoutes();
     void removeFinishedVehicles();
+    bool tryActivateVehicle(
+        Vehicle* vehicle,
+        const std::vector<Road*>& route);
+    void activatePendingVehicles();
 
 
     Graph* graph;                                   
     PathFindingStrategy* pathFindingStrategy;  
     std::vector<Vehicle*> vehicles;
+    std::vector<PendingVehicle> pendingVehicles;
     std::vector<Vehicle*> finishedVehicles;      
+    std::size_t maximumActiveVehicles_ =
+        std::numeric_limits<std::size_t>::max();
+    std::unordered_map<const Road*, double>
+        nextSpawnTimeByRoad_;
     std::unique_ptr<EventManager> eventManager;     
     std::unique_ptr<StatisticsManager> statisticsManager;               
 

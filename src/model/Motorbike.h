@@ -31,13 +31,18 @@ public:
     // brake, letting them weave through traffic more responsively.
     double getAcceleration() const override { return 25.0; }
     double getDeceleration() const override { return 35.0; }
+    double getMaxLateralAcceleration() const override { return 4.0; }
+    VehicleKind getVehicleKind() const override {
+        return VehicleKind::Motorbike;
+    }
 
     // Motorbikes are small and can tuck in much closer to the vehicle ahead
     // than a car or bus.
     double getLength() const override { return 2.0; }
+    double getWidth() const override { return 0.8; }
     double getHeight() const override { return 1.1; }  // metres — low profile
     double getWeight() const override { return 0.2; }  // tonnes — very light
-    double getMinGap() const override { return 1.0; }
+    double getMinGap() const override { return 2.0; }
 };
 
 #endif

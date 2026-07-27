@@ -3,10 +3,31 @@
 #include <algorithm>
 #include <cmath>
 
+#include "model/RoadGeometry.h"
+
 sf::Vector2f VisualizationEngine::worldToScreen(double x, double y) const {
     const float sx = static_cast<float>(margin_ + (x - minX_) * scale_);
     const float sy = static_cast<float>(windowSize_.y - margin_ - (y - minY_) * scale_);
     return {sx, sy};
+}
+
+float VisualizationEngine::metresToScreenPixels(
+    double metres,
+    const Road* referenceRoad) const {
+    const double naturalPixelsPerMetre =
+        referenceRoad != nullptr
+            ? scale_ / std::max(
+                  1e-6,
+                  RoadGeometry::metresPerWorldUnit(*referenceRoad))
+            : 0.0;
+    const double displayedRoadPixelsPerMetre =
+        static_cast<double>(MIN_LANE_WIDTH_PIXELS) /
+        RoadGeometry::LANE_WIDTH_METRES;
+    return static_cast<float>(
+        std::fabs(metres) *
+        std::max(
+            naturalPixelsPerMetre,
+            displayedRoadPixelsPerMetre));
 }
 
 sf::Color VisualizationEngine::mixColor(const sf::Color& a, const sf::Color& b, float t) {
