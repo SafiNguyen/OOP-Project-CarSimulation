@@ -11,10 +11,8 @@ class VehicleInspector;
 
 // Draws one full frame: the map/graph, vehicle sprites, failed-recalc
 // markers, the "parked" boxes of finished vehicles grouped by destination,
-// the selected-vehicle highlight ring, the stats panel, the debug console,
-// and the vehicle inspector panel - then renders ImGui and presents the
-// window. Mirrors the per-frame drawing block that used to live directly
-// inside main()'s loop, after simulator->update(dt).
+// the selected-vehicle highlight ring, the unified HUD/control drawer, and
+// the vehicle inspector panel - then renders ImGui and presents the window.
 void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
                   std::unique_ptr<TrafficSimulator>& simulator, StatsPanel& statsPanel,
                   VehicleInspector& vehicleInspector, float dt);

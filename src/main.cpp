@@ -19,6 +19,7 @@
 #include "simulation/TrafficSimulator.h"
 #include "ui/DebugConsole.h"
 #include "ui/StatsPanel.h"
+#include "ui/UiTheme.h"
 #include "ui/VehicleInspector.h"
 #include "visualization/VisualizationEngine.h"
 
@@ -37,11 +38,11 @@ std::string resolveInitialMapPath(int argc, char** argv) {
 } // namespace
 
 int main(int argc, char** argv) {
-    const unsigned int windowW = 800;
-    const unsigned int windowH = 600;
+    const unsigned int windowW = 1200;
+    const unsigned int windowH = 720;
     const std::string path = resolveInitialMapPath(argc, argv);
 
-    sf::RenderWindow window(sf::VideoMode(windowW, windowH), "Urban Traffic Simulator - Debug Console");
+    sf::RenderWindow window(sf::VideoMode(windowW, windowH), "Urban Traffic Simulator");
     window.setFramerateLimit(60);
 
     if (!ImGui::SFML::Init(window)) {
@@ -49,9 +50,32 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    ImGui::GetStyle().WindowRounding = 8.0f;
-    ImGui::GetStyle().FrameRounding = 6.0f;
-    ImGui::GetStyle().GrabRounding = 6.0f;
+    UiTheme::apply();
+
+    // Prefer the same clear UI family used by the native map labels when it
+    // is available. The bundled ImGui font remains a safe fallback.
+    const std::string uiFontPaths[] = {
+        "C:/Windows/Fonts/segoeui.ttf",
+        "C:/Windows/Fonts/arial.ttf"
+    };
+    constexpr float uiFontSize = 17.0f;
+    bool imguiFontLoaded = false;
+    for (const auto& fontPath : uiFontPaths) {
+        if (std::filesystem::exists(fontPath)) {
+            if (ImFont* uiFont = ImGui::GetIO().Fonts->AddFontFromFileTTF(
+                    fontPath.c_str(), uiFontSize)) {
+                ImGui::GetIO().FontDefault = uiFont;
+                imguiFontLoaded = true;
+                break;
+            }
+        }
+    }
+    if (!imguiFontLoaded) {
+        ImFontConfig fallbackConfig;
+        fallbackConfig.SizePixels = uiFontSize;
+        ImGui::GetIO().FontDefault = ImGui::GetIO().Fonts->AddFontDefault(&fallbackConfig);
+    }
+    ImGui::SFML::UpdateFontTexture();
 
     Graph graph;
     VisualizationEngine visualization({windowW, windowH});
@@ -59,10 +83,10 @@ int main(int argc, char** argv) {
     sf::Font font;
     bool fontLoaded = false;
     const std::string fontPaths[] = {
-        "arial.ttf",
         "C:/Windows/Fonts/arial.ttf",
         "C:/Windows/Fonts/segoeui.ttf",
         "C:/Windows/Fonts/calibri.ttf",
+        "arial.ttf",
         "build/_deps/sfml-src/examples/android/app/src/main/assets/tuffy.ttf"
     };
     for (const auto& fontPath : fontPaths) {

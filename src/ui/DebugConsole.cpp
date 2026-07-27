@@ -1,7 +1,7 @@
 #include "DebugConsole.h"
 
 #include <algorithm>
-#include <cfloat>
+#include <cmath>
 
 #include <imgui.h>
 
@@ -10,7 +10,10 @@
 #include "model/Intersection.h"
 #include "model/Road.h"
 #include "model/Vehicle.h"
+#include "simulation/StatisticsManager.h"
 #include "simulation/TrafficSimulator.h"
+#include "StatsPanel.h"
+#include "UiTheme.h"
 #include "visualization/VisualizationEngine.h"
 
 using debugconsole_detail::pickIntersectionNear;
@@ -43,6 +46,7 @@ void DebugConsole::onMapChanged() {
     spawnMessage_.clear();
     accidentRoadIdx_ = -1;
     snapshotDirty_ = true;
+    mapPathBufferInitialized_ = false;
 }
 
 void DebugConsole::handleMapClick(const Graph& graph,
@@ -111,50 +115,302 @@ void DebugConsole::draw(sf::RenderWindow& window,
                          bool& showParkedVehicles,
                          std::string& mapPathInput,
                          bool usingDemoMap,
-                         const std::string& loadError) {
+                         const std::string& loadError,
+                         StatsPanel& statsPanel,
+                         const StatisticsSummary* statistics,
+                         float frameDt) {
     rebuildSnapshotsIfNeeded(graph_);
+    const bool completeLoadAfterFrame = mapLoadPending_;
+    if (!loadStatusInitialized_) {
+        lastLoadFailed_ = !loadError.empty()
+            && loadError.rfind("No map path supplied", 0) != 0;
+        loadStatusInitialized_ = true;
+    }
 
-    const sf::Vector2u winSize = window.getSize();
+    if (frameDt > 0.0001f) {
+        const float instantaneousFps = std::min(999.0f, 1.0f / frameDt);
+        smoothedFps_ = smoothedFps_ * 0.90f + instantaneousFps * 0.10f;
+    }
+    noticeTimeRemaining_ = std::max(0.0f, noticeTimeRemaining_ - frameDt);
 
-    // Only applied the first time this window is ever shown - after that the
-    // user's own move/resize takes over completely, exactly like any other
-    // desktop or game HUD window.
-    ImGui::SetNextWindowPos(ImVec2(20.0f, static_cast<float>(winSize.y) * 0.55f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(std::min(480.0f, static_cast<float>(winSize.x) - 40.0f),
-                                     static_cast<float>(winSize.y) * 0.40f),
-                              ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(280.0f, 90.0f), ImVec2(FLT_MAX, FLT_MAX));
+    if (drawerOpen_ && ImGui::IsKeyPressed(ImGuiKey_Escape)
+        && !ImGui::IsAnyItemActive()) {
+        drawerOpen_ = false;
+        pickTarget_ = PickTarget::NONE;
+    }
 
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.06f, 0.07f, 0.10f, 0.92f));
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.30f, 0.35f, 0.50f, 0.85f));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f, 5.0f));
+    drawTopHud(window, simulator, mapPathInput, usingDemoMap, statistics);
+    drawBottomDock(window, simulator, view, zoomFactor, heatMapEnabled,
+                   showParkedVehicles, mapPathInput, loadError);
+    if (drawerOpen_) {
+        drawDrawer(window, simulator, view, zoomFactor, heatMapEnabled,
+                   showParkedVehicles, mapPathInput, usingDemoMap, loadError,
+                   statsPanel, statistics);
+    }
+    drawToast(window);
+    if (completeLoadAfterFrame) {
+        completePendingMapLoad(simulator, mapPathInput, loadError);
+    }
+}
 
-    // Plain titlebar - no NoCollapse flag - so ImGui draws its own collapse
-    // arrow and handles the collapse/expand state itself, exactly like
-    // StatsPanel. That replaces the previous custom "Hide body"/"Expand
-    // body" button, so there's a single, familiar collapse control.
-    if (ImGui::Begin("Debug Console")) {
-        // Scrollable body: whatever doesn't fit in the current window height
-        // scrolls instead of being clipped or forcing the window to grow.
-        ImGui::BeginChild("##debug_console_body", ImVec2(0.0f, 0.0f), false);
+void DebugConsole::openDrawer(DrawerTab tab) {
+    activeTab_ = tab;
+    drawerOpen_ = true;
+    drawerTabSelectionPending_ = true;
+}
 
-        drawTopBar(window, simulator, view, zoomFactor, heatMapEnabled, showParkedVehicles, mapPathInput, usingDemoMap, loadError);
+void DebugConsole::setNotice(NoticeTone tone, const std::string& message) {
+    noticeTone_ = tone;
+    noticeMessage_ = message;
+    noticeTimeRemaining_ = 4.0f;
+}
+
+void DebugConsole::drawDrawer(sf::RenderWindow& window,
+                              std::unique_ptr<TrafficSimulator>& simulator,
+                              sf::View& view,
+                              float& zoomFactor,
+                              bool& heatMapEnabled,
+                              bool& showParkedVehicles,
+                              std::string& mapPathInput,
+                              bool usingDemoMap,
+                              const std::string& loadError,
+                              StatsPanel& statsPanel,
+                              const StatisticsSummary* statistics) {
+    (void)view;
+    (void)zoomFactor;
+    const sf::Vector2u size = window.getSize();
+    const float width = static_cast<float>(size.x);
+    const float height = static_cast<float>(size.y);
+    const bool narrow = width < 720.0f;
+    const float topInset = width < 650.0f ? 60.0f : 66.0f;
+    const float dockHeight = 64.0f;
+    const float maxDrawerWidth = width >= 1000.0f ? 560.0f : 440.0f;
+    const float drawerWidth = narrow ? width : std::min(maxDrawerWidth, width * 0.46f);
+    const float drawerHeight = std::max(160.0f, height - topInset - dockHeight);
+
+    ImGui::SetNextWindowPos(ImVec2(width - drawerWidth, topInset), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(drawerWidth, drawerHeight), ImGuiCond_Always);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, UiTheme::Background);
+    ImGui::PushStyleColor(ImGuiCol_Border, UiTheme::Border);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, narrow ? 0.0f : 8.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0f, 13.0f));
+
+    const ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar;
+
+    if (ImGui::Begin("##control_drawer", &drawerOpen_, flags)) {
+        ImGui::TextColored(UiTheme::AccentStrong, "CONTROL CENTER");
+        ImGui::SameLine();
+        ImGui::TextColored(UiTheme::TextMuted, "  Advanced tools & diagnostics");
+        const float closeWidth = 34.0f;
+        ImGui::SameLine(std::max(ImGui::GetCursorPosX(),
+                                ImGui::GetWindowContentRegionMax().x - closeWidth));
+        if (ImGui::Button("X##close_drawer", ImVec2(closeWidth, 30.0f))) {
+            drawerOpen_ = false;
+            pickTarget_ = PickTarget::NONE;
+        }
+        UiTheme::tooltip("Close control drawer (Esc)");
+
         ImGui::Separator();
-        drawAddRoadPanel(graph_, visualization_);
-        ImGui::Separator();
-        drawSpawnVehiclePanel(simulator);
-        ImGui::Separator();
-        drawAccidentPanel(simulator);
-        ImGui::Separator();
-        drawAlgorithmPanel(simulator);
-        ImGui::Separator();
-        drawTrafficLightPanel();
-        ImGui::EndChild();
+        if (ImGui::BeginTabBar("##drawer_tabs",
+                               ImGuiTabBarFlags_FittingPolicyScroll |
+                               ImGuiTabBarFlags_NoCloseWithMiddleMouseButton)) {
+            const bool applyProgrammaticSelection = drawerTabSelectionPending_;
+            ImGuiTabItemFlags tabFlags =
+                applyProgrammaticSelection && activeTab_ == DrawerTab::OVERVIEW
+                ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+            if (ImGui::BeginTabItem("Overview", nullptr, tabFlags)) {
+                activeTab_ = DrawerTab::OVERVIEW;
+                ImGui::BeginChild("##overview_scroll", ImVec2(0.0f, 0.0f), false);
+                drawOverviewTab(simulator, heatMapEnabled, showParkedVehicles,
+                                mapPathInput, usingDemoMap, loadError,
+                                statsPanel, statistics);
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+
+            tabFlags = applyProgrammaticSelection && activeTab_ == DrawerTab::PERFORMANCE
+                ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+            if (ImGui::BeginTabItem("Performance", nullptr, tabFlags)) {
+                activeTab_ = DrawerTab::PERFORMANCE;
+                ImGui::BeginChild("##performance_scroll", ImVec2(0.0f, 0.0f), false);
+                ImGui::TextColored(UiTheme::TextMuted, "PATHFINDING TELEMETRY");
+                ImGui::Spacing();
+                if (statistics != nullptr) {
+                    statsPanel.drawPerformance(*statistics);
+                } else {
+                    ImGui::TextDisabled("No active statistics source.");
+                }
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+
+            tabFlags = applyProgrammaticSelection && activeTab_ == DrawerTab::MAP
+                ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+            if (ImGui::BeginTabItem("Map", nullptr, tabFlags)) {
+                activeTab_ = DrawerTab::MAP;
+                ImGui::BeginChild("##map_scroll", ImVec2(0.0f, 0.0f), false);
+                drawMapTab(simulator, mapPathInput, usingDemoMap, loadError);
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+
+            tabFlags = applyProgrammaticSelection && activeTab_ == DrawerTab::ROAD_TOOLS
+                ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+            if (ImGui::BeginTabItem("Road Tools", nullptr, tabFlags)) {
+                activeTab_ = DrawerTab::ROAD_TOOLS;
+                ImGui::BeginChild("##road_tools_scroll", ImVec2(0.0f, 0.0f), false);
+                ImGui::TextColored(UiTheme::TextMuted,
+                                   "Choose endpoints from the lists or use Pick, then click an intersection on the map.");
+                if (isPicking()) {
+                    ImGui::Spacing();
+                    ImGui::TextColored(UiTheme::Warning,
+                                       "PICK MODE ACTIVE  -  click an intersection on the map");
+                }
+                ImGui::Spacing();
+                drawAddRoadPanel(graph_, visualization_);
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+
+            tabFlags = applyProgrammaticSelection && activeTab_ == DrawerTab::SIMULATION
+                ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+            if (ImGui::BeginTabItem("Simulation", nullptr, tabFlags)) {
+                activeTab_ = DrawerTab::SIMULATION;
+                ImGui::BeginChild("##simulation_scroll", ImVec2(0.0f, 0.0f), false);
+                drawAlgorithmPanel(simulator);
+                ImGui::Spacing();
+                drawSpawnVehiclePanel(simulator);
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+
+            tabFlags = applyProgrammaticSelection && activeTab_ == DrawerTab::DEBUG
+                ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+            if (ImGui::BeginTabItem("Debug", nullptr, tabFlags)) {
+                activeTab_ = DrawerTab::DEBUG;
+                ImGui::BeginChild("##debug_scroll", ImVec2(0.0f, 0.0f), false);
+                drawAccidentPanel(simulator);
+                ImGui::Spacing();
+                drawTrafficLightPanel();
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+            drawerTabSelectionPending_ = false;
+        }
     }
     ImGui::End();
-
     ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(2);
+}
+
+void DebugConsole::drawOverviewTab(std::unique_ptr<TrafficSimulator>& simulator,
+                                   bool& heatMapEnabled,
+                                   bool& showParkedVehicles,
+                                   const std::string& mapPathInput,
+                                   bool usingDemoMap,
+                                   const std::string& loadError,
+                                   StatsPanel& statsPanel,
+                                   const StatisticsSummary* statistics) {
+    ImGui::TextColored(UiTheme::TextMuted, "MAP STATUS");
+    ImGui::Text("%s", usingDemoMap ? "Built-in demo map" :
+                (mapPathInput.empty() ? "No map selected" : mapPathInput.c_str()));
+    ImGui::Text("Intersections  %zu", intersectionsSnapshot_.size());
+    ImGui::SameLine(200.0f);
+    ImGui::Text("Roads  %zu", roadsSnapshot_.size());
+    ImGui::Text("Active vehicles  %zu",
+                simulator ? simulator->getVehicles().size() : 0u);
+    ImGui::Text("Heatmap  %s", heatMapEnabled ? "ON" : "OFF");
+    ImGui::SameLine(200.0f);
+    ImGui::Text("Parked  %s", showParkedVehicles ? "ON" : "OFF");
+
+    if (lastLoadFailed_ && !loadError.empty()) {
+        ImGui::Spacing();
+        ImGui::TextColored(UiTheme::Error, "MAP LOAD ERROR");
+        ImGui::TextWrapped("%s", loadError.c_str());
+        ImGui::TextColored(UiTheme::TextMuted,
+                           "The built-in demo map is active so the simulation can continue.");
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    ImGui::TextColored(UiTheme::TextMuted, "SIMULATION SPEED");
+    const double currentSpeed = simulator ? simulator->getSpeedMultiplier() : 1.0;
+    const double speeds[] = {0.5, 1.0, 2.0, 4.0};
+    const char* labels[] = {"0.5x", "1x", "2x", "4x"};
+    ImGui::BeginDisabled(!simulator);
+    for (int i = 0; i < 4; ++i) {
+        if (i > 0) ImGui::SameLine();
+        if (UiTheme::selectionButton(labels[i], std::abs(currentSpeed - speeds[i]) < 0.01,
+                                     ImVec2(62.0f, 34.0f)) && simulator) {
+            simulator->setSpeedMultiplier(speeds[i]);
+        }
+    }
+    ImGui::EndDisabled();
+
+    ImGui::Spacing();
+    if (UiTheme::toggleButton("overview_heatmap", "Heatmap", heatMapEnabled,
+                              ImVec2(126.0f, 34.0f))) {
+        heatMapEnabled = !heatMapEnabled;
+        visualization_.setHeatMapEnabled(heatMapEnabled);
+    }
+    UiTheme::tooltip("Toggle traffic-density heatmap");
+    ImGui::SameLine();
+    if (UiTheme::toggleButton("overview_parked", "Parked", showParkedVehicles,
+                              ImVec2(126.0f, 34.0f))) {
+        showParkedVehicles = !showParkedVehicles;
+    }
+    UiTheme::tooltip("Toggle completed vehicles near destinations");
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    ImGui::TextColored(UiTheme::TextMuted, "SESSION STATISTICS");
+    ImGui::Spacing();
+    if (statistics != nullptr) {
+        statsPanel.drawOverview(*statistics);
+    } else {
+        ImGui::TextDisabled("No active statistics source.");
+    }
+}
+
+void DebugConsole::drawToast(sf::RenderWindow& window) {
+    if (noticeTimeRemaining_ <= 0.0f || noticeMessage_.empty()) {
+        return;
+    }
+
+    const sf::Vector2u size = window.getSize();
+    const float toastWidth = std::min(420.0f, static_cast<float>(size.x) - 24.0f);
+    ImGui::SetNextWindowPos(
+        ImVec2((static_cast<float>(size.x) - toastWidth) * 0.5f,
+               static_cast<float>(size.x) < 650.0f ? 68.0f : 74.0f),
+        ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(toastWidth, 0.0f), ImGuiCond_Always);
+
+    ImVec4 accent = UiTheme::AccentStrong;
+    if (noticeTone_ == NoticeTone::SUCCESS) accent = UiTheme::Success;
+    if (noticeTone_ == NoticeTone::WARNING) accent = UiTheme::Warning;
+    if (noticeTone_ == NoticeTone::ERROR) accent = UiTheme::Error;
+
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, UiTheme::SurfaceRaised);
+    ImGui::PushStyleColor(ImGuiCol_Border, accent);
+    const ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+        ImGuiWindowFlags_NoNav;
+    if (ImGui::Begin("##hud_notice", nullptr, flags)) {
+        ImGui::TextColored(accent, "%s", noticeTone_ == NoticeTone::ERROR ? "ERROR" :
+                          noticeTone_ == NoticeTone::WARNING ? "NOTICE" :
+                          noticeTone_ == NoticeTone::SUCCESS ? "SUCCESS" : "INFO");
+        ImGui::SameLine();
+        ImGui::TextWrapped("%s", noticeMessage_.c_str());
+    }
+    ImGui::End();
     ImGui::PopStyleColor(2);
 }
 

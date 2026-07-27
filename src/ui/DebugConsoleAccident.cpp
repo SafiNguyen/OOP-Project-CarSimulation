@@ -9,6 +9,7 @@
 #include "model/Road.h"
 #include "simulation/TrafficEvent.h"
 #include "simulation/TrafficSimulator.h"
+#include "UiTheme.h"
 
 void DebugConsole::drawAccidentPanel(std::unique_ptr<TrafficSimulator>& simulator) {
     if (!ImGui::TreeNodeEx("Trigger Event", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -51,7 +52,9 @@ void DebugConsole::drawAccidentPanel(std::unique_ptr<TrafficSimulator>& simulato
         accidentSeverity_ = std::max(1.1f, accidentSeverity_);
     }
 
-    if (ImGui::Button("Trigger Event")) {
+    const bool canTrigger = simulator && !roadsSnapshot_.empty();
+    ImGui::BeginDisabled(!canTrigger);
+    if (UiTheme::actionButton("Trigger Event", ImVec2(132.0f, 36.0f))) {
         if (simulator && !roadsSnapshot_.empty()) {
             Road* r = nullptr;
             std::mt19937 rng(std::random_device{}());
@@ -75,8 +78,17 @@ void DebugConsole::drawAccidentPanel(std::unique_ptr<TrafficSimulator>& simulato
             } else { // Road Closure
                 te = std::make_unique<RoadClosureEvent>(r->getId(), static_cast<double>(accidentDuration_));
             }
+            const int roadId = r->getId();
             simulator->triggerEvent(std::move(te));
+            setNotice(NoticeTone::WARNING,
+                      "Traffic event triggered on road #" + std::to_string(roadId) + ".");
         }
+    }
+    ImGui::EndDisabled();
+    if (!canTrigger) {
+        UiTheme::tooltip("An active simulation with at least one road is required");
+    } else {
+        UiTheme::tooltip("Inject this event into the active simulation");
     }
     ImGui::TreePop();
 }

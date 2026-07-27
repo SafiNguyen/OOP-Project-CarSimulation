@@ -2,6 +2,7 @@
 #define DEBUG_CONSOLE_H
 
 #include <SFML/Graphics.hpp>
+#include <array>
 #include <functional>
 #include <memory>
 #include <string>
@@ -17,42 +18,25 @@ class Road;
 class TrafficSimulator;
 class VisualizationEngine;
 class PathFindingStrategy;
+class StatsPanel;
+struct StatisticsSummary;
 
 /**
  * DebugConsole
  * ------------
- * Owns and draws the entire interactive debug/control HUD (Task 4):
- *   - map load / demo map / pause / view / heatmap toggles
- *   - Add Road (click-to-pick or dropdown)
- *   - Spawn Vehicle (click-to-pick or dropdown)
- *   - Trigger Accident (specific road or random)
- *   - Runtime pathfinding algorithm switch
+ * Owns the unified game HUD:
+ *   - a compact, always-visible simulation status bar
+ *   - a bottom dock for high-frequency controls
+ *   - a responsive tabbed drawer for maps, tools and diagnostics
  *
  * This keeps all panel-specific UI state (pending picks, input buffers,
  * cached dropdown snapshots) out of main.cpp, and caches the
  * intersection/road dropdown lists instead of rebuilding + sorting them
  * every single frame.
  *
- * The window behaves like a normal moveable/resizable ImGui window: it
- * is not pinned (no NoMove/NoResize) and not auto-resized. Its default
- * position/size are a fraction of the window size, applied only once
- * via ImGuiCond_FirstUseEver, so it starts in a sensible place on any
- * resolution but never fights the user's own dragging/resizing
- * afterward. Collapsing uses ImGui's own titlebar arrow (click the arrow
- * or double-click the titlebar) - the same mechanism StatsPanel uses -
- * rather than a separate custom button, so there's exactly one
- * collapse/expand control instead of two competing ones. A scrollable
- * child region holds the body so content is always reachable even if
- * the window is made short.
- *
- * Implementation is split across several .cpp files, one per panel
- * (DebugConsole.cpp holds the shared/core logic; DebugConsoleTopBar.cpp,
- * DebugConsoleAddRoad.cpp, DebugConsoleSpawnVehicle.cpp,
- * DebugConsoleAccident.cpp and DebugConsoleAlgorithm.cpp each define one
- * of the private draw*Panel methods below). They're all still ordinary
- * member functions of this one class - splitting definitions across
- * multiple translation units is standard C++ and requires no change to
- * how the class is used.
+ * The HUD is edge-anchored rather than freely floating, so the central map
+ * remains the visual focus and the layout stays deterministic after resize.
+ * Existing simulation state and callbacks remain the single source of truth.
  */
 class DebugConsole {
 public:
@@ -83,7 +67,10 @@ public:
               bool& showParkedVehicles,
               std::string& mapPathInput,
               bool usingDemoMap,
-              const std::string& loadError);
+              const std::string& loadError,
+              StatsPanel& statsPanel,
+              const StatisticsSummary* statistics,
+              float frameDt);
 
     // True while waiting for a map click to resolve an intersection pick
     // (Add Road / Spawn Vehicle). While true, route left-clicks on the map
@@ -115,17 +102,56 @@ public:
 
 private:
     enum class PickTarget { NONE, ADD_ROAD_START, ADD_ROAD_END, SPAWN_START, SPAWN_END };
+    enum class DrawerTab { OVERVIEW, PERFORMANCE, MAP, ROAD_TOOLS, SIMULATION, DEBUG };
+    enum class NoticeTone { INFO, SUCCESS, WARNING, ERROR };
 
     void rebuildSnapshotsIfNeeded(const Graph& graph);
-    void drawTopBar(sf::RenderWindow& window,
-                     std::unique_ptr<TrafficSimulator>& simulator,
-                     sf::View& view,
-                     float& zoomFactor,
-                     bool& heatMapEnabled,
-                     bool& showParkedVehicles,
-                     std::string& mapPathInput,
-                     bool usingDemoMap,
-                     const std::string& loadError);
+    void drawTopHud(sf::RenderWindow& window,
+                    std::unique_ptr<TrafficSimulator>& simulator,
+                    const std::string& mapPathInput,
+                    bool usingDemoMap,
+                    const StatisticsSummary* statistics);
+    void drawBottomDock(sf::RenderWindow& window,
+                        std::unique_ptr<TrafficSimulator>& simulator,
+                        sf::View& view,
+                        float& zoomFactor,
+                        bool& heatMapEnabled,
+                        bool& showParkedVehicles,
+                        std::string& mapPathInput,
+                        const std::string& loadError);
+    void drawDrawer(sf::RenderWindow& window,
+                    std::unique_ptr<TrafficSimulator>& simulator,
+                    sf::View& view,
+                    float& zoomFactor,
+                    bool& heatMapEnabled,
+                    bool& showParkedVehicles,
+                    std::string& mapPathInput,
+                    bool usingDemoMap,
+                    const std::string& loadError,
+                    StatsPanel& statsPanel,
+                    const StatisticsSummary* statistics);
+    void drawOverviewTab(std::unique_ptr<TrafficSimulator>& simulator,
+                         bool& heatMapEnabled,
+                         bool& showParkedVehicles,
+                         const std::string& mapPathInput,
+                         bool usingDemoMap,
+                         const std::string& loadError,
+                         StatsPanel& statsPanel,
+                         const StatisticsSummary* statistics);
+    void drawMapTab(std::unique_ptr<TrafficSimulator>& simulator,
+                    std::string& mapPathInput,
+                    bool usingDemoMap,
+                    const std::string& loadError);
+    void drawToast(sf::RenderWindow& window);
+    void openDrawer(DrawerTab tab);
+    void setNotice(NoticeTone tone, const std::string& message);
+    void performMapLoad(bool useDemo,
+                        std::unique_ptr<TrafficSimulator>& simulator,
+                        std::string& mapPathInput,
+                        const std::string& loadError);
+    void completePendingMapLoad(std::unique_ptr<TrafficSimulator>& simulator,
+                                std::string& mapPathInput,
+                                const std::string& loadError);
     void drawAddRoadPanel(Graph& graph, VisualizationEngine& visualization);
     void drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simulator);
     void drawAccidentPanel(std::unique_ptr<TrafficSimulator>& simulator);
@@ -141,6 +167,20 @@ private:
     FileDialogFn openFileDialog_;
 
     PickTarget pickTarget_ = PickTarget::NONE;
+    DrawerTab activeTab_ = DrawerTab::OVERVIEW;
+    bool drawerOpen_ = false;
+    bool drawerTabSelectionPending_ = false;
+    bool lastLoadFailed_ = false;
+    bool loadStatusInitialized_ = false;
+    float smoothedFps_ = 60.0f;
+    std::string noticeMessage_;
+    NoticeTone noticeTone_ = NoticeTone::INFO;
+    float noticeTimeRemaining_ = 0.0f;
+    std::array<char, 1024> mapPathBuffer_{};
+    bool mapPathBufferInitialized_ = false;
+    bool mapLoadPending_ = false;
+    bool pendingDemoLoad_ = false;
+    std::string pendingMapPath_;
 
     // Task 4a: Add Road panel state
     int addRoadStartId_ = -1;

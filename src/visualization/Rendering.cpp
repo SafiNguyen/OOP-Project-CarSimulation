@@ -113,7 +113,7 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
     sf::RenderWindow& window = ctx.window;
 
     window.setView(ctx.view);
-    window.clear(sf::Color(30, 30, 30));
+    window.clear(sf::Color(34, 42, 48));
     ctx.visualization.drawGraph(window, ctx.graph);
 
     if (simulator) {
@@ -140,12 +140,15 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
         }
     }
 
+    StatisticsSummary statistics;
+    const StatisticsSummary* statisticsPtr = nullptr;
     if (simulator && simulator->getStatisticsManager()) {
-        statsPanel.draw(simulator->getStatisticsManager()->getSummary(), window.getSize());
+        statistics = simulator->getStatisticsManager()->getSummary();
+        statisticsPtr = &statistics;
     }
-
     debugConsole.draw(window, simulator, ctx.view, ctx.zoomFactor, ctx.heatMapEnabled,
-                       ctx.showParkedVehicles, ctx.mapPathInput, ctx.usingDemoMap, ctx.loadError);
+                       ctx.showParkedVehicles, ctx.mapPathInput, ctx.usingDemoMap, ctx.loadError,
+                       statsPanel, statisticsPtr, dt);
 
     vehicleInspector.draw(simulator.get(), ctx.visualization);
 

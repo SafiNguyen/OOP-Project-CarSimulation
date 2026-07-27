@@ -1,14 +1,16 @@
 #ifndef STATSPANEL_H
 #define STATSPANEL_H
  
-#include <SFML/System/Vector2.hpp>
 #include "../simulation/StatisticsManager.h"
  
 class StatsPanel {
 public:
     StatsPanel() = default;
  
-    void draw(const StatisticsSummary& summary, sf::Vector2u windowSize);
+    // Embedded drawer components. They deliberately do not create their own
+    // floating ImGui window; the unified HUD owns positioning and scrolling.
+    void drawOverview(const StatisticsSummary& summary);
+    void drawPerformance(const StatisticsSummary& summary);
 };
  
 #endif
