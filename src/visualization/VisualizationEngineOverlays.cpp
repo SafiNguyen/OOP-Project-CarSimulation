@@ -262,10 +262,35 @@ sf::Vector2f VisualizationEngine::getRoadEntryPoint(const Road* road, const Inte
     if (road->getStart() == nullptr || road->getEnd() == nullptr) {
         return worldToScreen(intersection->getX(), intersection->getY());
     }
+
     const bool atStart = intersection == road->getStart();
-    const Vec2 point =
-        RoadGeometry::roadSurfaceEndpoint(*road, atStart);
-    return worldToScreen(point.x, point.y);
+    const Vec2 refPoint = RoadGeometry::roadReferenceEndpoint(*road, atStart);
+    const sf::Vector2f base = worldToScreen(refPoint.x, refPoint.y);
+
+    if (!RoadGeometry::hasReverseDirection(*road)) {
+        return base;
+    }
+
+    // Offset in screen-space pixels using the same (possibly floor-clamped)
+    // lane width getLaneWidthPixels() actually draws, instead of the raw
+    // world-metre offset RoadGeometry::roadSurfaceEndpoint used before —
+    // that's what let two-way carriageways overlap/merge.
+    const Vec2 startWorld = RoadGeometry::roadReferenceEndpoint(*road, true);
+    const Vec2 endWorld = RoadGeometry::roadReferenceEndpoint(*road, false);
+    const sf::Vector2f a = worldToScreen(startWorld.x, startWorld.y);
+    const sf::Vector2f b = worldToScreen(endWorld.x, endWorld.y);
+    const sf::Vector2f normPx = roadNormal(a, b);
+
+    const float laneWidthPx = getLaneWidthPixels(road);
+    const float totalWidthPx = laneWidthPx * static_cast<float>(road->getLaneCount());
+    const float medianGapPx = std::max(
+        1.0f,
+        static_cast<float>(
+            RoadGeometry::MEDIAN_GAP_METRES /
+            RoadGeometry::metresPerWorldUnit(*road) * scale_));
+    const float offsetPx = totalWidthPx * 0.5f + medianGapPx * 0.5f;
+
+    return base + normPx * offsetPx;
 }
 
 
