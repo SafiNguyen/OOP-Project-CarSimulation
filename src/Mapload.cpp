@@ -1,12 +1,13 @@
-
 #include "Mapload.h"
 	
 #include <cctype>
 #include <cmath>
 #include <fstream>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <unordered_set>
+#include <utility>
 
 #include <nlohmann/json.hpp>
 
@@ -281,6 +282,16 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 		}
 	}
 
+	// Tracks every directed (start, end) pair already created by an earlier
+	// road entry (including the reverse leg of an earlier twoWay entry), so
+	// a second entry can't silently stack a duplicate road/reverse-road on
+	// top of it. Without this, two JSON entries describing the same street
+	// from opposite ends (e.g. one "1 -> 4, twoWay" and another
+	// "4 -> 1, twoWay") each spawn their own forward+reverse pair, leaving
+	// 4 roads stacked on the same two intersections instead of 2 - which is
+	// what caused two-way roads to render as a single merged line.
+	std::set<std::pair<int, int>> seenDirectedPairs;
+
 	for (const auto& item : root.at("roads")) {
 		if (!item.is_object()) {
 			if (error) {
@@ -377,6 +388,34 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 			}
 			return false;
 		}
+
+		// Reject a road entry that duplicates a directed pair already
+		// created (either as another entry's forward leg, or as the
+		// implicit reverse leg of an earlier twoWay entry). See comment
+		// on seenDirectedPairs above for why this matters.
+		const auto forwardPair = std::make_pair(startId, endId);
+		if (seenDirectedPairs.count(forwardPair)) {
+			if (error) {
+				*error = "Road " + std::to_string(id) + ": duplicate road " +
+					std::to_string(startId) + " -> " + std::to_string(endId) +
+					" (already created by an earlier entry).";
+			}
+			return false;
+		}
+		if (twoWay) {
+			const auto reversePair = std::make_pair(endId, startId);
+			if (seenDirectedPairs.count(reversePair)) {
+				if (error) {
+					*error = "Road " + std::to_string(id) +
+						": duplicate reverse road " + std::to_string(endId) +
+						" -> " + std::to_string(startId) +
+						" (already created by an earlier entry).";
+				}
+				return false;
+			}
+			seenDirectedPairs.insert(reversePair);
+		}
+		seenDirectedPairs.insert(forwardPair);
 
 		std::string roadType;
 		std::string originalRoadName;
@@ -629,4 +668,4 @@ bool loadGraphFromJsonFile(const std::string& filePath, Graph& graph, std::strin
 	return loadGraphFromJsonString(buffer.str(), graph, error);
 }
 
-} 
+}

@@ -15,15 +15,22 @@ inline VehicleScreenSize getVehicleScreenSize(
     const Vehicle& vehicle,
     const VisualizationEngine& visualization) {
     const Road* road = vehicle.getCurrentRoad();
+    // When the vehicle has no road (rare edge case during junction
+    // traversal cleanup), fall back to sensible default pixel sizes.
+    if (road == nullptr) {
+        return {6.0f, 3.0f};
+    }
     return {
-        std::max(
-            2.0f,
+        std::clamp(
             visualization.metresToScreenPixels(
-                vehicle.getLength(), road)),
-        std::max(
-            1.25f,
+                vehicle.getLength(), road),
+            3.0f,
+            24.0f),
+        std::clamp(
             visualization.metresToScreenPixels(
-                vehicle.getWidth(), road))
+                vehicle.getWidth(), road),
+            1.5f,
+            12.0f)
     };
 }
 

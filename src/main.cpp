@@ -54,9 +54,17 @@ int main(int argc, char** argv) {
 
     // Prefer the same clear UI family used by the native map labels when it
     // is available. The bundled ImGui font remains a safe fallback.
-    const std::string uiFontPaths[] = {
+    const std::vector<std::string> uiFontPaths = {
+        // Linux fonts
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+        // Windows fonts
         "C:/Windows/Fonts/segoeui.ttf",
-        "C:/Windows/Fonts/arial.ttf"
+        "C:/Windows/Fonts/arial.ttf",
+        // macOS fonts
+        "/Library/Fonts/Arial.ttf",
+        "/System/Library/Fonts/Helvetica.ttc"
     };
     constexpr float uiFontSize = 17.0f;
     bool imguiFontLoaded = false;
@@ -66,6 +74,7 @@ int main(int argc, char** argv) {
                     fontPath.c_str(), uiFontSize)) {
                 ImGui::GetIO().FontDefault = uiFont;
                 imguiFontLoaded = true;
+                std::cout << "Loaded ImGui font from: " << fontPath << std::endl;
                 break;
             }
         }
@@ -74,6 +83,7 @@ int main(int argc, char** argv) {
         ImFontConfig fallbackConfig;
         fallbackConfig.SizePixels = uiFontSize;
         ImGui::GetIO().FontDefault = ImGui::GetIO().Fonts->AddFontDefault(&fallbackConfig);
+        std::cout << "Using fallback ImGui font" << std::endl;
     }
     ImGui::SFML::UpdateFontTexture();
 
@@ -82,22 +92,42 @@ int main(int argc, char** argv) {
 
     sf::Font font;
     bool fontLoaded = false;
-    const std::string fontPaths[] = {
+    
+    // Cross-platform font loading: try Linux, Windows, macOS, and relative paths
+    const std::vector<std::string> fontPaths = {
+        // Linux system fonts
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/opentype/liberation/LiberationSans-Regular.otf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+        "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+        // Windows fonts
         "C:/Windows/Fonts/arial.ttf",
         "C:/Windows/Fonts/segoeui.ttf",
         "C:/Windows/Fonts/calibri.ttf",
+        // macOS fonts
+        "/Library/Fonts/Arial.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        // Relative paths
         "arial.ttf",
+        "./assets/fonts/arial.ttf",
+        "../assets/fonts/arial.ttf",
         "build/_deps/sfml-src/examples/android/app/src/main/assets/tuffy.ttf"
     };
+    
     for (const auto& fontPath : fontPaths) {
         if (font.loadFromFile(fontPath)) {
             visualization.setFont(font);
             fontLoaded = true;
+            std::cout << "Loaded font from: " << fontPath << std::endl;
             break;
         }
     }
+    
     if (!fontLoaded) {
         std::cerr << "Warning: Could not load any font. Road names and POIs will not be rendered." << std::endl;
+        std::cerr << "On Linux: sudo apt install fonts-liberation" << std::endl;
     }
 
     AppContext ctx(graph, visualization, window, windowW, windowH);
