@@ -58,28 +58,36 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingS
     }
 
     std::mt19937 rng(42);
-    std::uniform_int_distribution<size_t> dist(0, intersections.size() - 1);
+    const auto& pois = graph.getAllPOIs();
+    if (pois.size() < 2) {
+        std::cerr << "Not enough POIs to spawn vehicles!" << std::endl;
+        return simulator;
+    }
+
+    std::uniform_int_distribution<size_t> dist(0, pois.size() - 1);
     std::discrete_distribution<int> vehicleTypeDist({
         CAR_WEIGHT, MOTORBIKE_WEIGHT, BUS_WEIGHT, EMERGENCY_WEIGHT
     });
 
     for (int i = 0; i < DEMO_VEHICLE_COUNT; ++i) {
-        Intersection* start = intersections[dist(rng)];
-        Intersection* end = intersections[dist(rng)];
-        while (start == end) {
-            end = intersections[dist(rng)];
+        PointOfInterest* startPOI = pois[dist(rng)];
+        PointOfInterest* endPOI = pois[dist(rng)];
+        while (startPOI == endPOI) {
+            endPOI = pois[dist(rng)];
         }
         Vehicle* v = nullptr;
         const int type = vehicleTypeDist(rng);
         if (type == 0) {
-            v = new Car(i, 20.0, start, end);
+            v = new Car(i, 20.0, nullptr, nullptr);
         } else if (type == 1) {
-            v = new Motorbike(i, 30.0, start, end);
+            v = new Motorbike(i, 30.0, nullptr, nullptr);
         } else if (type == 2) {
-            v = new Bus(i, 15.0, start, end);
+            v = new Bus(i, 15.0, nullptr, nullptr);
         } else {
-            v = new EmergencyVehicle(i, 35.0, start, end);
+            v = new EmergencyVehicle(i, 35.0, nullptr, nullptr);
         }
+        v->setSpawnPOI(startPOI);
+        v->setTargetPOI(endPOI);
         simulator->addVehicle(v);
     }
     return simulator;

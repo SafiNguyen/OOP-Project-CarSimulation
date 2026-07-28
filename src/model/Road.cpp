@@ -129,6 +129,17 @@ Vehicle* Road::findLeader(int laneIndex, const Vehicle* self) const {
             leader = candidate;
         }
     }
+    if (self->getIsMergingFromPOI()) {
+        for (Vehicle* candidate : mergingVehicles) {
+            if (candidate == self) continue;
+            if (candidate->getMergeLaneIndex() != laneIndex) continue;
+            const double candidateProgress = candidate->getMergeProgressOffset();
+            if ((candidateProgress > selfProgress || (candidateProgress == selfProgress && candidate->getId() < self->getId())) && candidateProgress < bestProgress) {
+                bestProgress = candidateProgress;
+                leader = candidate;
+            }
+        }
+    }
 
     return leader;
 }
@@ -155,7 +166,18 @@ Vehicle* Road::findFollower(int laneIndex, const Vehicle* self) const {
             follower = candidate;
         }
     }
- 
+    if (self->getIsMergingFromPOI()) {
+        for (Vehicle* candidate : mergingVehicles) {
+            if (candidate == self) continue;
+            if (candidate->getMergeLaneIndex() != laneIndex) continue;
+            const double candidateProgress = candidate->getMergeProgressOffset();
+            if ((candidateProgress < selfProgress || (candidateProgress == selfProgress && candidate->getId() > self->getId())) && candidateProgress > bestProgress) {
+                bestProgress = candidateProgress;
+                follower = candidate;
+            }
+        }
+    }
+
     return follower;
 }
 
@@ -233,6 +255,19 @@ void Road::blockLane(int laneIndex) {
 void Road::unblockLane(int laneIndex) {
     if (laneIndex >= 0 && laneIndex < laneCount) {
         lanes[laneIndex].unblock();
+    }
+}
+
+void Road::removeVehicle(Vehicle* vehicle, int laneIndex) {
+    if (laneIndex >= 0 && laneIndex < static_cast<int>(lanes.size())) {
+        lanes[laneIndex].removeVehicle(vehicle);
+    }
+}
+
+void Road::removeMergingVehicle(Vehicle* v) {
+    auto it = std::find(mergingVehicles.begin(), mergingVehicles.end(), v);
+    if (it != mergingVehicles.end()) {
+        mergingVehicles.erase(it);
     }
 }
 

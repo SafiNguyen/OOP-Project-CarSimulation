@@ -611,6 +611,7 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 		}
 	}
 
+	graph.bindPOIsToRoads();
 	return true;
 }
 

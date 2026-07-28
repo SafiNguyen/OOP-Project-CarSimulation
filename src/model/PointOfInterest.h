@@ -4,6 +4,7 @@
 #include <string>
 
 class Intersection;
+class Road;
 
 /// Types of Point of Interest in the city.
 enum class POIType {
@@ -35,12 +36,14 @@ protected:
     double x;  // world coordinate (km)
     double y;  // world coordinate (km)
     Intersection* nearestIntersection; // for pathfinding
+    Road* connectedRoad;               // Road the POI is physically attached to
+    double progressOffset;             // Distance from the start of the connectedRoad
 
 public:
     PointOfInterest(int id, const std::string& name, POIType type,
                     double x, double y, Intersection* nearest = nullptr)
         : id(id), name(name), type(type), x(x), y(y),
-          nearestIntersection(nearest) {}
+          nearestIntersection(nearest), connectedRoad(nullptr), progressOffset(0.0) {}
 
     virtual ~PointOfInterest() = default;
 
@@ -51,8 +54,12 @@ public:
     double getX() const { return x; }
     double getY() const { return y; }
     Intersection* getNearestIntersection() const { return nearestIntersection; }
+    Road* getConnectedRoad() const { return connectedRoad; }
+    double getProgressOffset() const { return progressOffset; }
 
     void setNearestIntersection(Intersection* i) { nearestIntersection = i; }
+    void setConnectedRoad(Road* r) { connectedRoad = r; }
+    void setProgressOffset(double p) { progressOffset = p; }
 
     /// Returns true if this POI can be used as a vehicle spawn point.
     virtual bool isSpawnPoint() const { return false; }

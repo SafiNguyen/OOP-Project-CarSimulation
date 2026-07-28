@@ -17,5 +17,11 @@
     { "id": 104, "start": 4, "end": 1, "distance": 100.0, "speedLimit": 50.0 },
     { "id": 105, "start": 2, "end": 5, "distance": 111.8, "speedLimit": 40.0, "congestionLevel": 1.5 },
     { "id": 106, "start": 5, "end": 3, "distance": 111.8, "speedLimit": 40.0, "blocked": true }
+  ],
+  "pois": [
+    { "id": 201, "name": "House A", "x": 50.0, "y": 10.0, "type": "hospital" },
+    { "id": 202, "name": "House B", "x": 110.0, "y": 50.0, "type": "supermarket" },
+    { "id": 203, "name": "House C", "x": 50.0, "y": 90.0, "type": "parking" },
+    { "id": 204, "name": "House D", "x": -10.0, "y": 50.0, "type": "hospital" }
   ]
 }

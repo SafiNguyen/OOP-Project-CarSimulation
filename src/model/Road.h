@@ -8,6 +8,7 @@
 class Intersection;
 class Vehicle;
 class BusStop;
+class PointOfInterest;
 
 class Road {
 private:
@@ -23,6 +24,8 @@ private:
     std::vector<Lane> lanes;
     std::vector<std::unique_ptr<BusStop>> busStops;
     std::vector<double> busStopPositions;
+    std::vector<PointOfInterest*> pois;
+    std::vector<Vehicle*> mergingVehicles; // Vehicles currently waiting to merge from POIs
 
 public:
     Road(int id, const std::string& name, Intersection* start, Intersection* end, 
@@ -72,6 +75,14 @@ public:
     // cho lane-changing: truoc khi tat dau vao 1 lane, phai biet xe phia
     // sau o lane do co bi buoc phanh gap khong.
     Vehicle* findFollower(int laneIndex, const Vehicle* self) const;
+    void removeVehicle(Vehicle* vehicle, int laneIndex);
+
+    const std::vector<PointOfInterest*>& getPOIs() const { return pois; }
+    void addPOI(PointOfInterest* poi) { pois.push_back(poi); }
+    
+    const std::vector<Vehicle*>& getMergingVehicles() const { return mergingVehicles; }
+    void addMergingVehicle(Vehicle* v) { mergingVehicles.push_back(v); }
+    void removeMergingVehicle(Vehicle* v);
     Vehicle* getFirstVehicleInLane(int laneIndex) const;
 
     double getTravelCost() const;

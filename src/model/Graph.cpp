@@ -282,3 +282,51 @@ std::vector<PointOfInterest*> Graph::getDestinations() const {
     }
     return result;
 }
+
+void Graph::bindPOIsToRoads() {
+    for (auto* poi : pois) {
+        if (!poi) continue;
+        
+        Road* bestRoad = nullptr;
+        double minSqDist = std::numeric_limits<double>::infinity();
+        double bestOffset = 0.0;
+        
+        double px = poi->getX();
+        double py = poi->getY();
+        
+        for (const auto& pair : roads) {
+            Road* road = pair.second;
+            if (!road || !road->getStart() || !road->getEnd()) continue;
+            
+            double sx = road->getStart()->getX();
+            double sy = road->getStart()->getY();
+            double ex = road->getEnd()->getX();
+            double ey = road->getEnd()->getY();
+            
+            double dx = ex - sx;
+            double dy = ey - sy;
+            double lenSq = dx * dx + dy * dy;
+            
+            double t = 0.0;
+            if (lenSq > 0.0001) {
+                t = ((px - sx) * dx + (py - sy) * dy) / lenSq;
+                t = std::max(0.0, std::min(1.0, t));
+            }
+            
+            double projX = sx + t * dx;
+            double projY = sy + t * dy;
+            
+            double distSq = (px - projX) * (px - projX) + (py - projY) * (py - projY);
+            if (distSq < minSqDist) {
+                minSqDist = distSq;
+                bestRoad = road;
+                bestOffset = t * std::sqrt(lenSq);
+            }
+        }
+        
+        if (bestRoad) {
+            poi->setConnectedRoad(bestRoad);
+            poi->setProgressOffset(bestOffset);
+        }
+    }
+}

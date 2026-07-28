@@ -53,6 +53,8 @@ public:
     PointOfInterest* getPOI(int id) const;
     std::vector<PointOfInterest*> getSpawnPoints() const;
     std::vector<PointOfInterest*> getDestinations() const;
+    
+    void bindPOIsToRoads();
 };
 
 #endif

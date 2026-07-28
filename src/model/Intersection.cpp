@@ -474,11 +474,43 @@ bool Intersection::canEnter(int vehicleId, const Road* fromRoad) const {
 bool Intersection::canEnterMovement(
     int vehicleId,
     const std::shared_ptr<const JunctionConnector>& connector,
-    double /*requiredGapMetres*/,
-    double /*vehicleLengthMetres*/,
-    double /*vehicleWidthMetres*/) const {
-    return connector != nullptr &&
-           canEnter(vehicleId, connector->getIncomingRoad());
+    double requiredGapMetres,
+    double vehicleLengthMetres,
+    double vehicleWidthMetres) const {
+    if (connector == nullptr || !canEnter(vehicleId, connector->getIncomingRoad())) {
+        return false;
+    }
+
+    const double metricScale = RoadGeometry::metresPerWorldUnit(*this);
+    const double step = std::max(0.5, std::min(vehicleLengthMetres, vehicleWidthMetres) * 0.5);
+    const double length1 = connector->getLength();
+    
+    // Quick out for empty intersection
+    if (occupants_.empty() || (occupants_.size() == 1 && occupants_.count(vehicleId) > 0)) {
+        return true;
+    }
+
+    for (double p1 = 0.0; p1 <= length1; p1 += step) {
+        const OrientedVehicleBounds candidate = makeVehicleBounds(
+            connector->sampleByDistance(p1), metricScale, vehicleLengthMetres, vehicleWidthMetres, 0.5);
+
+        for (const auto& entry : occupants_) {
+            if (entry.first == vehicleId) continue;
+            const Reservation& res = entry.second;
+            if (res.connector == nullptr) continue;
+
+            const double length2 = res.connector->getLength();
+            for (double p2 = res.progressMetres; p2 <= length2; p2 += step) {
+                const OrientedVehicleBounds other = makeVehicleBounds(
+                    res.connector->sampleByDistance(p2), metricScale, res.vehicleLengthMetres, res.vehicleWidthMetres, 0.5);
+                
+                if (boundsOverlap(candidate, other)) {
+                    return false; // Paths overlap, must yield
+                }
+            }
+        }
+    }
+    return true;
 }
 
 bool Intersection::tryEnter(int vehicleId, const Road* fromRoad) {

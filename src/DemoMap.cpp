@@ -25,4 +25,10 @@ void populateDemoGraph(Graph& graph) {
     graph.addRoad(new Road(4, "Road 4", d, e, 42.0, 35.0, 1.0));
     graph.addRoad(new Road(5, "Road 5", e, a, 52.0, 50.0, 1.0));
     graph.addRoad(new Road(6, "Road 6", b, d, 68.0, 40.0, 1.0));
+
+    graph.addPOI(new PointOfInterest(101, "Demo Hospital", POIType::HOSPITAL, 30.0, 30.0));
+    graph.addPOI(new PointOfInterest(102, "Demo Market", POIType::SUPERMARKET, 70.0, 70.0));
+    graph.addPOI(new PointOfInterest(103, "Demo Cinema", POIType::CINEMA, 40.0, 60.0));
+    
+    graph.bindPOIsToRoads();
 }

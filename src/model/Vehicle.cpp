@@ -8,6 +8,7 @@
 #include "LaneMapping.h"
 #include "RoadGeometry.h"
 #include "algorithm/PathFindingStrategy.h"
+#include "PointOfInterest.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -150,6 +151,20 @@ Vehicle::~Vehicle() {
         currentRoad->getLane(currentLaneIndex).removeVehicle(this);
         currentRoad = nullptr;
     }
+}
+
+bool Vehicle::hasReachedDestination() const {
+    if (targetPOI != nullptr && currentRoad == targetPOI->getConnectedRoad()) {
+        if (currentRouteIndex == static_cast<int>(currentRoute.size()) - 1) {
+            if (progressOnCurrentRoad >= targetPOI->getProgressOffset()) {
+                if (isEnteringPOI) {
+                    return poiAnimationTimer <= 0.0;
+                }
+                return false;
+            }
+        }
+    }
+    return routeAssigned && currentRoad == nullptr && currentRouteIndex >= static_cast<int>(currentRoute.size());
 }
 
 PauseReason Vehicle::getIntersectionControlReason() const {
@@ -344,7 +359,12 @@ bool Vehicle::setRouteAt(const std::vector<Road*>& route,
                 initialProgressMetres,
                 0.0,
                 currentRoad->getDistance());
-            currentRoad->getLane(currentLaneIndex).addVehicle(this);
+            
+            if (isMergingFromPOI) {
+                currentRoad->addMergingVehicle(this);
+            } else {
+                currentRoad->getLane(currentLaneIndex).addVehicle(this);
+            }
         }
     } else {
         currentRoad = nullptr;
@@ -404,8 +424,63 @@ Pose2D Vehicle::getPose() const {
     if (currentRoad == nullptr) {
         return {};
     }
-    return RoadGeometry::sampleLane(
+
+    Pose2D roadPose = RoadGeometry::sampleLane(
         *currentRoad, currentLaneIndex, progressOnCurrentRoad);
+
+    if (isMergingFromPOI && spawnPOI != nullptr) {
+        // Clamp ratio to 1.0 so that when timer <= 0, it waits at the edge of the road
+        double linearRatio = 1.0;
+        if (poiAnimationDuration > 0) {
+            linearRatio = std::clamp(1.0 - (poiAnimationTimer / poiAnimationDuration), 0.0, 1.0);
+        }
+        // Accelerate when exiting POI (Ease-in quadratic)
+        double ratio = linearRatio * linearRatio;
+        double dx = roadPose.position.x - spawnPOI->getX();
+        double dy = roadPose.position.y - spawnPOI->getY();
+        
+        // Calculate right normal vector for right-hand traffic offset
+        double len = std::sqrt(dx*dx + dy*dy);
+        double nx = 0, ny = 0;
+        if (len > 0) {
+            nx = -dy / len;
+            ny = dx / len;
+        }
+        double offset = 1.5; // 1.5 meters offset to the right
+        
+        Pose2D interpPose;
+        interpPose.position.x = spawnPOI->getX() + dx * ratio + nx * offset;
+        interpPose.position.y = spawnPOI->getY() + dy * ratio + ny * offset;
+        interpPose.headingRadians = std::atan2(dy, dx);
+        return interpPose;
+    }
+    
+    if (isEnteringPOI && targetPOI != nullptr) {
+        if (poiAnimationTimer > 0) {
+            double linearRatio = 1.0 - (poiAnimationTimer / poiAnimationDuration);
+            // Decelerate when entering POI (Ease-out quadratic)
+            double ratio = linearRatio * (2.0 - linearRatio);
+            double dx = targetPOI->getX() - roadPose.position.x;
+            double dy = targetPOI->getY() - roadPose.position.y;
+            
+            // Calculate right normal vector for right-hand traffic offset
+            double len = std::sqrt(dx*dx + dy*dy);
+            double nx = 0, ny = 0;
+            if (len > 0) {
+                nx = -dy / len;
+                ny = dx / len;
+            }
+            double offset = 1.5; // 1.5 meters offset to the right
+            
+            Pose2D interpPose;
+            interpPose.position.x = roadPose.position.x + dx * ratio + nx * offset;
+            interpPose.position.y = roadPose.position.y + dy * ratio + ny * offset;
+            interpPose.headingRadians = std::atan2(dy, dx);
+            return interpPose;
+        }
+    }
+
+    return roadPose;
 }
 
 LaneMapping Vehicle::getUpcomingLaneMapping() const {
@@ -735,6 +810,62 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
         return;
     }
 
+    if (isMergingFromPOI) {
+        if (poiAnimationTimer > 0) {
+            updatePoiAnimation(dt);
+            // Xe đang chạy từ toà nhà ra mép đường, chưa check gap vội
+            return;
+        }
+
+        Vehicle* follower = currentRoad->findFollower(mergeLaneIndex, this);
+        Vehicle* leader = currentRoad->findLeader(mergeLaneIndex, this);
+        bool safeToMerge = true;
+        
+        if (follower != nullptr) {
+            double gapBehind = mergeProgressOffset - follower->getProgressOnRoad() - (getLength() + follower->getLength()) * 0.5;
+            double followerSpeed = follower->getCurrentSpeed();
+            double requiredGap = follower->getMinGap() + followerSpeed * LANE_CHANGE_REAR_SAFETY_TIME;
+            // Add a small epsilon to prevent floating point issues when follower stops exactly at requiredGap
+            if (gapBehind < requiredGap - 1e-4) {
+                safeToMerge = false;
+            }
+        }
+        if (leader != nullptr) {
+            double gapAhead = leader->getProgressOnRoad() - mergeProgressOffset - (getLength() + leader->getLength()) * 0.5;
+            if (gapAhead < getMinGap() - 1e-4) {
+                safeToMerge = false;
+            }
+        }
+
+        if (safeToMerge) {
+            currentRoad->removeMergingVehicle(this);
+            currentRoad->getLane(mergeLaneIndex).addVehicle(this);
+            isMergingFromPOI = false;
+            currentLaneIndex = mergeLaneIndex;
+            progressOnCurrentRoad = mergeProgressOffset;
+            currentSpeed = 0.0;
+        } else {
+            return; // Wait for gap
+        }
+    }
+    
+    if (targetPOI != nullptr && currentRoad == targetPOI->getConnectedRoad()) {
+        if (currentRouteIndex == static_cast<int>(currentRoute.size()) - 1) {
+            if (!isEnteringPOI && progressOnCurrentRoad >= targetPOI->getProgressOffset()) {
+                setEnteringPOI(true);
+                currentRoad->getLane(currentLaneIndex).removeVehicle(this); // Stop blocking road while entering
+                return;
+            }
+            
+            if (isEnteringPOI) {
+                if (poiAnimationTimer > 0) {
+                    updatePoiAnimation(dt);
+                }
+                return; // Don't move on the road anymore
+            }
+        }
+    }
+
     double remainingTime = std::max(0.0, dt);
     if (remainingTime <= 0.0) {
         return;
@@ -836,6 +967,18 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
                     if (distToStopLine <= stoppingDistance + safetyBuffer) {
                         targetSpeed = 0.0;
                     }
+                }
+            }
+        }
+        
+        // Slow down when approaching destination POI
+        if (targetPOI != nullptr && currentRoad == targetPOI->getConnectedRoad() && currentRouteIndex == static_cast<int>(currentRoute.size()) - 1) {
+            double distToPOI = targetPOI->getProgressOffset() - progressOnCurrentRoad;
+            if (distToPOI > 0.0) {
+                const double stoppingDistance = (currentSpeed * currentSpeed) / (2.0 * std::max(getDeceleration(), 1e-6));
+                const double safetyBuffer = 3.0; // metres
+                if (distToPOI <= stoppingDistance + safetyBuffer) {
+                    targetSpeed = std::min(targetSpeed, 2.0); // Decelerate to 2 m/s before turning into POI
                 }
             }
         }

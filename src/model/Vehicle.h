@@ -58,7 +58,14 @@ protected:
     int id;
     double baseSpeed; // m/s
     Intersection* spawnPoint;
+    PointOfInterest* spawnPOI = nullptr;
     PointOfInterest* targetPOI = nullptr; // optional POI destination
+
+    // POI Mid-road merging state
+    bool isMergingFromPOI = false;
+    bool isEnteringPOI = false;
+    double mergeProgressOffset = -1.0;
+    int mergeLaneIndex = -1;
     Intersection* destination;
     Road* currentRoad;
     double progressOnCurrentRoad;
@@ -91,6 +98,9 @@ protected:
     double uTurnCooldownTimer = 0.0;
     
     double recalculateTimer = 5.0;
+    
+    double poiAnimationTimer = 2.0;
+    double poiAnimationDuration = 2.0;
 
 public:
     Vehicle(int id, double speed, Intersection* start, Intersection* dest);
@@ -153,14 +163,43 @@ public:
     double getProgressOnRoad() const { return progressOnCurrentRoad; }
 
     // --- POI support ---
+    PointOfInterest* getSpawnPOI() const { return spawnPOI; }
+    void setSpawnPOI(PointOfInterest* poi) { spawnPOI = poi; }
     PointOfInterest* getTargetPOI() const { return targetPOI; }
     void setTargetPOI(PointOfInterest* poi) { targetPOI = poi; }
+
+    bool getIsMergingFromPOI() const { return isMergingFromPOI; }
+    void setIsMergingFromPOI(bool merging) { isMergingFromPOI = merging; }
+    
+    double getPoiAnimationTimer() const { return poiAnimationTimer; }
+    double getPoiAnimationDuration() const { return poiAnimationDuration; }
+    void updatePoiAnimation(double dt) {
+        if (poiAnimationTimer > 0) poiAnimationTimer -= dt;
+    }
+
+    void setMergingFromPOI(bool merging, double offset = -1.0, int laneIdx = -1) {
+        isMergingFromPOI = merging;
+        mergeProgressOffset = offset;
+        mergeLaneIndex = laneIdx;
+        if (merging) {
+            poiAnimationTimer = poiAnimationDuration;
+        }
+    }
+
+    bool getIsEnteringPOI() const { return isEnteringPOI; }
+    void setEnteringPOI(bool entering) {
+        isEnteringPOI = entering;
+        if (entering) {
+            poiAnimationTimer = poiAnimationDuration;
+        }
+    }
+
+    double getMergeProgressOffset() const { return mergeProgressOffset; }
+    int getMergeLaneIndex() const { return mergeLaneIndex; }
     Road* getCurrentRoad() const { return currentRoad; }
     bool isPaused() const { return paused; }
     PauseReason getPauseReason() const { return pauseReason; }
-    bool hasReachedDestination() const {
-        return routeAssigned && currentRoad == nullptr && currentRouteIndex >= static_cast<int>(currentRoute.size());
-    }
+    bool hasReachedDestination() const;
     double getProgressRatio() const;
     int getCurrentLaneIndex() const { return currentLaneIndex; }
     const std::vector<Road*>& getCurrentRoute() const { return currentRoute; }

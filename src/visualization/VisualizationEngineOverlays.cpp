@@ -381,13 +381,41 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
         else if (poi->getType() == POIType::HOSPITAL) poiColor = sf::Color(255, 50, 50);
         else if (poi->getType() == POIType::SUPERMARKET) poiColor = sf::Color(200, 200, 50);
 
-        sf::CircleShape circle(5.0f);
-        circle.setOrigin(5.0f, 5.0f);
-        circle.setPosition(pos);
-        circle.setFillColor(poiColor);
-        circle.setOutlineThickness(1.0f);
-        circle.setOutlineColor(sf::Color::White);
-        target.draw(circle);
+        // 1. Draw driveway if POI is connected to a road
+        if (poi->getConnectedRoad() != nullptr) {
+            // Get position of the merging point on the road
+            Vec2 roadPoint = RoadGeometry::sampleLane(*poi->getConnectedRoad(), 0, poi->getProgressOffset()).position;
+            sf::Vector2f screenRoadPoint = worldToScreen(roadPoint.x, roadPoint.y);
+            
+            // Draw a line (thin rectangle) from building to the road
+            sf::Vector2f dir = screenRoadPoint - pos;
+            float length = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+            if (length > 0) {
+                float drivewayWidth = 4.0f * static_cast<float>(scale_); // 4 meters wide
+                sf::RectangleShape driveway(sf::Vector2f(length, drivewayWidth));
+                driveway.setOrigin(0.0f, drivewayWidth * 0.5f);
+                driveway.setPosition(pos);
+                driveway.setRotation(std::atan2(dir.y, dir.x) * 180.0f / 3.14159265f);
+                driveway.setFillColor(sf::Color(100, 100, 100)); // Dark gray road
+                target.draw(driveway);
+                
+                sf::RectangleShape centerLine(sf::Vector2f(length, 0.5f)); // Center dividing line
+                centerLine.setOrigin(0.0f, 0.25f);
+                centerLine.setPosition(pos);
+                centerLine.setRotation(std::atan2(dir.y, dir.x) * 180.0f / 3.14159265f);
+                centerLine.setFillColor(sf::Color(255, 200, 0, 150)); // Yellow line
+                target.draw(centerLine);
+            }
+        }
+
+        // 2. Draw building
+        sf::RectangleShape building(sf::Vector2f(10.0f, 10.0f));
+        building.setOrigin(5.0f, 5.0f);
+        building.setPosition(pos);
+        building.setFillColor(poiColor);
+        building.setOutlineThickness(1.0f);
+        building.setOutlineColor(sf::Color::White);
+        target.draw(building);
 
         if (font_) {
             sf::Text text;

@@ -1,10 +1,12 @@
 #include "TrafficSimulator.h"
 #include "../model/Graph.h"
 #include "../model/Road.h"
+#include "../model/Lane.h"
 #include "../model/Vehicle.h"
 #include "../model/Intersection.h"
 #include "algorithm/PathFindingStrategy.h"
 #include <algorithm> 
+#include <cmath>
 #include <iostream>
 #include <limits>
 #include <utility>
@@ -65,52 +67,69 @@ bool TrafficSimulator::tryActivateVehicle(
         return false;
     }
 
-    const double spawnProgress = vehicle->getLength() * 0.5;
+    const bool isPOI = (vehicle->getSpawnPOI() != nullptr && vehicle->getSpawnPOI()->getConnectedRoad() == road);
+    double spawnProgress = vehicle->getLength() * 0.5;
     int selectedLane = -1;
-    double bestClearance =
-        -std::numeric_limits<double>::infinity();
-    for (int laneIndex = 0;
-         laneIndex < road->getLaneCount();
-         ++laneIndex) {
-        const Lane& lane = road->getLane(laneIndex);
-        if (lane.isBlocked() ||
-            lane.getVehicleCount() >= lane.getCapacity()) {
-            continue;
-        }
-        Intersection* entrance = road->getStart();
-        if (entrance != nullptr &&
-            entrance->isOutgoingLaneReserved(
-                road, laneIndex)) {
-            continue;
-        }
 
-        Vehicle* first =
-            road->getFirstVehicleInLane(laneIndex);
-        double clearance =
-            std::numeric_limits<double>::infinity();
-        if (first != nullptr) {
-            clearance =
-                first->getProgressOnRoad() -
-                spawnProgress -
-                (first->getLength() +
-                 vehicle->getLength()) * 0.5;
-            const double requiredGap = std::max(
-                vehicle->getMinGap(),
-                first->getMinGap());
-            if (clearance + 1e-9 < requiredGap) {
-                continue;
+    if (isPOI) {
+        spawnProgress = vehicle->getSpawnPOI()->getProgressOffset();
+        int curbLane = road->getCurbLaneIndex();
+        
+        // Check if there's already a merging vehicle at/near this offset
+        for (Vehicle* existing : vehicles) {
+            if (existing->getIsMergingFromPOI() &&
+                existing->getCurrentRoad() == road) {
+                double dist = std::fabs(existing->getProgressOnRoad() - spawnProgress);
+                if (dist < vehicle->getLength() + existing->getLength()) {
+                    return false; // Another vehicle is already merging near this spot
+                }
             }
         }
-        if (selectedLane < 0 ||
-            clearance > bestClearance) {
-            selectedLane = laneIndex;
-            bestClearance = clearance;
+        
+        // Check clearance with vehicles already on the curb lane
+        const Lane& curbLaneRef = road->getLane(curbLane);
+        for (Vehicle* laneVeh : curbLaneRef.getVehicles()) {
+            if (!laneVeh) continue;
+            double dist = std::fabs(laneVeh->getProgressOnRoad() - spawnProgress);
+            double halfLengths = (laneVeh->getLength() + vehicle->getLength()) * 0.5;
+            double requiredGap = std::max(vehicle->getMinGap(), laneVeh->getMinGap());
+            if (dist < halfLengths + requiredGap) {
+                return false;
+            }
+        }
+        
+        selectedLane = curbLane;
+        vehicle->setMergingFromPOI(true, spawnProgress, selectedLane);
+    } else {
+        double bestClearance = -std::numeric_limits<double>::infinity();
+        for (int laneIndex = 0; laneIndex < road->getLaneCount(); ++laneIndex) {
+            const Lane& lane = road->getLane(laneIndex);
+            if (lane.isBlocked() || lane.getVehicleCount() >= lane.getCapacity()) {
+                continue;
+            }
+            Intersection* entrance = road->getStart();
+            if (entrance != nullptr && entrance->isOutgoingLaneReserved(road, laneIndex)) {
+                continue;
+            }
+
+            Vehicle* first = road->getFirstVehicleInLane(laneIndex);
+            double clearance = std::numeric_limits<double>::infinity();
+            if (first != nullptr) {
+                clearance = first->getProgressOnRoad() - spawnProgress - (first->getLength() + vehicle->getLength()) * 0.5;
+                const double requiredGap = std::max(vehicle->getMinGap(), first->getMinGap());
+                if (clearance + 1e-9 < requiredGap) continue;
+            }
+            if (selectedLane < 0 || clearance > bestClearance) {
+                selectedLane = laneIndex;
+                bestClearance = clearance;
+            }
         }
     }
 
-    if (selectedLane < 0 ||
-        !vehicle->setRouteAt(
-            route, selectedLane, spawnProgress)) {
+    if (selectedLane < 0 || !vehicle->setRouteAt(route, selectedLane, spawnProgress)) {
+        if (isPOI) {
+            vehicle->setMergingFromPOI(false); // Revert state if activation failed
+        }
         return false;
     }
     vehicles.push_back(vehicle);
@@ -153,8 +172,26 @@ bool TrafficSimulator::addVehicle(Vehicle* vehicle) {
     if (!vehicle || !graph || !pathFindingStrategy)
     {delete vehicle; return false;}
 
-    int startId = vehicle->getSpawnPoint()->getId();
-    int destId = vehicle->getDestination()->getId();
+    // Determine start/end intersection IDs for pathfinding
+    int startId = -1;
+    int destId = -1;
+    
+    if (vehicle->getSpawnPOI() && vehicle->getSpawnPOI()->getConnectedRoad()) {
+        startId = vehicle->getSpawnPOI()->getConnectedRoad()->getEnd()->getId();
+    } else if (vehicle->getSpawnPoint()) {
+        startId = vehicle->getSpawnPoint()->getId();
+    }
+    
+    if (vehicle->getTargetPOI() && vehicle->getTargetPOI()->getConnectedRoad()) {
+        destId = vehicle->getTargetPOI()->getConnectedRoad()->getStart()->getId();
+    } else if (vehicle->getDestination()) {
+        destId = vehicle->getDestination()->getId();
+    }
+    
+    if (startId < 0 || destId < 0) {
+        delete vehicle;
+        return false;
+    }
     
     PathResult result;
     if (statisticsManager) {
@@ -164,9 +201,17 @@ bool TrafficSimulator::addVehicle(Vehicle* vehicle) {
     }    
     
     if (!result.found) {
-         delete vehicle; 
+        delete vehicle; 
         return false;
-    } 
+    }
+
+    if (vehicle->getSpawnPOI() && vehicle->getSpawnPOI()->getConnectedRoad()) {
+        result.roadPath.insert(result.roadPath.begin(), vehicle->getSpawnPOI()->getConnectedRoad());
+    }
+    if (vehicle->getTargetPOI() && vehicle->getTargetPOI()->getConnectedRoad()) {
+        result.roadPath.push_back(vehicle->getTargetPOI()->getConnectedRoad());
+    }
+
     try
     {
         if (!tryActivateVehicle(
@@ -195,6 +240,7 @@ void TrafficSimulator::removeFinishedVehicles() {
                 this->statisticsManager->markVehicleCompleted(v->getId());
             }
             failedRecalcIds.erase(v->getId());
+            v->setRouteAt(std::vector<Road*>{}, -1, 0.0);
             finishedVehicles.push_back(v); // Keep vehicle instead of deleting
             return true;
         }
