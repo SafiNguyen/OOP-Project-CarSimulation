@@ -22,8 +22,10 @@ public:
     Bridge(int id, const std::string& name, Intersection* start, Intersection* end,
            double distance, double speedLimit,
            double congestionLevel = 1.0, int laneCount = 1,
-           double heightLimit = 4.5, double weightLimit = 30.0)
-        : Road(id, name, start, end, distance, speedLimit, congestionLevel, laneCount),
+           double heightLimit = 4.5, double weightLimit = 30.0,
+           double laneWidthMetres = 3.5)
+        : Road(id, name, start, end, distance, speedLimit, congestionLevel,
+               laneCount, laneWidthMetres),
           heightLimit(heightLimit), weightLimit(weightLimit) {}
 
     double getHeightLimit() const { return heightLimit; }

@@ -1,8 +1,9 @@
 {
-  "coordinateUnit": "world",
-  "defaultDistanceUnit": "legacy",
+  "coordinateUnit": "m",
+  "defaultDistanceUnit": "m",
   "defaultSpeedUnit": "km/h",
-  "defaultRadiusUnit": "km",
+  "defaultRadiusUnit": "m",
+  "defaultLaneWidth": 3.5,
   "intersections": [
     { "id": 1, "x": 10.0, "y": 10.0 },
     { "id": 2, "x": 50.0, "y": 10.0 },
@@ -15,41 +16,67 @@
     { "id": 9, "x": 90.0, "y": 90.0 }
   ],
   "roads": [
-    { "id": 101, "start": 1, "end": 2, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
-    { "id": 102, "start": 2, "end": 1, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
-
-    { "id": 103, "start": 2, "end": 3, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
-    { "id": 104, "start": 3, "end": 2, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
-
-    { "id": 105, "start": 4, "end": 5, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
-    { "id": 106, "start": 5, "end": 4, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
-
-    { "id": 107, "start": 5, "end": 6, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
-    { "id": 108, "start": 6, "end": 5, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
-
-    { "id": 109, "start": 7, "end": 8, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
-    { "id": 110, "start": 8, "end": 7, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
-
-    { "id": 111, "start": 8, "end": 9, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
-    { "id": 112, "start": 9, "end": 8, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
-
-    { "id": 113, "start": 1, "end": 4, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
-    { "id": 114, "start": 4, "end": 1, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
-
-    { "id": 115, "start": 4, "end": 7, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
-    { "id": 116, "start": 7, "end": 4, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
-
-    { "id": 117, "start": 2, "end": 5, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
-    { "id": 118, "start": 5, "end": 2, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
-
-    { "id": 119, "start": 5, "end": 8, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
-    { "id": 120, "start": 8, "end": 5, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
-
-    { "id": 121, "start": 3, "end": 6, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
-    { "id": 122, "start": 6, "end": 3, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
-
-    { "id": 123, "start": 6, "end": 9, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
-    { "id": 124, "start": 9, "end": 6, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 }
+    { "id": 101, "name": "Southwest Avenue", "start": 1, "end": 2, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 102, "name": "Southwest Avenue", "start": 2, "end": 1, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 103, "name": "Southeast Avenue", "start": 2, "end": 3, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+    { "id": 104, "name": "Southeast Avenue", "start": 3, "end": 2, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+    { "id": 105, "name": "Central West", "start": 4, "end": 5, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 106, "name": "Central West", "start": 5, "end": 4, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 107, "name": "Central East", "start": 5, "end": 6, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+    { "id": 108, "name": "Central East", "start": 6, "end": 5, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+    { "id": 109, "name": "Northwest Avenue", "start": 7, "end": 8, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 110, "name": "Northwest Avenue", "start": 8, "end": 7, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 111, "name": "Northeast Avenue", "start": 8, "end": 9, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+    { "id": 112, "name": "Northeast Avenue", "start": 9, "end": 8, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+    { "id": 113, "name": "West South Street", "start": 1, "end": 4, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 114, "name": "West South Street", "start": 4, "end": 1, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 115, "name": "West North Street", "start": 4, "end": 7, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 116, "name": "West North Street", "start": 7, "end": 4, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 117, "name": "Central South Street", "start": 2, "end": 5, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+    { "id": 118, "name": "Central South Street", "start": 5, "end": 2, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+    { "id": 119, "name": "Central North Street", "start": 5, "end": 8, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 120, "name": "Central North Street", "start": 8, "end": 5, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 121, "name": "East South Street", "start": 3, "end": 6, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+    { "id": 122, "name": "East South Street", "start": 6, "end": 3, "distance": 40.0, "speedLimit": 50.0, "lanes": 1 },
+    { "id": 123, "name": "East North Street", "start": 6, "end": 9, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 124, "name": "East North Street", "start": 9, "end": 6, "distance": 40.0, "speedLimit": 50.0, "lanes": 2 }
+  ],
+  "trafficLights": [
+    {
+      "intersectionId": 2,
+      "greenDuration": 25.0,
+      "yellowDuration": 3.0,
+      "allRedDuration": 1.5
+    },
+    {
+      "intersectionId": 4,
+      "greenDuration": 25.0,
+      "yellowDuration": 3.0,
+      "allRedDuration": 1.5
+    },
+    {
+      "intersectionId": 5,
+      "enabled": true,
+      "greenDuration": 25.0,
+      "yellowDuration": 3.0,
+      "allRedDuration": 1.5,
+      "phases": [
+        { "incomingRoadIds": [105, 108] },
+        { "incomingRoadIds": [117, 120] }
+      ]
+    },
+    {
+      "intersectionId": 6,
+      "greenDuration": 25.0,
+      "yellowDuration": 3.0,
+      "allRedDuration": 1.5
+    },
+    {
+      "intersectionId": 8,
+      "greenDuration": 25.0,
+      "yellowDuration": 3.0,
+      "allRedDuration": 1.5
+    }
   ],
   "pois": [
     { "id": 201, "name": "House A", "x": 30.0, "y": 15.0, "type": "hospital" },

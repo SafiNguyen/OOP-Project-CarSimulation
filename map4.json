@@ -1,8 +1,9 @@
 {
     "coordinateUnit": "world",
-    "defaultDistanceUnit": "legacy",
+    "defaultDistanceUnit": "m",
     "defaultSpeedUnit": "km/h",
-    "defaultRadiusUnit": "km",
+    "defaultRadiusUnit": "m",
+    "defaultLaneWidth": 3.5,
     "intersections": [
         {
             "id": 0,
@@ -19,7 +20,7 @@
             "x": 250.0,
             "y": 50.0,
             "type": "roundabout",
-            "radius": 0.05
+            "radius": 50.0
         },
         {
             "id": 3,
@@ -56,7 +57,7 @@
             "x": 450.0,
             "y": 150.0,
             "type": "roundabout",
-            "radius": 0.04
+            "radius": 40.0
         },
         {
             "id": 10,
@@ -93,7 +94,7 @@
             "x": 150.0,
             "y": 350.0,
             "type": "roundabout",
-            "radius": 0.04
+            "radius": 40.0
         },
         {
             "id": 17,
@@ -117,7 +118,7 @@
             "name": "North St",
             "start": 0,
             "end": 1,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 40.0,
             "lanes": 2,
             "twoWay": true
@@ -127,7 +128,7 @@
             "name": "North St",
             "start": 1,
             "end": 2,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 40.0,
             "lanes": 2,
             "twoWay": true
@@ -137,7 +138,7 @@
             "name": "North St",
             "start": 2,
             "end": 3,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 40.0,
             "lanes": 2,
             "twoWay": true
@@ -147,7 +148,7 @@
             "name": "North St",
             "start": 3,
             "end": 4,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 40.0,
             "lanes": 2,
             "twoWay": true
@@ -157,7 +158,7 @@
             "name": "Mid Ave",
             "start": 5,
             "end": 6,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 50.0,
             "lanes": 2,
             "twoWay": true
@@ -167,7 +168,7 @@
             "name": "River Bridge",
             "start": 6,
             "end": 7,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 60.0,
             "lanes": 3,
             "twoWay": true,
@@ -179,7 +180,7 @@
             "name": "Mid Ave",
             "start": 7,
             "end": 8,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 50.0,
             "lanes": 2,
             "twoWay": true
@@ -189,7 +190,7 @@
             "name": "Mid Ave",
             "start": 8,
             "end": 9,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 50.0,
             "lanes": 2,
             "twoWay": true
@@ -199,7 +200,7 @@
             "name": "Market Rd",
             "start": 10,
             "end": 11,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 30.0,
             "lanes": 2,
             "twoWay": true
@@ -209,7 +210,7 @@
             "name": "Market Rd",
             "start": 11,
             "end": 12,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 30.0,
             "lanes": 2,
             "twoWay": true
@@ -219,7 +220,7 @@
             "name": "Underpass",
             "start": 12,
             "end": 13,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 60.0,
             "lanes": 2,
             "twoWay": true,
@@ -231,7 +232,7 @@
             "name": "Market Rd",
             "start": 13,
             "end": 14,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 30.0,
             "lanes": 2,
             "twoWay": true
@@ -241,7 +242,7 @@
             "name": "South Blvd",
             "start": 15,
             "end": 16,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 60.0,
             "lanes": 3,
             "twoWay": true
@@ -251,7 +252,7 @@
             "name": "South Blvd",
             "start": 16,
             "end": 17,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 60.0,
             "lanes": 3,
             "twoWay": true
@@ -261,7 +262,7 @@
             "name": "South Blvd",
             "start": 17,
             "end": 18,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 60.0,
             "lanes": 3,
             "twoWay": true
@@ -271,7 +272,7 @@
             "name": "South Blvd",
             "start": 18,
             "end": 19,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 60.0,
             "lanes": 3,
             "twoWay": true
@@ -281,7 +282,7 @@
             "name": "West 1st St",
             "start": 0,
             "end": 5,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 40.0,
             "lanes": 2,
             "twoWay": true
@@ -291,7 +292,7 @@
             "name": "West 1st St",
             "start": 5,
             "end": 10,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 40.0,
             "lanes": 2,
             "twoWay": true
@@ -301,7 +302,7 @@
             "name": "West 1st St",
             "start": 10,
             "end": 15,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 40.0,
             "lanes": 2,
             "twoWay": true
@@ -311,7 +312,7 @@
             "name": "West 2nd St",
             "start": 1,
             "end": 6,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 40.0,
             "lanes": 2,
             "twoWay": true
@@ -321,7 +322,7 @@
             "name": "West 2nd St",
             "start": 6,
             "end": 11,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 40.0,
             "lanes": 2,
             "twoWay": true
@@ -331,7 +332,7 @@
             "name": "West 2nd St",
             "start": 11,
             "end": 16,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 40.0,
             "lanes": 2,
             "twoWay": true
@@ -341,7 +342,7 @@
             "name": "Center Way",
             "start": 2,
             "end": 7,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 50.0,
             "lanes": 2,
             "twoWay": true
@@ -351,7 +352,7 @@
             "name": "Center Way",
             "start": 7,
             "end": 12,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 50.0,
             "lanes": 2,
             "twoWay": true
@@ -361,7 +362,7 @@
             "name": "Center Way",
             "start": 12,
             "end": 17,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 50.0,
             "lanes": 2,
             "twoWay": true
@@ -371,7 +372,7 @@
             "name": "East 1st St",
             "start": 3,
             "end": 8,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 40.0,
             "lanes": 2,
             "twoWay": true
@@ -381,7 +382,7 @@
             "name": "East 1st St",
             "start": 8,
             "end": 13,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 40.0,
             "lanes": 2,
             "twoWay": true
@@ -391,7 +392,7 @@
             "name": "East 1st St",
             "start": 13,
             "end": 18,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 40.0,
             "lanes": 2,
             "twoWay": true
@@ -401,7 +402,7 @@
             "name": "East 2nd St",
             "start": 4,
             "end": 9,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 40.0,
             "lanes": 2,
             "twoWay": true
@@ -411,7 +412,7 @@
             "name": "East 2nd St",
             "start": 9,
             "end": 14,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 40.0,
             "lanes": 2,
             "twoWay": true
@@ -421,7 +422,7 @@
             "name": "East 2nd St",
             "start": 14,
             "end": 19,
-            "distance": 10.0,
+            "distance": 200.0,
             "speedLimit": 40.0,
             "lanes": 2,
             "twoWay": true
@@ -506,34 +507,130 @@
     ],
     "trafficLights": [
         {
-            "intersectionId": 1
+            "intersectionId": 1,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
         },
         {
-            "intersectionId": 3
+            "intersectionId": 2,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
         },
         {
-            "intersectionId": 5
+            "intersectionId": 3,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
         },
         {
-            "intersectionId": 7
+            "intersectionId": 5,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
         },
         {
-            "intersectionId": 8
+            "intersectionId": 6,
+            "enabled": true,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5,
+            "phases": [
+                { "incomingRoadIds": [104, -105] },
+                { "incomingRoadIds": [203, -204] }
+            ]
         },
         {
-            "intersectionId": 11
+            "intersectionId": 7,
+            "enabled": true,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5,
+            "phases": [
+                { "incomingRoadIds": [105, -106] },
+                { "incomingRoadIds": [206, -207] }
+            ]
         },
         {
-            "intersectionId": 13
+            "intersectionId": 8,
+            "enabled": true,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5,
+            "phases": [
+                { "incomingRoadIds": [106, -107] },
+                { "incomingRoadIds": [209, -210] }
+            ]
         },
         {
-            "intersectionId": 15
+            "intersectionId": 9,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
         },
         {
-            "intersectionId": 17
+            "intersectionId": 10,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
         },
         {
-            "intersectionId": 19
+            "intersectionId": 11,
+            "enabled": true,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5,
+            "phases": [
+                { "incomingRoadIds": [108, -109] },
+                { "incomingRoadIds": [204, -205] }
+            ]
+        },
+        {
+            "intersectionId": 12,
+            "enabled": true,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5,
+            "phases": [
+                { "incomingRoadIds": [109, -110] },
+                { "incomingRoadIds": [207, -208] }
+            ]
+        },
+        {
+            "intersectionId": 13,
+            "enabled": true,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5,
+            "phases": [
+                { "incomingRoadIds": [110, -111] },
+                { "incomingRoadIds": [210, -211] }
+            ]
+        },
+        {
+            "intersectionId": 14,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
+        },
+        {
+            "intersectionId": 16,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
+        },
+        {
+            "intersectionId": 17,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
+        },
+        {
+            "intersectionId": 18,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
         }
     ]
 }

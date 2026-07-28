@@ -6,8 +6,12 @@
 #include "model/RoadGeometry.h"
 
 sf::Vector2f VisualizationEngine::worldToScreen(double x, double y) const {
-    const float sx = static_cast<float>(margin_ + (x - minX_) * scale_);
-    const float sy = static_cast<float>(windowSize_.y - margin_ - (y - minY_) * scale_);
+    const float sx = static_cast<float>(
+        offsetX_ + (x - minX_) * scale_);
+    const float sy = static_cast<float>(
+        static_cast<double>(windowSize_.y) -
+        offsetY_ -
+        (y - minY_) * scale_);
     return {sx, sy};
 }
 
@@ -19,15 +23,10 @@ float VisualizationEngine::metresToScreenPixels(
             ? scale_ / std::max(
                   1e-6,
                   RoadGeometry::metresPerWorldUnit(*referenceRoad))
-            : 0.0;
-    const double displayedRoadPixelsPerMetre =
-        static_cast<double>(MIN_LANE_WIDTH_PIXELS) /
-        RoadGeometry::LANE_WIDTH_METRES;
+            : scale_;
     return static_cast<float>(
         std::fabs(metres) *
-        std::max(
-            naturalPixelsPerMetre,
-            displayedRoadPixelsPerMetre));
+        naturalPixelsPerMetre);
 }
 
 sf::Color VisualizationEngine::mixColor(const sf::Color& a, const sf::Color& b, float t) {

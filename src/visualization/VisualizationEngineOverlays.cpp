@@ -15,6 +15,116 @@ namespace {
 constexpr unsigned int kMinimumRoadLabelSize = 9u;
 constexpr unsigned int kMaximumRoadLabelSize = 13u;
 
+void drawSevenSegmentNumber(
+    sf::RenderTarget& target,
+    int value,
+    const sf::Vector2f& center,
+    float boxSize,
+    const sf::Color& color) {
+    static constexpr unsigned char digitMasks[10] = {
+        0x3F, // 0: A B C D E F
+        0x06, // 1: B C
+        0x5B, // 2: A B D E G
+        0x4F, // 3: A B C D G
+        0x66, // 4: B C F G
+        0x6D, // 5: A C D F G
+        0x7D, // 6: A C D E F G
+        0x07, // 7: A B C
+        0x7F, // 8: all segments
+        0x6F  // 9: A B C D F G
+    };
+
+    const std::string digits =
+        std::to_string(std::clamp(value, 0, 999));
+    const float innerWidth = std::max(1.0f, boxSize - 2.0f);
+    const float innerHeight = std::max(1.0f, boxSize - 2.0f);
+    const float digitGap = 1.0f;
+    const float digitWidth = std::max(
+        2.0f,
+        std::floor(
+            (innerWidth -
+             digitGap * static_cast<float>(digits.size() - 1)) /
+            static_cast<float>(digits.size())));
+    const float digitHeight =
+        std::max(5.0f, std::floor(innerHeight));
+    const float thickness =
+        std::max(1.0f, std::floor(digitWidth * 0.24f));
+    const float renderedWidth =
+        digitWidth * static_cast<float>(digits.size()) +
+        digitGap * static_cast<float>(digits.size() - 1);
+    const float left = std::round(center.x - renderedWidth * 0.5f);
+    const float top = std::round(center.y - digitHeight * 0.5f);
+    const float verticalHeight =
+        std::max(1.0f, (digitHeight - thickness * 3.0f) * 0.5f);
+
+    const auto drawSegment =
+        [&target, &color](
+            float x,
+            float y,
+            float width,
+            float height) {
+            sf::RectangleShape segment({
+                std::max(1.0f, std::floor(width)),
+                std::max(1.0f, std::floor(height))
+            });
+            segment.setPosition(std::round(x), std::round(y));
+            segment.setFillColor(color);
+            target.draw(segment);
+        };
+
+    for (std::size_t index = 0; index < digits.size(); ++index) {
+        const int digit = digits[index] - '0';
+        const unsigned char mask = digitMasks[digit];
+        const float x =
+            left + static_cast<float>(index) *
+                (digitWidth + digitGap);
+        const float middleY =
+            top + thickness + verticalHeight;
+        const float rightX =
+            x + digitWidth - thickness;
+        const float lowerY =
+            middleY + thickness;
+
+        if ((mask & 0x01) != 0) {
+            drawSegment(
+                x + thickness, top,
+                digitWidth - thickness * 2.0f, thickness);
+        }
+        if ((mask & 0x02) != 0) {
+            drawSegment(
+                rightX, top + thickness,
+                thickness, verticalHeight);
+        }
+        if ((mask & 0x04) != 0) {
+            drawSegment(
+                rightX, lowerY,
+                thickness, verticalHeight);
+        }
+        if ((mask & 0x08) != 0) {
+            drawSegment(
+                x + thickness,
+                top + digitHeight - thickness,
+                digitWidth - thickness * 2.0f,
+                thickness);
+        }
+        if ((mask & 0x10) != 0) {
+            drawSegment(
+                x, lowerY,
+                thickness, verticalHeight);
+        }
+        if ((mask & 0x20) != 0) {
+            drawSegment(
+                x, top + thickness,
+                thickness, verticalHeight);
+        }
+        if ((mask & 0x40) != 0) {
+            drawSegment(
+                x + thickness, middleY,
+                digitWidth - thickness * 2.0f, thickness);
+        }
+    }
+}
+
 } // namespace
 
 void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& graph) const {
@@ -105,108 +215,179 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
 }
 
 void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Graph& graph) const {
-    for (auto* intersection : graph.getAllIntersections()) {
-        for (const auto* road : intersection->getIncomingRoads()) {
-            auto* light = intersection->getLightForIncomingRoad(road);
-            if (light == nullptr) {
-                continue;
-            }
+    for (const Intersection* intersection :
+         graph.getAllIntersections()) {
+        if (intersection == nullptr) continue;
+        for (const Road* road :
+             intersection->getIncomingRoads()) {
+            const TrafficLight* light =
+                intersection->getLightForIncomingRoad(road);
+            if (road == nullptr || light == nullptr) continue;
 
-            const sf::Vector2f intersectionPoint = worldToScreen(intersection->getX(), intersection->getY());
-            const sf::Vector2f roadStart = worldToScreen(road->getStart()->getX(), road->getStart()->getY());
+            const Vec2 stopWorld =
+                RoadGeometry::stopLineCentre(*road);
+            const Vec2 directionWorld =
+                RoadGeometry::roadDirection(*road);
+            const Vec2 outwardWorld =
+                rightNormal(directionWorld);
+            const double metricScale =
+                RoadGeometry::metresPerWorldUnit(*road);
+            const double halfWidthWorld =
+                RoadGeometry::carriagewayWidthMetres(*road) *
+                0.5 / metricScale;
 
-            // Compute approach direction (from road start towards intersection)
-            sf::Vector2f approachDir = intersectionPoint - roadStart;
-            const float approachLength = std::sqrt(approachDir.x * approachDir.x + approachDir.y * approachDir.y);
-            if (approachLength > 0.01f) {
-                approachDir /= approachLength;
+            const Vec2 stopLeftWorld =
+                stopWorld - outwardWorld * halfWidthWorld;
+            const Vec2 stopRightWorld =
+                stopWorld + outwardWorld * halfWidthWorld;
+            const sf::Vector2f stopLeft =
+                worldToScreen(stopLeftWorld.x, stopLeftWorld.y);
+            const sf::Vector2f stopRight =
+                worldToScreen(stopRightWorld.x, stopRightWorld.y);
+            drawRoadStrip(
+                target,
+                stopLeft,
+                stopRight,
+                sf::Color(255, 255, 255, 235),
+                std::max(
+                    1.5f,
+                    metresToScreenPixels(0.25, road)));
+
+            const Vec2 edgeWorld = stopRightWorld;
+            const Vec2 outsideProbeWorld =
+                edgeWorld +
+                outwardWorld * (1.0 / metricScale);
+            const sf::Vector2f roadEdge =
+                worldToScreen(edgeWorld.x, edgeWorld.y);
+            sf::Vector2f outwardDirection =
+                worldToScreen(
+                    outsideProbeWorld.x,
+                    outsideProbeWorld.y) -
+                roadEdge;
+            const float outwardLength =
+                std::sqrt(
+                    outwardDirection.x * outwardDirection.x +
+                    outwardDirection.y * outwardDirection.y);
+            if (outwardLength > 0.01f) {
+                outwardDirection /= outwardLength;
             } else {
-                approachDir = {0.0f, -1.0f};
+                outwardDirection = {0.0f, -1.0f};
             }
 
-            // Perpendicular to approach direction
-            const sf::Vector2f approachNormal = roadNormal(roadStart, intersectionPoint);
+            const float laneWidth =
+                getLaneWidthPixels(road);
+            const float housingThickness =
+                std::clamp(laneWidth * 0.82f, 8.0f, 11.0f);
+            const float lampRadius =
+                std::clamp(
+                    housingThickness * 0.27f,
+                    2.0f,
+                    2.9f);
+            const float lampSpacing =
+                lampRadius * 2.0f + 1.2f;
+            const float housingLength =
+                lampSpacing * 2.0f +
+                lampRadius * 2.0f + 3.0f;
+            const float countdownSize =
+                std::clamp(
+                    std::max(housingThickness, laneWidth * 1.05f),
+                    12.0f,
+                    15.0f);
+            const float edgeGap = 2.0f;
+            const float housingAngle =
+                std::atan2(
+                    outwardDirection.y,
+                    outwardDirection.x) *
+                180.0f / 3.14159265f;
+            const sf::Vector2f housingCenter =
+                roadEdge +
+                outwardDirection *
+                    (edgeGap + housingLength * 0.5f);
+            const sf::Vector2f countdownCenter =
+                roadEdge +
+                outwardDirection *
+                    (edgeGap + housingLength +
+                     countdownSize * 0.5f - 0.5f);
 
-            // Compute road width and offset
-            const int laneCount = std::max(1, road->getLaneCount());
-            const float laneWidth = getLaneWidthPixels(road);
-            const float totalWidth = static_cast<float>(laneCount) * laneWidth;
+            drawRoadStrip(
+                target,
+                roadEdge,
+                housingCenter,
+                sf::Color(45, 45, 45),
+                2.0f);
 
-            bool hasReverse = false;
-            auto* endIntersection = road->getEnd();
-            auto* startIntersection = road->getStart();
-            if (endIntersection && startIntersection) {
-                for (Road* r : endIntersection->getOutgoingRoads()) {
-                    if (r->getEnd() == startIntersection) {
-                        hasReverse = true;
-                        break;
-                    }
-                }
-            }
-            const float offsetAmount = hasReverse ? (totalWidth * 0.5f + 1.0f) : 0.0f;
-            const float boxHalfExtent = getIntersectionBoxHalfExtent(intersection);
-
-            // Stop line position: pulled back to the edge of the intersection box
-            // so the road and junction read as one connected shape.
-            const sf::Vector2f stopLineCenter = intersectionPoint - approachDir * (boxHalfExtent + 4.0f) + approachNormal * offsetAmount;
-
-            const float approachAngle = std::atan2(approachDir.y, approachDir.x) * 180.0f / 3.14159265f;
-
-            // --- Stop line across the road ---
-            sf::RectangleShape stopLine({totalWidth, 2.0f});
-            stopLine.setOrigin(totalWidth * 0.5f, 1.0f);
-            stopLine.setPosition(stopLineCenter);
-            stopLine.setRotation(approachAngle + 90.0f);
-            stopLine.setFillColor(sf::Color(255, 255, 255, 160));
-            target.draw(stopLine);
-
-            // --- Traffic light housing: on the SIDE of the road ---
-            // Place it at the road edge, offset outward from the road center
-            const sf::Vector2f roadEdgePoint = stopLineCenter + approachNormal * (totalWidth * 0.5f + 4.0f);
-            const sf::Vector2f housingDir = approachNormal; // outward from road
-            const sf::Vector2f housingCenter = roadEdgePoint + housingDir * 12.0f;
-
-            const float housingAngle = std::atan2(housingDir.y, housingDir.x) * 180.0f / 3.14159265f;
-
-            // Housing background
-            sf::RectangleShape housing({28.0f, 12.0f});
-            housing.setOrigin(14.0f, 6.0f);
+            sf::RectangleShape housing(
+                {housingLength, housingThickness});
+            housing.setOrigin(
+                housingLength * 0.5f,
+                housingThickness * 0.5f);
             housing.setPosition(housingCenter);
             housing.setRotation(housingAngle);
-            housing.setFillColor(sf::Color(25, 25, 25, 235));
-            housing.setOutlineThickness(1.0f);
-            housing.setOutlineColor(sf::Color(90, 90, 90));
+            housing.setFillColor(sf::Color(22, 24, 27, 245));
+            housing.setOutlineThickness(0.8f);
+            housing.setOutlineColor(sf::Color(115, 120, 125));
             target.draw(housing);
 
-            // Pole connecting road edge to housing
-            sf::RectangleShape pole({12.0f, 2.5f});
-            pole.setOrigin(0.0f, 1.25f);
-            pole.setPosition(roadEdgePoint);
-            pole.setRotation(housingAngle);
-            pole.setFillColor(sf::Color(50, 50, 50));
-            target.draw(pole);
-
-            // --- Lamps ---
             const LightState state = light->getState();
-            const sf::Color offColor(55, 55, 55);
-            const sf::Color redColor = (state == LightState::RED) ? lightColor(LightState::RED) : offColor;
-            const sf::Color yellowColor = (state == LightState::YELLOW) ? lightColor(LightState::YELLOW) : offColor;
-            const sf::Color greenColor = (state == LightState::GREEN) ? lightColor(LightState::GREEN) : offColor;
+            const sf::Color offColor(48, 50, 52);
+            const auto drawLamp =
+                [&target, lampRadius](
+                    const sf::Vector2f& center,
+                    const sf::Color& color) {
+                    sf::CircleShape lamp(lampRadius);
+                    lamp.setOrigin(lampRadius, lampRadius);
+                    lamp.setPosition(center);
+                    lamp.setFillColor(color);
+                    lamp.setOutlineThickness(0.8f);
+                    lamp.setOutlineColor(sf::Color::Black);
+                    target.draw(lamp);
+                };
+            drawLamp(
+                housingCenter -
+                    outwardDirection * lampSpacing,
+                state == LightState::RED
+                    ? lightColor(LightState::RED)
+                    : offColor);
+            drawLamp(
+                housingCenter,
+                state == LightState::YELLOW
+                    ? lightColor(LightState::YELLOW)
+                    : offColor);
+            drawLamp(
+                housingCenter +
+                    outwardDirection * lampSpacing,
+                state == LightState::GREEN
+                    ? lightColor(LightState::GREEN)
+                    : offColor);
 
-            auto drawLamp = [&target](const sf::Vector2f& center, const sf::Color& color) {
-                sf::CircleShape lamp(3.5f);
-                lamp.setOrigin(3.5f, 3.5f);
-                lamp.setPosition(center);
-                lamp.setFillColor(color);
-                lamp.setOutlineThickness(0.8f);
-                lamp.setOutlineColor(sf::Color::Black);
-                target.draw(lamp);
-            };
+            // The countdown is a projection of the same simulation clock.
+            // Its compact square cell is attached to the outer end of the
+            // approach-oriented signal, matching the corner placement.
+            sf::RectangleShape countdownBox(
+                {countdownSize, countdownSize});
+            countdownBox.setOrigin(
+                countdownSize * 0.5f,
+                countdownSize * 0.5f);
+            countdownBox.setPosition(countdownCenter);
+            countdownBox.setFillColor(
+                sf::Color(9, 11, 14, 255));
+            countdownBox.setOutlineThickness(0.8f);
+            countdownBox.setOutlineColor(
+                sf::Color(225, 230, 235));
+            target.draw(countdownBox);
 
-            // Lamps along the housing direction: Red -> Yellow -> Green
-            drawLamp(housingCenter - housingDir * 8.0f, redColor);
-            drawLamp(housingCenter, yellowColor);
-            drawLamp(housingCenter + housingDir * 8.0f, greenColor);
+            const int displayedSeconds =
+                static_cast<int>(std::ceil(
+                    std::max(
+                        0.0,
+                        light->getRemainingSeconds() -
+                            1e-9)));
+            drawSevenSegmentNumber(
+                target,
+                displayedSeconds,
+                countdownCenter,
+                countdownSize,
+                lightColor(state));
         }
     }
 }
@@ -264,33 +445,9 @@ sf::Vector2f VisualizationEngine::getRoadEntryPoint(const Road* road, const Inte
     }
 
     const bool atStart = intersection == road->getStart();
-    const Vec2 refPoint = RoadGeometry::roadReferenceEndpoint(*road, atStart);
-    const sf::Vector2f base = worldToScreen(refPoint.x, refPoint.y);
-
-    if (!RoadGeometry::hasReverseDirection(*road)) {
-        return base;
-    }
-
-    // Offset in screen-space pixels using the same (possibly floor-clamped)
-    // lane width getLaneWidthPixels() actually draws, instead of the raw
-    // world-metre offset RoadGeometry::roadSurfaceEndpoint used before —
-    // that's what let two-way carriageways overlap/merge.
-    const Vec2 startWorld = RoadGeometry::roadReferenceEndpoint(*road, true);
-    const Vec2 endWorld = RoadGeometry::roadReferenceEndpoint(*road, false);
-    const sf::Vector2f a = worldToScreen(startWorld.x, startWorld.y);
-    const sf::Vector2f b = worldToScreen(endWorld.x, endWorld.y);
-    const sf::Vector2f normPx = roadNormal(a, b);
-
-    const float laneWidthPx = getLaneWidthPixels(road);
-    const float totalWidthPx = laneWidthPx * static_cast<float>(road->getLaneCount());
-    const float medianGapPx = std::max(
-        1.0f,
-        static_cast<float>(
-            RoadGeometry::MEDIAN_GAP_METRES /
-            RoadGeometry::metresPerWorldUnit(*road) * scale_));
-    const float offsetPx = totalWidthPx * 0.5f + medianGapPx * 0.5f;
-
-    return base + normPx * offsetPx;
+    const Vec2 surfacePoint =
+        RoadGeometry::roadSurfaceEndpoint(*road, atStart);
+    return worldToScreen(surfacePoint.x, surfacePoint.y);
 }
 
 
@@ -341,11 +498,9 @@ float VisualizationEngine::getIntersectionBoxHalfExtent(const Intersection* inte
 float VisualizationEngine::getLaneWidthPixels(
     const Road* road) const {
     if (road == nullptr) return 1.0f;
-    return std::max(
-        MIN_LANE_WIDTH_PIXELS,
-        static_cast<float>(
-            RoadGeometry::LANE_WIDTH_METRES /
-            RoadGeometry::metresPerWorldUnit(*road) * scale_));
+    return static_cast<float>(
+        road->getLaneWidthMetres() /
+        RoadGeometry::metresPerWorldUnit(*road) * scale_);
 }
 
 sf::Color VisualizationEngine::getIntersectionBoxColor(const Intersection* intersection) const {

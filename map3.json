@@ -1,20 +1,19 @@
 {
-  "coordinateUnit": "world",
-  "defaultDistanceUnit": "legacy",
+  "coordinateUnit": "m",
+  "defaultDistanceUnit": "m",
   "defaultSpeedUnit": "km/h",
-  "defaultRadiusUnit": "km",
+  "defaultRadiusUnit": "m",
+  "defaultLaneWidth": 3.5,
   "intersections": [
     { "id": 1, "x": 55.0, "y": 90.0 },
     { "id": 2, "x": 16.0, "y": 70.0 },
     { "id": 3, "x": 84.0, "y": 20.0 }
   ],
   "roads": [
-    { "id": 101, "start": 1, "end": 2, "distance": 16.0, "speedLimit": 50.0, "lanes": 2 },
-    { "id": 102, "start": 2, "end": 1, "distance": 16.0, "speedLimit": 50.0, "lanes": 2 },
-
-    { "id": 103, "start": 3, "end": 2, "distance": 37.0, "speedLimit": 50.0, "lanes": 2 },
-
-    { "id": 105, "start": 1, "end": 3, "distance": 32.0, "speedLimit": 50.0, "lanes": 2 }
+    { "id": 101, "name": "West Link", "start": 1, "end": 2, "distance": 43.829, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 102, "name": "West Link", "start": 2, "end": 1, "distance": 43.829, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 103, "name": "Diagonal Northbound", "start": 3, "end": 2, "distance": 84.404, "speedLimit": 50.0, "lanes": 2 },
+    { "id": 105, "name": "Diagonal Southbound", "start": 1, "end": 3, "distance": 75.769, "speedLimit": 50.0, "lanes": 2 }
   ],
   "pois": [
     { "id": 201, "name": "House A", "x": 30.0, "y": 80.0, "type": "hospital" },

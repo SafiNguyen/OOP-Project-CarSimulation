@@ -16,8 +16,6 @@
 
 namespace {
 
-constexpr double INTERSECTION_STOP_LINE_OFFSET = 1.5;
-
 double combinedHalfLength(const Vehicle& first,
                           const Vehicle& second) {
     return (first.getLength() + second.getLength()) * 0.5;
@@ -186,11 +184,7 @@ PauseReason Vehicle::getIntersectionControlReason() const {
         Road* outgoing = getNextRoad();
         if (outgoing != nullptr) {
             const LaneMapping mapping =
-                TurnLanePolicy::map(
-                    *currentRoad,
-                    currentLaneIndex,
-                    *outgoing,
-                    true);
+                getJunctionEntryLaneMapping();
             if (!mapping.valid ||
                 currentLaneIndex != mapping.incomingLane) {
                 return PauseReason::Intersection;
@@ -236,8 +230,7 @@ double Vehicle::getIntersectionStopPosition() const {
     }
     const double nominalStopPosition = std::max(
         0.0,
-        currentRoad->getDistance() -
-            INTERSECTION_STOP_LINE_OFFSET -
+        RoadGeometry::stopLineProgressMetres(*currentRoad) -
             getLength() * 0.5);
     Intersection* intersection = currentRoad->getEnd();
     if (intersection == nullptr) {
@@ -490,6 +483,28 @@ LaneMapping Vehicle::getUpcomingLaneMapping() const {
     }
     return TurnLanePolicy::map(
         *currentRoad, currentLaneIndex, *nextRoad, true);
+}
+
+LaneMapping Vehicle::getJunctionEntryLaneMapping() const {
+    const LaneMapping preferred = getUpcomingLaneMapping();
+    if (!preferred.valid ||
+        preferred.incomingLane == currentLaneIndex) {
+        return preferred;
+    }
+
+    Road* nextRoad = getNextRoad();
+    if (currentRoad == nullptr || nextRoad == nullptr) {
+        return {};
+    }
+
+    // Lane preparation remains the preferred behavior. If a red-light queue
+    // prevented the merge, use the vehicle's actual lane at the stop line
+    // instead of leaving that lane permanently blocked after green.
+    return TurnLanePolicy::mapFromCurrentLane(
+        *currentRoad,
+        currentLaneIndex,
+        *nextRoad,
+        true);
 }
 
 bool Vehicle::beginJunctionTraversal(
@@ -1014,10 +1029,14 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
                 tryLaneChange(freeFlowSpeed);
             }
         }
+        const LaneMapping entryMapping =
+            getJunctionEntryLaneMapping();
         if (preparingForJunction &&
             currentLaneIndex != upcomingMapping.incomingLane &&
+            (!entryMapping.valid ||
+             entryMapping.incomingLane != currentLaneIndex) &&
             distanceToJunction <=
-                INTERSECTION_STOP_LINE_OFFSET + 0.25) {
+                RoadGeometry::STOP_LINE_SETBACK_METRES + 0.25) {
             targetSpeed = 0.0;
         }
 
@@ -1040,7 +1059,7 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
             Road* nextRoad = getNextRoad();
             if (nextRoad != nullptr) {
                 const LaneMapping leaderMapping =
-                    getUpcomingLaneMapping();
+                    getJunctionEntryLaneMapping();
                 const int nextLaneIndex = leaderMapping.valid
                     ? leaderMapping.outgoingLane
                     : std::clamp(
@@ -1168,7 +1187,7 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
                 static_cast<int>(currentRoute.size());
             if (hasNextRoad) {
                 const LaneMapping mapping =
-                    getUpcomingLaneMapping();
+                    getJunctionEntryLaneMapping();
                 if (!mapping.valid ||
                     currentLaneIndex != mapping.incomingLane ||
                     !beginJunctionTraversal(

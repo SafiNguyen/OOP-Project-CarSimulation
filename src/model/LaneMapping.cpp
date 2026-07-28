@@ -106,3 +106,52 @@ LaneMapping TurnLanePolicy::map(const Road& incoming,
         result.incomingLane >= 0 && result.outgoingLane >= 0;
     return result;
 }
+
+LaneMapping TurnLanePolicy::mapFromCurrentLane(
+    const Road& incoming,
+    int currentIncomingLane,
+    const Road& outgoing,
+    bool allowUTurn) {
+    LaneMapping result;
+    if (incoming.getLaneCount() <= 0 ||
+        outgoing.getLaneCount() <= 0 ||
+        incoming.getEnd() == nullptr ||
+        outgoing.getStart() == nullptr ||
+        incoming.getEnd() != outgoing.getStart()) {
+        return result;
+    }
+
+    result.movement = classify(incoming, outgoing);
+    if (result.movement == MovementType::UTurn && !allowUTurn) {
+        return result;
+    }
+
+    result.incomingLane =
+        nearestOpenLane(incoming, currentIncomingLane);
+    if (result.incomingLane < 0) {
+        return result;
+    }
+
+    const int incomingCount = incoming.getLaneCount();
+    const int outgoingCount = outgoing.getLaneCount();
+    int preferredOutgoingLane = 0;
+    if (incomingCount == 1) {
+        preferredOutgoingLane =
+            result.movement == MovementType::Right
+                ? outgoing.getCurbLaneIndex()
+                : 0;
+    } else {
+        const double normalizedLane =
+            static_cast<double>(result.incomingLane) /
+            static_cast<double>(incomingCount - 1);
+        preferredOutgoingLane =
+            static_cast<int>(std::lround(
+                normalizedLane *
+                static_cast<double>(outgoingCount - 1)));
+    }
+
+    result.outgoingLane =
+        nearestOpenLane(outgoing, preferredOutgoingLane);
+    result.valid = result.outgoingLane >= 0;
+    return result;
+}
