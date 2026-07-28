@@ -2,7 +2,7 @@
 #include <string>
 #include "model/Graph.h"
 #include "model/BusStop.h"
-#include "mapload.h"
+#include "Mapload.h"
 
 int main() {
     Graph graph;
