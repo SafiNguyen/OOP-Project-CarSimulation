@@ -16,7 +16,8 @@ public:
             double positionOnRoad,
             int laneIndex,
             double dwellTime = DEFAULT_DWELL_TIME,
-            bool hasConfiguredDwellTime = true);
+            bool hasConfiguredDwellTime = true,
+            std::string code = {});
 
     BusStop(const BusStop&) = delete;
     BusStop& operator=(const BusStop&) = delete;
@@ -24,6 +25,7 @@ public:
     BusStop& operator=(BusStop&&) = delete;
 
     int getId() const { return id_; }
+    const std::string& getCode() const { return code_; }
     const std::string& getName() const { return name_; }
     Road* getRoad() const { return road_; }
     int getRoadId() const;
@@ -35,6 +37,7 @@ public:
 
 private:
     int id_;
+    std::string code_;
     std::string name_;
     Road* road_;  // Non-owning. The Road owns this BusStop.
     double positionOnRoad_;

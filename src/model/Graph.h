@@ -9,6 +9,8 @@
 #include "PointOfInterest.h"
 
 class Crosswalk;
+class BusService;
+class BusStation;
 
 class Graph {
 private:
@@ -16,6 +18,8 @@ private:
     std::unordered_map<int, Road*> roads;
     std::vector<PointOfInterest*> pois;
     std::vector<std::unique_ptr<Crosswalk>> crosswalks;
+    std::vector<std::unique_ptr<BusStation>> busStations;
+    std::vector<std::unique_ptr<BusService>> busServices;
 
 public:
     Graph();
@@ -65,6 +69,17 @@ public:
     void removeCrosswalk(int id);
     Crosswalk* getCrosswalk(int id) const;
     std::vector<Crosswalk*> getAllCrosswalks() const;
+
+    // --- Public transit metadata ---
+    bool addBusStation(std::unique_ptr<BusStation> station);
+    BusStation* getBusStation(int id) const;
+    BusStation* getBusStationByCode(const std::string& code) const;
+    std::vector<BusStation*> getAllBusStations() const;
+
+    bool addBusService(std::unique_ptr<BusService> service);
+    BusService* getBusService(int id) const;
+    BusService* getBusServiceByCode(const std::string& code) const;
+    std::vector<BusService*> getAllBusServices() const;
 };
 
 #endif

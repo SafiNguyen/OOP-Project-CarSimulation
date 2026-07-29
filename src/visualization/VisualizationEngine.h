@@ -9,6 +9,7 @@
 class Graph;
 class Road;
 class Intersection;
+class Vehicle;
 
 class VisualizationEngine {
 public:
@@ -68,6 +69,7 @@ private:
                               unsigned int cellSize) const;
     void drawTrafficLights(sf::RenderTarget& target, const Graph& graph) const;
     void drawBusStops(sf::RenderTarget& target, const Graph& graph) const;
+    void drawBusStations(sf::RenderTarget& target, const Graph& graph) const;
     void drawSidewalks(sf::RenderTarget& target, const Graph& graph) const;
     void drawCrosswalks(sf::RenderTarget& target, const Graph& graph) const;
     void drawCrosswalkSignals(sf::RenderTarget& target,

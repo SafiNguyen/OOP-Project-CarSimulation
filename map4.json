@@ -431,34 +431,231 @@
     "busStops": [
         {
             "id": 501,
+            "code": "1",
             "name": "West Gate",
             "roadId": 100,
-            "positionRatio": 0.3,
+            "positionRatio": 0.15,
             "lane": 1,
             "dwellTime": 10.0
         },
         {
             "id": 502,
+            "code": "2",
             "name": "Central Market",
             "roadId": 100,
-            "positionRatio": 0.7,
+            "positionRatio": 0.85,
             "lane": 1,
             "dwellTime": 15.0
         },
         {
             "id": 503,
+            "code": "3",
             "name": "Central Market Eastbound",
             "roadId": 104,
-            "positionRatio": 0.55,
+            "positionRatio": 0.65,
             "lane": 1,
             "dwellTime": 12.0
         },
         {
             "id": 504,
+            "code": "4",
             "name": "West Gate Return",
             "roadId": -100,
-            "positionRatio": 0.65,
+            "positionRatio": 0.5,
             "lane": 1
+        },
+        {
+            "id": 505,
+            "code": "5",
+            "name": "Mid Avenue Westbound",
+            "roadId": -105,
+            "positionRatio": 0.5,
+            "lane": 2,
+            "dwellTime": 12.0
+        },
+        {
+            "id": 506,
+            "code": "6",
+            "name": "Market Road Eastbound",
+            "roadId": 109,
+            "positionRatio": 0.65,
+            "lane": 1,
+            "dwellTime": 12.0
+        },
+        {
+            "id": 507,
+            "code": "7",
+            "name": "Market Road Westbound",
+            "roadId": -110,
+            "positionRatio": 0.45,
+            "lane": 1,
+            "dwellTime": 12.0
+        },
+        {
+            "id": 508,
+            "code": "8",
+            "name": "South Boulevard Eastbound",
+            "roadId": 114,
+            "positionRatio": 0.35,
+            "lane": 2,
+            "dwellTime": 12.0
+        },
+        {
+            "id": 509,
+            "code": "9",
+            "name": "South Boulevard Westbound",
+            "roadId": -115,
+            "positionRatio": 0.35,
+            "lane": 2,
+            "dwellTime": 12.0
+        }
+    ],
+    "busStations": [
+        {
+            "id": 601,
+            "code": "BS01",
+            "name": "West Bus Station",
+            "accessIntersectionId": 0,
+            "departureRoadId": 100,
+            "arrivalRoadId": -100,
+            "capacity": 10
+        },
+        {
+            "id": 602,
+            "code": "BS02",
+            "name": "East Bus Station",
+            "accessIntersectionId": 4,
+            "departureRoadId": -103,
+            "arrivalRoadId": 103,
+            "capacity": 10
+        },
+        {
+            "id": 603,
+            "code": "BS03",
+            "name": "West Mid Bus Station",
+            "accessIntersectionId": 5,
+            "departureRoadId": 104,
+            "arrivalRoadId": -104,
+            "capacity": 10
+        },
+        {
+            "id": 604,
+            "code": "BS04",
+            "name": "East Mid Bus Station",
+            "accessIntersectionId": 9,
+            "departureRoadId": -107,
+            "arrivalRoadId": 107,
+            "capacity": 10
+        },
+        {
+            "id": 605,
+            "code": "BS05",
+            "name": "West Market Bus Station",
+            "accessIntersectionId": 10,
+            "departureRoadId": 108,
+            "arrivalRoadId": -108,
+            "capacity": 10
+        },
+        {
+            "id": 606,
+            "code": "BS06",
+            "name": "East Market Bus Station",
+            "accessIntersectionId": 14,
+            "departureRoadId": -111,
+            "arrivalRoadId": 111,
+            "capacity": 10
+        },
+        {
+            "id": 607,
+            "code": "BS07",
+            "name": "West South Bus Station",
+            "accessIntersectionId": 15,
+            "departureRoadId": 112,
+            "arrivalRoadId": -112,
+            "capacity": 10
+        },
+        {
+            "id": 608,
+            "code": "BS08",
+            "name": "East South Bus Station",
+            "accessIntersectionId": 19,
+            "departureRoadId": -115,
+            "arrivalRoadId": 115,
+            "capacity": 10
+        }
+    ],
+    "busServices": [
+        {
+            "id": 701,
+            "code": "B1",
+            "name": "West-East Service",
+            "originStationId": 601,
+            "destinationStationId": 602,
+            "roadIds": [100, 101, 102, 103],
+            "stopIds": [501, 502]
+        },
+        {
+            "id": 702,
+            "code": "B2",
+            "name": "East-West Service",
+            "originStationId": 602,
+            "destinationStationId": 601,
+            "roadIds": [-103, -102, -101, -100],
+            "stopIds": [504]
+        },
+        {
+            "id": 703,
+            "code": "B3",
+            "name": "Mid Avenue Eastbound",
+            "originStationId": 603,
+            "destinationStationId": 604,
+            "roadIds": [104, 105, 106, 107],
+            "stopIds": [503]
+        },
+        {
+            "id": 704,
+            "code": "B4",
+            "name": "Mid Avenue Westbound",
+            "originStationId": 604,
+            "destinationStationId": 603,
+            "roadIds": [-107, -106, -105, -104],
+            "stopIds": [505]
+        },
+        {
+            "id": 705,
+            "code": "B5",
+            "name": "Market Road Eastbound",
+            "originStationId": 605,
+            "destinationStationId": 606,
+            "roadIds": [108, 109, 110, 111],
+            "stopIds": [506]
+        },
+        {
+            "id": 706,
+            "code": "B6",
+            "name": "Market Road Westbound",
+            "originStationId": 606,
+            "destinationStationId": 605,
+            "roadIds": [-111, -110, -109, -108],
+            "stopIds": [507]
+        },
+        {
+            "id": 707,
+            "code": "B7",
+            "name": "South Boulevard Eastbound",
+            "originStationId": 607,
+            "destinationStationId": 608,
+            "roadIds": [112, 113, 114, 115],
+            "stopIds": [508]
+        },
+        {
+            "id": 708,
+            "code": "B8",
+            "name": "South Boulevard Westbound",
+            "originStationId": 608,
+            "destinationStationId": 607,
+            "roadIds": [-115, -114, -113, -112],
+            "stopIds": [509]
         }
     ],
     "pois": [
@@ -467,42 +664,162 @@
             "name": "City Hospital",
             "x": 75.0,
             "y": 75.0,
-            "type": "hospital"
+            "type": "hospital",
+            "capacity": 6,
+            "spawnWeight": 1.0,
+            "destinationWeight": 0.0,
+            "spawnCooldown": 1.5,
+            "accessRoadId": 200,
+            "accessProgress": 25.0,
+            "accessLane": 1
         },
         {
             "id": 301,
             "name": "Central Mall",
             "x": 225.0,
             "y": 225.0,
-            "type": "supermarket"
+            "type": "supermarket",
+            "spawnWeight": 0.0,
+            "destinationWeight": 1.5,
+            "accessRoadId": 109,
+            "accessProgress": 75.0,
+            "accessLane": 1
         },
         {
             "id": 302,
             "name": "Movie Theater",
             "x": 425.0,
             "y": 125.0,
-            "type": "cinema"
-        },
-        {
-            "id": 303,
-            "name": "Main Bus Station",
-            "x": 125.0,
-            "y": 325.0,
-            "type": "bus_station"
+            "type": "cinema",
+            "spawnWeight": 0.0,
+            "destinationWeight": 1.1,
+            "accessRoadId": 212,
+            "accessProgress": 75.0,
+            "accessLane": 1
         },
         {
             "id": 304,
             "name": "Downtown Parking",
             "x": 275.0,
             "y": 175.0,
-            "type": "parking_lot"
+            "type": "parking_lot",
+            "capacity": 12,
+            "spawnWeight": 0.65,
+            "destinationWeight": 0.8,
+            "spawnCooldown": 1.2,
+            "accessRoadId": 207,
+            "accessProgress": 25.0,
+            "accessLane": 1
         },
         {
             "id": 305,
             "name": "River Park",
             "x": 325.0,
             "y": 75.0,
-            "type": "tourist_spot"
+            "type": "tourist_spot",
+            "spawnWeight": 0.0,
+            "destinationWeight": 0.9,
+            "accessRoadId": 102,
+            "accessProgress": 75.0,
+            "accessLane": 1
+        },
+        {
+            "id": 306,
+            "name": "Northwest Residences",
+            "x": 75.0,
+            "y": 125.0,
+            "type": "residential_area",
+            "capacity": 8,
+            "spawnWeight": 1.1,
+            "destinationWeight": 1.0,
+            "spawnCooldown": 1.4,
+            "accessRoadId": 104,
+            "accessProgress": 25.0,
+            "accessLane": 1
+        },
+        {
+            "id": 307,
+            "name": "North Central Residences",
+            "x": 175.0,
+            "y": 75.0,
+            "type": "residential_area",
+            "capacity": 10,
+            "spawnWeight": 1.25,
+            "destinationWeight": 1.1,
+            "spawnCooldown": 1.3,
+            "accessRoadId": 101,
+            "accessProgress": 25.0,
+            "accessLane": 1
+        },
+        {
+            "id": 308,
+            "name": "Northeast Residences",
+            "x": 375.0,
+            "y": 75.0,
+            "type": "residential_area",
+            "capacity": 9,
+            "spawnWeight": 1.1,
+            "destinationWeight": 1.0,
+            "spawnCooldown": 1.4,
+            "accessRoadId": 103,
+            "accessProgress": 25.0,
+            "accessLane": 1
+        },
+        {
+            "id": 309,
+            "name": "Westside Residences",
+            "x": 75.0,
+            "y": 225.0,
+            "type": "residential_area",
+            "capacity": 12,
+            "spawnWeight": 1.3,
+            "destinationWeight": 1.15,
+            "spawnCooldown": 1.2,
+            "accessRoadId": 108,
+            "accessProgress": 25.0,
+            "accessLane": 1
+        },
+        {
+            "id": 310,
+            "name": "Southwest Residences",
+            "x": 75.0,
+            "y": 325.0,
+            "type": "residential_area",
+            "capacity": 10,
+            "spawnWeight": 1.15,
+            "destinationWeight": 1.05,
+            "spawnCooldown": 1.3,
+            "accessRoadId": 112,
+            "accessProgress": 25.0,
+            "accessLane": 2
+        },
+        {
+            "id": 311,
+            "name": "South Central Residences",
+            "x": 275.0,
+            "y": 325.0,
+            "type": "residential_area",
+            "capacity": 12,
+            "spawnWeight": 1.3,
+            "destinationWeight": 1.15,
+            "spawnCooldown": 1.2,
+            "accessRoadId": 114,
+            "accessProgress": 25.0,
+            "accessLane": 2
+        },
+        {
+            "id": 312,
+            "name": "Southeast Residences",
+            "x": 425.0,
+            "y": 325.0,
+            "type": "residential_area",
+            "capacity": 10,
+            "spawnWeight": 1.15,
+            "destinationWeight": 1.05,
+            "spawnCooldown": 1.3,
+            "accessRoadId": 115,
+            "accessProgress": 75.0,
+            "accessLane": 2
         }
     ],
     "trafficLights": [

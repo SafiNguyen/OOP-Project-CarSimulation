@@ -6,6 +6,7 @@
 #include <memory>
 #include <set>
 #include <sstream>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -22,6 +23,7 @@
 #include "SpawnPoint.h"
 #include "Destination.h"
 #include "BusStop.h"
+#include "BusService.h"
 #include "Crosswalk.h"
 #include "common/Units.h"
 
@@ -883,6 +885,8 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 	}
 
 	// --- Parse bus stops (optional section) ---
+	std::unordered_map<int, const BusStop*> busStopsById;
+	std::unordered_set<std::string> busStopCodes;
 	if (root.contains("busStops")) {
 		if (!root.at("busStops").is_array()) {
 			if (error) {
@@ -908,6 +912,7 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 			int lane = 0;
 			double positionRatio = 0.0;
 			double dwellTime = BusStop::DEFAULT_DWELL_TIME;
+			std::string code;
 			std::string name;
 			std::string localError;
 
@@ -925,6 +930,7 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 			}
 			if (!getIntOptional(item, "lane", lane, localError) ||
 			    !getDoubleOptional(item, "dwellTime", dwellTime, localError) ||
+			    !getStringOptional(item, "code", code, localError) ||
 			    !getStringOptional(item, "name", name, localError)) {
 				if (error) *error = stopContext + ": " + localError;
 				return false;
@@ -932,6 +938,24 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 
 			if (!busStopIds.insert(stopId).second) {
 				if (error) *error = stopContext + ": duplicate bus stop id.";
+				return false;
+			}
+			if (item.contains("code") && code.empty()) {
+				if (error) {
+					*error = stopContext +
+						": code must be a non-empty string.";
+				}
+				return false;
+			}
+			if (code.empty()) {
+				code = "S" + std::to_string(stopId);
+			}
+			if (!busStopCodes.insert(code).second) {
+				if (error) {
+					*error = stopContext +
+						": code '" + code +
+						"' must be non-empty and unique.";
+				}
 				return false;
 			}
 
@@ -993,11 +1017,424 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 				positionOnRoad,
 				lane,
 				dwellTime,
-				hasConfiguredDwellTime);
+				hasConfiguredDwellTime,
+				code);
+			const BusStop* storedBusStop = busStop.get();
 			if (!road->addBusStop(std::move(busStop))) {
 				if (error) {
 					*error = stopContext + ": could not be added to road "
 					       + std::to_string(roadId) + ".";
+				}
+				return false;
+			}
+			busStopsById.emplace(stopId, storedBusStop);
+		}
+	}
+
+	// --- Parse public-transit stations (optional/backward-compatible) ---
+	if (root.contains("busStations")) {
+		if (!root.at("busStations").is_array()) {
+			if (error) {
+				*error =
+					"Invalid 'busStations': expected an array.";
+			}
+			return false;
+		}
+
+		const auto& stationItems = root.at("busStations");
+		for (std::size_t index = 0;
+			 index < stationItems.size();
+			 ++index) {
+			const auto& item = stationItems.at(index);
+			const std::string indexContext =
+				"Bus station at index " +
+				std::to_string(index);
+			if (!item.is_object()) {
+				if (error) {
+					*error = indexContext +
+						": expected a JSON object.";
+				}
+				return false;
+			}
+
+			int stationId = 0;
+			int accessIntersectionId = 0;
+			int departureRoadId = 0;
+			int arrivalRoadId = 0;
+			int capacity = 0;
+			std::string code;
+			std::string name;
+			std::string localError;
+			if (!getInt(item, "id", stationId, localError)) {
+				if (error) {
+					*error = indexContext + ": " + localError;
+				}
+				return false;
+			}
+			const std::string stationContext =
+				"Bus station " + std::to_string(stationId) +
+				" at index " + std::to_string(index);
+			if (!getStringOptional(
+					item, "code", code, localError) ||
+				!getStringOptional(
+					item, "name", name, localError) ||
+				!getInt(
+					item,
+					"accessIntersectionId",
+					accessIntersectionId,
+					localError) ||
+				!getInt(
+					item,
+					"departureRoadId",
+					departureRoadId,
+					localError) ||
+				!getInt(
+					item,
+					"arrivalRoadId",
+					arrivalRoadId,
+					localError) ||
+				!getInt(
+					item, "capacity", capacity, localError)) {
+				if (error) {
+					*error = stationContext + ": " + localError;
+				}
+				return false;
+			}
+			if (code.empty() || name.empty()) {
+				if (error) {
+					*error = stationContext +
+						": code and name must be non-empty strings.";
+				}
+				return false;
+			}
+			if (capacity <= 0) {
+				if (error) {
+					*error = stationContext +
+						": capacity must be positive.";
+				}
+				return false;
+			}
+			if (graph.getBusStation(stationId) != nullptr ||
+				graph.getBusStationByCode(code) != nullptr) {
+				if (error) {
+					*error = stationContext +
+						": id and code must be unique.";
+				}
+				return false;
+			}
+
+			Intersection* access =
+				graph.getIntersection(accessIntersectionId);
+			Road* departureRoad =
+				graph.getRoad(departureRoadId);
+			Road* arrivalRoad =
+				graph.getRoad(arrivalRoadId);
+			if (access == nullptr) {
+				if (error) {
+					*error = stationContext +
+						": accessIntersectionId " +
+						std::to_string(accessIntersectionId) +
+						" does not exist.";
+				}
+				return false;
+			}
+			if (departureRoad == nullptr) {
+				if (error) {
+					*error = stationContext +
+						": departureRoadId " +
+						std::to_string(departureRoadId) +
+						" does not exist.";
+				}
+				return false;
+			}
+			if (arrivalRoad == nullptr) {
+				if (error) {
+					*error = stationContext +
+						": arrivalRoadId " +
+						std::to_string(arrivalRoadId) +
+						" does not exist.";
+				}
+				return false;
+			}
+			if (departureRoad->getStart() != access ||
+				arrivalRoad->getEnd() != access) {
+				if (error) {
+					*error = stationContext +
+						": departure road must start and arrival "
+						"road must end at the access intersection.";
+				}
+				return false;
+			}
+
+			auto station = std::make_unique<BusStation>(
+				stationId,
+				code,
+				name,
+				access->getX(),
+				access->getY(),
+				access,
+				departureRoad,
+				arrivalRoad,
+				capacity);
+			if (!graph.addBusStation(std::move(station))) {
+				if (error) {
+					*error = stationContext +
+						": could not be added to Graph.";
+				}
+				return false;
+			}
+		}
+	}
+
+	// --- Parse immutable public-transit services ---
+	if (root.contains("busServices")) {
+		if (!root.at("busServices").is_array()) {
+			if (error) {
+				*error =
+					"Invalid 'busServices': expected an array.";
+			}
+			return false;
+		}
+		if (graph.getAllBusStations().empty() &&
+			!root.at("busServices").empty()) {
+			if (error) {
+				*error =
+					"Invalid 'busServices': no busStations are configured.";
+			}
+			return false;
+		}
+
+		const auto& serviceItems = root.at("busServices");
+		for (std::size_t index = 0;
+			 index < serviceItems.size();
+			 ++index) {
+			const auto& item = serviceItems.at(index);
+			const std::string indexContext =
+				"Bus service at index " +
+				std::to_string(index);
+			if (!item.is_object()) {
+				if (error) {
+					*error = indexContext +
+						": expected a JSON object.";
+				}
+				return false;
+			}
+
+			int serviceId = 0;
+			int originStationId = 0;
+			int destinationStationId = 0;
+			std::string code;
+			std::string name;
+			std::string localError;
+			if (!getInt(item, "id", serviceId, localError)) {
+				if (error) {
+					*error = indexContext + ": " + localError;
+				}
+				return false;
+			}
+			const std::string serviceContext =
+				"Bus service " + std::to_string(serviceId) +
+				" at index " + std::to_string(index);
+			if (!getStringOptional(
+					item, "code", code, localError) ||
+				!getStringOptional(
+					item, "name", name, localError) ||
+				!getInt(
+					item,
+					"originStationId",
+					originStationId,
+					localError) ||
+				!getInt(
+					item,
+					"destinationStationId",
+					destinationStationId,
+					localError)) {
+				if (error) {
+					*error = serviceContext + ": " + localError;
+				}
+				return false;
+			}
+			if (code.empty() || name.empty()) {
+				if (error) {
+					*error = serviceContext +
+						": code and name must be non-empty strings.";
+				}
+				return false;
+			}
+			if (graph.getBusService(serviceId) != nullptr ||
+				graph.getBusServiceByCode(code) != nullptr) {
+				if (error) {
+					*error = serviceContext +
+						": id and code must be unique.";
+				}
+				return false;
+			}
+			BusStation* origin =
+				graph.getBusStation(originStationId);
+			BusStation* destination =
+				graph.getBusStation(destinationStationId);
+			if (origin == nullptr || destination == nullptr) {
+				if (error) {
+					*error = serviceContext +
+						": originStationId and destinationStationId "
+						"must reference configured stations.";
+				}
+				return false;
+			}
+			if (origin == destination) {
+				if (error) {
+					*error = serviceContext +
+						": origin and destination must be different.";
+				}
+				return false;
+			}
+			if (!item.contains("roadIds") ||
+				!item.at("roadIds").is_array() ||
+				item.at("roadIds").empty()) {
+				if (error) {
+					*error = serviceContext +
+						": roadIds must be a non-empty array.";
+				}
+				return false;
+			}
+			if (!item.contains("stopIds") ||
+				!item.at("stopIds").is_array()) {
+				if (error) {
+					*error = serviceContext +
+						": stopIds must be an array.";
+				}
+				return false;
+			}
+
+			std::vector<Road*> route;
+			for (const auto& roadIdItem :
+				 item.at("roadIds")) {
+				if (!roadIdItem.is_number_integer()) {
+					if (error) {
+						*error = serviceContext +
+							": roadIds contains a non-integer value.";
+					}
+					return false;
+				}
+				const int roadId = roadIdItem.get<int>();
+				Road* road = graph.getRoad(roadId);
+				if (road == nullptr) {
+					if (error) {
+						*error = serviceContext +
+							": roadId " + std::to_string(roadId) +
+							" does not exist.";
+					}
+					return false;
+				}
+				if (!route.empty() &&
+					route.back()->getEnd() != road->getStart()) {
+					if (error) {
+						*error = serviceContext +
+							": road route is not continuous before road " +
+							std::to_string(roadId) + ".";
+					}
+					return false;
+				}
+				route.push_back(road);
+			}
+			if (route.front() != origin->getDepartureRoad() ||
+				route.front()->getStart() !=
+					origin->getAccessIntersection()) {
+				if (error) {
+					*error = serviceContext +
+						": route must begin on the origin station's "
+						"departure road.";
+				}
+				return false;
+			}
+			if (route.back() != destination->getArrivalRoad() ||
+				route.back()->getEnd() !=
+					destination->getAccessIntersection()) {
+				if (error) {
+					*error = serviceContext +
+						": route must end on the destination station's "
+						"arrival road.";
+				}
+				return false;
+			}
+
+			std::vector<const BusStop*> orderedStops;
+			std::unordered_set<int> serviceStopIds;
+			std::size_t minimumRouteIndex = 0;
+			double previousPosition = -1.0;
+			bool hasPreviousStop = false;
+			for (const auto& stopIdItem :
+				 item.at("stopIds")) {
+				if (!stopIdItem.is_number_integer()) {
+					if (error) {
+						*error = serviceContext +
+							": stopIds contains a non-integer value.";
+					}
+					return false;
+				}
+				const int stopId = stopIdItem.get<int>();
+				if (!serviceStopIds.insert(stopId).second) {
+					if (error) {
+						*error = serviceContext +
+							": duplicate stopId " +
+							std::to_string(stopId) + ".";
+					}
+					return false;
+				}
+				const auto stopFound =
+					busStopsById.find(stopId);
+				if (stopFound == busStopsById.end()) {
+					if (error) {
+						*error = serviceContext +
+							": stopId " + std::to_string(stopId) +
+							" does not exist.";
+					}
+					return false;
+				}
+				const BusStop* stop = stopFound->second;
+				std::size_t routeIndex = minimumRouteIndex;
+				while (routeIndex < route.size() &&
+					   route[routeIndex] != stop->getRoad()) {
+					++routeIndex;
+				}
+				if (routeIndex == route.size()) {
+					if (error) {
+						*error = serviceContext +
+							": stop " + std::to_string(stopId) +
+							" is not on the ordered directional route.";
+					}
+					return false;
+				}
+				if (hasPreviousStop &&
+					routeIndex == minimumRouteIndex &&
+					stop->getPositionOnRoad() <=
+						previousPosition) {
+					if (error) {
+						*error = serviceContext +
+							": stop order is not increasing on road " +
+							std::to_string(stop->getRoadId()) + ".";
+					}
+					return false;
+				}
+				previousPosition =
+					stop->getPositionOnRoad();
+				minimumRouteIndex = routeIndex;
+				hasPreviousStop = true;
+				orderedStops.push_back(stop);
+			}
+
+			auto service = std::make_unique<BusService>(
+				serviceId,
+				code,
+				name,
+				*origin,
+				*destination,
+				std::move(route),
+				std::move(orderedStops));
+			if (!graph.addBusService(std::move(service))) {
+				if (error) {
+					*error = serviceContext +
+						": could not be added to Graph.";
 				}
 				return false;
 			}
@@ -1007,22 +1444,110 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 	// --- Parse POIs (optional section) ---
 	if (root.contains("pois") && root.at("pois").is_array()) {
 		for (const auto& item : root.at("pois")) {
-			if (!item.is_object()) continue;
+			if (!item.is_object()) {
+				if (error) *error = "Each POI must be a JSON object.";
+				return false;
+			}
 
 			int poiId = 0;
 			double px = 0.0, py = 0.0;
 			std::string poiName, poiTypeStr;
 			int nearestId = -1;
+			int capacity = -1;
+			int accessRoadId = 0;
+			int accessLane = -1;
+			double spawnWeight = 1.0;
+			double destinationWeight = 1.0;
+			double spawnCooldown = 1.0;
+			double accessProgress = 0.0;
+			double positionRatio = 0.0;
 			std::string localError;
 
-			if (!getInt(item, "id", poiId, localError)) continue;
-			getDoubleOptional(item, "x", px, localError);
-			getDoubleOptional(item, "y", py, localError);
-			getStringOptional(item, "name", poiName, localError);
-			getStringOptional(item, "type", poiTypeStr, localError);
-			getIntOptional(item, "nearestIntersection", nearestId, localError);
+			if (!getInt(item, "id", poiId, localError) ||
+				!getDoubleOptional(item, "x", px, localError) ||
+				!getDoubleOptional(item, "y", py, localError) ||
+				!getStringOptional(item, "name", poiName, localError) ||
+				!getStringOptional(item, "type", poiTypeStr, localError) ||
+				!getIntOptional(
+					item, "nearestIntersection", nearestId, localError) ||
+				!getIntOptional(item, "capacity", capacity, localError) ||
+				!getIntOptional(
+					item, "accessRoadId", accessRoadId, localError) ||
+				!getIntOptional(
+					item, "accessLane", accessLane, localError) ||
+				!getDoubleOptional(
+					item, "spawnWeight", spawnWeight, localError) ||
+				!getDoubleOptional(
+					item,
+					"destinationWeight",
+					destinationWeight,
+					localError) ||
+				!getDoubleOptional(
+					item,
+					"spawnCooldown",
+					spawnCooldown,
+					localError) ||
+				!getDoubleOptional(
+					item,
+					"accessProgress",
+					accessProgress,
+					localError) ||
+				!getDoubleOptional(
+					item,
+					"positionRatio",
+					positionRatio,
+					localError)) {
+				if (error) {
+					*error =
+						"POI " + std::to_string(poiId) +
+						": " + localError;
+				}
+				return false;
+			}
+			if (graph.getPOI(poiId) != nullptr) {
+				if (error) {
+					*error =
+						"Duplicate POI id: " +
+						std::to_string(poiId);
+				}
+				return false;
+			}
+			if (!std::isfinite(px) || !std::isfinite(py) ||
+				!std::isfinite(spawnWeight) ||
+				!std::isfinite(destinationWeight) ||
+				!std::isfinite(spawnCooldown) ||
+				spawnWeight < 0.0 ||
+				destinationWeight < 0.0 ||
+				spawnCooldown <= 0.0) {
+				if (error) {
+					*error =
+						"POI " + std::to_string(poiId) +
+						": coordinates and weights must be finite; "
+						"weights must be non-negative and "
+						"spawnCooldown must be positive.";
+				}
+				return false;
+			}
+			if (item.contains("accessProgress") &&
+				item.contains("positionRatio")) {
+				if (error) {
+					*error =
+						"POI " + std::to_string(poiId) +
+						": configure either accessProgress or "
+						"positionRatio, not both.";
+				}
+				return false;
+			}
 
 			Intersection* nearest = (nearestId >= 0) ? graph.getIntersection(nearestId) : nullptr;
+			if (nearestId >= 0 && nearest == nullptr) {
+				if (error) {
+					*error =
+						"POI " + std::to_string(poiId) +
+						": nearestIntersection does not exist.";
+				}
+				return false;
+			}
 			POIType poiType = PointOfInterest::typeFromString(poiTypeStr);
 
 			PointOfInterest* poi = nullptr;
@@ -1036,6 +1561,10 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 					break;
 				case POIType::HOSPITAL:
 					poi = new HospitalSpawn(poiId, poiName, px, py, nearest);
+					break;
+				case POIType::RESIDENTIAL_AREA:
+					poi = new ResidentialArea(
+						poiId, poiName, px, py, nearest);
 					break;
 				// Destinations
 				case POIType::RESTAURANT:
@@ -1053,6 +1582,105 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 				default:
 					poi = new PointOfInterest(poiId, poiName, poiType, px, py, nearest);
 					break;
+			}
+			poi->setSpawnWeight(spawnWeight);
+			poi->setDestinationWeight(destinationWeight);
+			poi->setSpawnCooldownSeconds(spawnCooldown);
+
+			if (item.contains("capacity")) {
+				SpawnPoint* spawnPoint =
+					dynamic_cast<SpawnPoint*>(poi);
+				if (spawnPoint == nullptr || capacity <= 0) {
+					delete poi;
+					if (error) {
+						*error =
+							"POI " + std::to_string(poiId) +
+							": capacity is only valid for a spawn "
+							"point and must be positive.";
+					}
+					return false;
+				}
+				spawnPoint->setCapacity(capacity);
+			}
+
+			if (item.contains("accessRoadId")) {
+				Road* accessRoad =
+					graph.getRoad(accessRoadId);
+				if (accessRoad == nullptr) {
+					delete poi;
+					if (error) {
+						*error =
+							"POI " + std::to_string(poiId) +
+							": accessRoadId " +
+							std::to_string(accessRoadId) +
+							" does not exist.";
+					}
+					return false;
+				}
+				double progress = 0.0;
+				if (item.contains("positionRatio")) {
+					if (!std::isfinite(positionRatio) ||
+						positionRatio < 0.0 ||
+						positionRatio > 1.0) {
+						delete poi;
+						if (error) {
+							*error =
+								"POI " + std::to_string(poiId) +
+								": positionRatio must be in [0, 1].";
+						}
+						return false;
+					}
+					progress =
+						positionRatio *
+						accessRoad->getDistance();
+				} else if (item.contains("accessProgress")) {
+					progress = accessProgress;
+				} else {
+					delete poi;
+					if (error) {
+						*error =
+							"POI " + std::to_string(poiId) +
+							": explicit accessRoadId requires "
+							"accessProgress or positionRatio.";
+					}
+					return false;
+				}
+				if (!std::isfinite(progress) ||
+					progress < 0.0 ||
+					progress > accessRoad->getDistance() ||
+					accessLane < -1 ||
+					accessLane >=
+						accessRoad->getLaneCount()) {
+					delete poi;
+					if (error) {
+						*error =
+							"POI " + std::to_string(poiId) +
+							": invalid road access progress or lane.";
+					}
+					return false;
+				}
+				poi->configureRoadAccess(
+					accessRoad,
+					progress,
+					accessLane);
+				if (nearest == nullptr) {
+					poi->setNearestIntersection(
+						progress <=
+								accessRoad->getDistance() * 0.5
+							? accessRoad->getStart()
+							: accessRoad->getEnd());
+				}
+			} else if (
+				item.contains("accessProgress") ||
+				item.contains("positionRatio") ||
+				item.contains("accessLane")) {
+				delete poi;
+				if (error) {
+					*error =
+						"POI " + std::to_string(poiId) +
+						": road access fields require accessRoadId.";
+				}
+				return false;
 			}
 			graph.addPOI(poi);
 		}

@@ -2,8 +2,11 @@
 #include <cmath>
 #include <limits>
 #include <algorithm>
+#include <utility>
 
 #include "Crosswalk.h"
+#include "BusService.h"
+#include "SpawnPoint.h"
 
 Graph::Graph() {
 }
@@ -16,11 +19,15 @@ Graph::Graph(Graph&& other) noexcept
     : intersections(std::move(other.intersections)),
       roads(std::move(other.roads)),
       pois(std::move(other.pois)),
-      crosswalks(std::move(other.crosswalks)) {
+      crosswalks(std::move(other.crosswalks)),
+      busStations(std::move(other.busStations)),
+      busServices(std::move(other.busServices)) {
     other.intersections.clear();
     other.roads.clear();
     other.pois.clear();
     other.crosswalks.clear();
+    other.busStations.clear();
+    other.busServices.clear();
 }
 
 Graph& Graph::operator=(Graph&& other) noexcept {
@@ -31,17 +38,24 @@ Graph& Graph::operator=(Graph&& other) noexcept {
         roads = std::move(other.roads);
         pois = std::move(other.pois);
         crosswalks = std::move(other.crosswalks);
+        busStations = std::move(other.busStations);
+        busServices = std::move(other.busServices);
         
         other.intersections.clear();
         other.roads.clear();
         other.pois.clear();
         other.crosswalks.clear();
+        other.busStations.clear();
+        other.busServices.clear();
     }
     return *this;
 }
 
 // --- Utility ---
 void Graph::clearGraph() {
+    busServices.clear();
+    busStations.clear();
+
     for (const auto& crosswalk : crosswalks) {
         if (crosswalk != nullptr &&
             crosswalk->getIntersection() != nullptr) {
@@ -347,6 +361,9 @@ std::vector<PointOfInterest*> Graph::getDestinations() const {
 void Graph::bindPOIsToRoads() {
     for (auto* poi : pois) {
         if (!poi) continue;
+        if (poi->hasExplicitRoadAccess()) {
+            continue;
+        }
         
         Road* bestRoad = nullptr;
         double minSqDist = std::numeric_limits<double>::infinity();
@@ -378,7 +395,21 @@ void Graph::bindPOIsToRoads() {
             double projY = sy + t * dy;
             
             double distSq = (px - projX) * (px - projX) + (py - projY) * (py - projY);
-            if (distSq < minSqDist) {
+            const bool closer =
+                distSq < minSqDist - 1e-9;
+            const bool tied =
+                std::fabs(distSq - minSqDist) <= 1e-9;
+            const auto directionRank =
+                [](const Road* candidate) {
+                    return std::make_pair(
+                        candidate->getId() < 0 ? 1 : 0,
+                        std::abs(candidate->getId()));
+                };
+            if (closer ||
+                (tied &&
+                 (bestRoad == nullptr ||
+                  directionRank(road) <
+                      directionRank(bestRoad)))) {
                 minSqDist = distSq;
                 bestRoad = road;
                 bestOffset = t * std::sqrt(lenSq);
@@ -455,6 +486,105 @@ std::vector<Crosswalk*> Graph::getAllCrosswalks() const {
     for (const auto& crosswalk : crosswalks) {
         if (crosswalk != nullptr) {
             result.push_back(crosswalk.get());
+        }
+    }
+    return result;
+}
+
+bool Graph::addBusStation(
+    std::unique_ptr<BusStation> station) {
+    if (station == nullptr ||
+        !station->isConfiguredTransitStation() ||
+        getBusStation(station->getId()) != nullptr ||
+        getBusStationByCode(station->getCode()) != nullptr) {
+        return false;
+    }
+    busStations.push_back(std::move(station));
+    return true;
+}
+
+BusStation* Graph::getBusStation(int id) const {
+    const auto found = std::find_if(
+        busStations.begin(),
+        busStations.end(),
+        [id](const std::unique_ptr<BusStation>& station) {
+            return station != nullptr &&
+                   station->getId() == id;
+        });
+    return found != busStations.end()
+        ? found->get()
+        : nullptr;
+}
+
+BusStation* Graph::getBusStationByCode(
+    const std::string& code) const {
+    const auto found = std::find_if(
+        busStations.begin(),
+        busStations.end(),
+        [&code](const std::unique_ptr<BusStation>& station) {
+            return station != nullptr &&
+                   station->getCode() == code;
+        });
+    return found != busStations.end()
+        ? found->get()
+        : nullptr;
+}
+
+std::vector<BusStation*> Graph::getAllBusStations() const {
+    std::vector<BusStation*> result;
+    result.reserve(busStations.size());
+    for (const auto& station : busStations) {
+        if (station != nullptr) {
+            result.push_back(station.get());
+        }
+    }
+    return result;
+}
+
+bool Graph::addBusService(
+    std::unique_ptr<BusService> service) {
+    if (service == nullptr ||
+        getBusService(service->getId()) != nullptr ||
+        getBusServiceByCode(service->getCode()) != nullptr) {
+        return false;
+    }
+    busServices.push_back(std::move(service));
+    return true;
+}
+
+BusService* Graph::getBusService(int id) const {
+    const auto found = std::find_if(
+        busServices.begin(),
+        busServices.end(),
+        [id](const std::unique_ptr<BusService>& service) {
+            return service != nullptr &&
+                   service->getId() == id;
+        });
+    return found != busServices.end()
+        ? found->get()
+        : nullptr;
+}
+
+BusService* Graph::getBusServiceByCode(
+    const std::string& code) const {
+    const auto found = std::find_if(
+        busServices.begin(),
+        busServices.end(),
+        [&code](const std::unique_ptr<BusService>& service) {
+            return service != nullptr &&
+                   service->getCode() == code;
+        });
+    return found != busServices.end()
+        ? found->get()
+        : nullptr;
+}
+
+std::vector<BusService*> Graph::getAllBusServices() const {
+    std::vector<BusService*> result;
+    result.reserve(busServices.size());
+    for (const auto& service : busServices) {
+        if (service != nullptr) {
+            result.push_back(service.get());
         }
     }
     return result;

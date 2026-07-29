@@ -6,6 +6,8 @@
 #include "Intersection.h"
 #include "Crosswalk.h"
 #include "Pedestrian.h"
+#include "Bus.h"
+#include "PointOfInterest.h"
 #include "algorithm/PathFindingStrategy.h"
 #include <algorithm> 
 #include <cmath>
@@ -74,61 +76,225 @@ bool TrafficSimulator::addPedestrian(
 bool TrafficSimulator::tryActivateVehicle(
     Vehicle* vehicle,
     const std::vector<Road*>& route) {
-    if (vehicle == nullptr) return false;
+    if (vehicle == nullptr) {
+        return false;
+    }
     if (vehicles.size() >= maximumActiveVehicles_) {
+        vehicle->setSpawnLifecycleState(
+            SpawnLifecycleState::WaitingForRoadGap);
         return false;
     }
     if (route.empty()) {
         vehicle->setRoute(route);
+        vehicle->setSpawnLifecycleState(
+            SpawnLifecycleState::Active);
         vehicles.push_back(vehicle);
+        ++spawnStatistics_.activated;
         return true;
     }
 
     Road* road = route.front();
+    Bus* transitBus =
+        vehicle->getVehicleKind() == VehicleKind::Bus
+            ? static_cast<Bus*>(vehicle)
+            : nullptr;
+    const BusService* transitService =
+        transitBus != nullptr
+            ? transitBus->getService()
+            : nullptr;
+    if (transitBus != nullptr &&
+        elapsedTime + 1e-9 <
+            transitBus->
+                getScheduledDepartureTime()) {
+        vehicle->setSpawnLifecycleState(
+            SpawnLifecycleState::Scheduled);
+        return false;
+    }
+    if (transitService != nullptr &&
+        elapsedTime + 1e-9 <
+            nextTransitNetworkDepartureTime_) {
+        vehicle->setSpawnLifecycleState(
+            SpawnLifecycleState::WaitingForRoadGap);
+        return false;
+    }
+    if (transitService != nullptr) {
+        const auto departureGate =
+            nextTransitDepartureTimeByService_.find(
+                transitService);
+        if (departureGate !=
+                nextTransitDepartureTimeByService_.end() &&
+            elapsedTime + 1e-9 <
+                departureGate->second) {
+            vehicle->setSpawnLifecycleState(
+                SpawnLifecycleState::WaitingForRoadGap);
+            return false;
+        }
+    }
+
+    const PointOfInterest* source =
+        vehicle->getSpawnPOI();
+    if (source != nullptr) {
+        const auto sourceGate =
+            nextSpawnTimeBySource_.find(source);
+        if (sourceGate !=
+                nextSpawnTimeBySource_.end() &&
+            elapsedTime + 1e-9 <
+                sourceGate->second) {
+            vehicle->setSpawnLifecycleState(
+                SpawnLifecycleState::
+                    WaitingForSourceCapacity);
+            return false;
+        }
+        if (!vehicle->tryReserveSpawnSlot()) {
+            return false;
+        }
+    }
+    if (transitBus != nullptr &&
+        transitBus->hasTransitService() &&
+        !transitBus->tryAcquireDepartureSlot()) {
+        vehicle->setSpawnLifecycleState(
+            SpawnLifecycleState::
+                WaitingForSourceCapacity);
+        return false;
+    }
+
     if (road == nullptr || road->isBlocked() ||
         road->getDistance() < vehicle->getLength()) {
+        vehicle->setSpawnLifecycleState(
+            SpawnLifecycleState::WaitingForRoadGap);
         return false;
     }
     const auto spawnGate =
         nextSpawnTimeByRoad_.find(road);
     if (spawnGate != nextSpawnTimeByRoad_.end() &&
         elapsedTime + 1e-9 < spawnGate->second) {
+        vehicle->setSpawnLifecycleState(
+            SpawnLifecycleState::WaitingForRoadGap);
         return false;
     }
 
-    const bool isPOI = (vehicle->getSpawnPOI() != nullptr && vehicle->getSpawnPOI()->getConnectedRoad() == road);
-    double spawnProgress = vehicle->getLength() * 0.5;
+    const bool isPOI =
+        vehicle->getSpawnPOI() != nullptr &&
+        vehicle->getSpawnPOI()->getConnectedRoad() ==
+            road;
+    const bool isTransitStation =
+        transitBus != nullptr &&
+        transitBus->hasTransitService() &&
+        transitBus->getOriginStation() != nullptr &&
+        transitBus->getOriginStation()->
+                getDepartureRoad() == road;
+    const double halfVehicleLength =
+        vehicle->getLength() * 0.5;
+    double spawnProgress = halfVehicleLength;
     int selectedLane = -1;
 
-    if (isPOI) {
-        spawnProgress = vehicle->getSpawnPOI()->getProgressOffset();
-        int curbLane = road->getCurbLaneIndex();
-        
+    if (isPOI || isTransitStation) {
+        if (isPOI) {
+            spawnProgress =
+                vehicle->getSpawnPOI()->
+                    getProgressOffset();
+        }
+        spawnProgress = std::clamp(
+            spawnProgress,
+            halfVehicleLength,
+            road->getDistance() -
+                halfVehicleLength);
+        const int configuredLane =
+            isPOI
+                ? vehicle->getSpawnPOI()->
+                      getAccessLaneIndex()
+                : -1;
+        const int accessLane =
+            configuredLane >= 0
+                ? configuredLane
+                : road->getCurbLaneIndex();
+        if (accessLane < 0 ||
+            accessLane >= road->getLaneCount()) {
+            vehicle->setSpawnLifecycleState(
+                SpawnLifecycleState::
+                    WaitingForRoadGap);
+            return false;
+        }
+        const Lane& lane =
+            road->getLane(accessLane);
+        if (lane.isBlocked() ||
+            lane.getVehicleCount() >=
+                lane.getCapacity()) {
+            vehicle->setSpawnLifecycleState(
+                SpawnLifecycleState::
+                    WaitingForRoadGap);
+            return false;
+        }
+        Intersection* entrance =
+            road->getStart();
+        if (entrance != nullptr &&
+            entrance->isOutgoingLaneReserved(
+                road, accessLane)) {
+            vehicle->setSpawnLifecycleState(
+                SpawnLifecycleState::
+                    WaitingForRoadGap);
+            return false;
+        }
+
         // Check if there's already a merging vehicle at/near this offset
         for (Vehicle* existing : vehicles) {
             if (existing->getIsMergingFromPOI() &&
                 existing->getCurrentRoad() == road) {
-                double dist = std::fabs(existing->getProgressOnRoad() - spawnProgress);
-                if (dist < vehicle->getLength() + existing->getLength()) {
-                    return false; // Another vehicle is already merging near this spot
+                const double dist = std::fabs(
+                    existing->getProgressOnRoad() -
+                    spawnProgress);
+                const double halfLengths =
+                    (existing->getLength() +
+                     vehicle->getLength()) *
+                    0.5;
+                const double requiredGap =
+                    std::max(
+                        existing->getMinGap(),
+                        vehicle->getMinGap());
+                const double mergeApproachBuffer =
+                    road->getSpeedLimit() *
+                    vehicle->
+                        getPoiAnimationDuration();
+                if (dist <
+                    halfLengths +
+                        requiredGap +
+                        mergeApproachBuffer) {
+                    vehicle->setSpawnLifecycleState(
+                        SpawnLifecycleState::
+                            WaitingForRoadGap);
+                    return false;
                 }
             }
         }
-        
-        // Check clearance with vehicles already on the curb lane
-        const Lane& curbLaneRef = road->getLane(curbLane);
-        for (Vehicle* laneVeh : curbLaneRef.getVehicles()) {
+
+        // Check clearance with vehicles already on the access lane.
+        for (Vehicle* laneVeh : lane.getVehicles()) {
             if (!laneVeh) continue;
             double dist = std::fabs(laneVeh->getProgressOnRoad() - spawnProgress);
             double halfLengths = (laneVeh->getLength() + vehicle->getLength()) * 0.5;
             double requiredGap = std::max(vehicle->getMinGap(), laneVeh->getMinGap());
+            if (laneVeh->getProgressOnRoad() < spawnProgress) {
+                requiredGap +=
+                    std::max(
+                        0.0,
+                        laneVeh->getCurrentSpeed()) *
+                    vehicle->getPoiAnimationDuration();
+            }
             if (dist < halfLengths + requiredGap) {
+                vehicle->setSpawnLifecycleState(
+                    SpawnLifecycleState::
+                        WaitingForRoadGap);
                 return false;
             }
         }
-        
-        selectedLane = curbLane;
-        vehicle->setMergingFromPOI(true, spawnProgress, selectedLane);
+
+        selectedLane = accessLane;
+        if (isPOI) {
+            vehicle->setMergingFromPOI(
+                true,
+                spawnProgress,
+                selectedLane);
+        }
     } else {
         double bestClearance = -std::numeric_limits<double>::infinity();
         for (int laneIndex = 0; laneIndex < road->getLaneCount(); ++laneIndex) {
@@ -159,9 +325,25 @@ bool TrafficSimulator::tryActivateVehicle(
         if (isPOI) {
             vehicle->setMergingFromPOI(false); // Revert state if activation failed
         }
+        vehicle->setSpawnLifecycleState(
+            SpawnLifecycleState::WaitingForRoadGap);
         return false;
     }
     vehicles.push_back(vehicle);
+    ++spawnStatistics_.activated;
+    if (transitBus != nullptr &&
+        transitBus->hasTransitService()) {
+        transitBus->notifyActivatedFromStation();
+    }
+    if (transitService != nullptr) {
+        nextTransitNetworkDepartureTime_ =
+            elapsedTime +
+            TRANSIT_NETWORK_HEADWAY_SECONDS;
+        nextTransitDepartureTimeByService_[
+            transitService] =
+                elapsedTime +
+                TRANSIT_DEPARTURE_HEADWAY_SECONDS;
+    }
     const double deterministicStagger =
         static_cast<double>(
             static_cast<unsigned int>(vehicle->getId()) % 7u) *
@@ -176,89 +358,350 @@ bool TrafficSimulator::tryActivateVehicle(
         MIN_SPAWN_HEADWAY_SECONDS +
         vehicleLengthHeadway +
         deterministicStagger;
+    if (source != nullptr) {
+        nextSpawnTimeBySource_[source] =
+            elapsedTime +
+            source->getSpawnCooldownSeconds();
+    }
     return true;
 }
 
+bool TrafficSimulator::resolveRoute(
+    Vehicle* vehicle,
+    std::vector<Road*>& route) {
+    route.clear();
+    if (vehicle == nullptr || graph == nullptr ||
+        pathFindingStrategy == nullptr) {
+        return false;
+    }
+
+    PointOfInterest* origin =
+        vehicle->getSpawnPOI();
+    PointOfInterest* destination =
+        vehicle->getTargetPOI();
+    Road* originRoad =
+        origin != nullptr
+            ? origin->getConnectedRoad()
+            : nullptr;
+    Road* destinationRoad =
+        destination != nullptr
+            ? destination->getConnectedRoad()
+            : nullptr;
+
+    if (origin != nullptr &&
+        (!origin->isSpawnPoint() ||
+         originRoad == nullptr)) {
+        return false;
+    }
+    if (destination != nullptr &&
+        (!destination->isDestination() ||
+         destinationRoad == nullptr)) {
+        return false;
+    }
+    if ((originRoad != nullptr &&
+         originRoad->isBlocked()) ||
+        (destinationRoad != nullptr &&
+         destinationRoad->isBlocked())) {
+        return false;
+    }
+
+    if (originRoad != nullptr &&
+        originRoad == destinationRoad &&
+        destination->getProgressOffset() + 1e-9 >=
+            origin->getProgressOffset()) {
+        route.push_back(originRoad);
+        return true;
+    }
+
+    int startId = -1;
+    int destinationId = -1;
+    if (originRoad != nullptr) {
+        startId = originRoad->getEnd()->getId();
+    } else if (vehicle->getSpawnPoint() != nullptr) {
+        startId =
+            vehicle->getSpawnPoint()->getId();
+    }
+    if (destinationRoad != nullptr) {
+        destinationId =
+            destinationRoad->getStart()->getId();
+    } else if (vehicle->getDestination() != nullptr) {
+        destinationId =
+            vehicle->getDestination()->getId();
+    }
+    if (startId < 0 || destinationId < 0) {
+        return false;
+    }
+
+    PathResult result;
+    if (statisticsManager != nullptr) {
+        result =
+            statisticsManager->measurePathfinding(
+                *pathFindingStrategy,
+                *graph,
+                startId,
+                destinationId);
+    } else {
+        result =
+            pathFindingStrategy->findPath(
+                *graph,
+                startId,
+                destinationId);
+    }
+    if (!result.found) {
+        return false;
+    }
+
+    if (originRoad != nullptr) {
+        route.push_back(originRoad);
+    }
+    for (Road* road : result.roadPath) {
+        if (road == nullptr ||
+            graph->getRoad(road->getId()) != road ||
+            road->isBlocked()) {
+            route.clear();
+            return false;
+        }
+        if (!route.empty() &&
+            route.back()->getEnd() !=
+                road->getStart()) {
+            route.clear();
+            return false;
+        }
+        route.push_back(road);
+    }
+    if (destinationRoad != nullptr) {
+        if (!route.empty() &&
+            route.back()->getEnd() !=
+                destinationRoad->getStart()) {
+            route.clear();
+            return false;
+        }
+        route.push_back(destinationRoad);
+    }
+    return !route.empty() ||
+           startId == destinationId;
+}
+
+bool TrafficSimulator::routeNeedsRefresh(
+    const PendingVehicle& pending) const {
+    if (pending.fixedRoute ||
+        !pending.routeResolved) {
+        return false;
+    }
+    for (Road* road : pending.route) {
+        if (road == nullptr ||
+            graph == nullptr ||
+            graph->getRoad(road->getId()) != road ||
+            road->isBlocked()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void TrafficSimulator::discardPendingVehicle(
+    PendingVehicle& pending,
+    bool timedOut) {
+    if (timedOut) {
+        ++spawnStatistics_.timedOut;
+    } else {
+        ++spawnStatistics_.rejected;
+    }
+    delete pending.vehicle;
+    pending.vehicle = nullptr;
+}
+
 void TrafficSimulator::activatePendingVehicles() {
-    if (vehicles.size() >= maximumActiveVehicles_) {
+    if (vehicles.size() >= maximumActiveVehicles_ ||
+        pendingVehicles.empty()) {
         return;
     }
-    for (auto it = pendingVehicles.begin();
-         it != pendingVehicles.end();) {
-        if (tryActivateVehicle(
-                it->vehicle, it->route)) {
-            it = pendingVehicles.erase(it);
-        } else {
-            ++it;
+
+    const std::size_t inspections =
+        std::min(
+            pendingVehicles.size(),
+            MAX_PENDING_INSPECTIONS_PER_UPDATE);
+    int phasedActivations = 0;
+    for (std::size_t inspection = 0u;
+         inspection < inspections &&
+         !pendingVehicles.empty();
+         ++inspection) {
+        PendingVehicle pending =
+            std::move(pendingVehicles.front());
+        pendingVehicles.pop_front();
+
+        if (pending.vehicle == nullptr) {
+            continue;
         }
-        if (vehicles.size() >= maximumActiveVehicles_) {
+        if (elapsedTime + 1e-9 <
+                pending.earliestActivationTime ||
+            elapsedTime + 1e-9 <
+                pending.nextAttemptTime ||
+            (pending.phasedAdmission &&
+             phasedActivations >=
+                 MAX_PHASED_ACTIVATIONS_PER_UPDATE)) {
+            pendingVehicles.push_back(
+                std::move(pending));
+            continue;
+        }
+        if (elapsedTime >
+            pending.deadlineTime + 1e-9) {
+            discardPendingVehicle(
+                pending, true);
+            continue;
+        }
+
+        if (routeNeedsRefresh(pending)) {
+            pending.route.clear();
+            pending.routeResolved = false;
+        }
+        if (!pending.routeResolved) {
+            pending.vehicle->
+                setSpawnLifecycleState(
+                    SpawnLifecycleState::
+                        WaitingForRoute);
+            if (!resolveRoute(
+                    pending.vehicle,
+                    pending.route)) {
+                ++pending.routeAttempts;
+                ++spawnStatistics_.delayedAttempts;
+                if (pending.routeAttempts >=
+                    MAX_ROUTE_ATTEMPTS) {
+                    discardPendingVehicle(
+                        pending, false);
+                    continue;
+                }
+                const double backoff =
+                    std::min(
+                        5.0,
+                        0.25 *
+                            std::pow(
+                                2.0,
+                                pending.routeAttempts -
+                                    1));
+                pending.nextAttemptTime =
+                    elapsedTime + backoff;
+                pendingVehicles.push_back(
+                    std::move(pending));
+                continue;
+            }
+            pending.routeResolved = true;
+        }
+
+        if (tryActivateVehicle(
+                pending.vehicle,
+                pending.route)) {
+            if (pending.phasedAdmission) {
+                ++phasedActivations;
+            }
+        } else {
+            ++spawnStatistics_.delayedAttempts;
+            pending.nextAttemptTime =
+                elapsedTime + 0.1;
+            pendingVehicles.push_back(
+                std::move(pending));
+        }
+        if (vehicles.size() >=
+            maximumActiveVehicles_) {
             break;
         }
     }
 }
 
 bool TrafficSimulator::addVehicle(Vehicle* vehicle) {
-    if (!vehicle || !graph || !pathFindingStrategy)
-    {delete vehicle; return false;}
+    return addVehicleWithDelay(vehicle, 0.0);
+}
 
-    // Determine start/end intersection IDs for pathfinding
-    int startId = -1;
-    int destId = -1;
-    
-    if (vehicle->getSpawnPOI() && vehicle->getSpawnPOI()->getConnectedRoad()) {
-        startId = vehicle->getSpawnPOI()->getConnectedRoad()->getEnd()->getId();
-    } else if (vehicle->getSpawnPoint()) {
-        startId = vehicle->getSpawnPoint()->getId();
-    }
-    
-    if (vehicle->getTargetPOI() && vehicle->getTargetPOI()->getConnectedRoad()) {
-        destId = vehicle->getTargetPOI()->getConnectedRoad()->getStart()->getId();
-    } else if (vehicle->getDestination()) {
-        destId = vehicle->getDestination()->getId();
-    }
-    
-    if (startId < 0 || destId < 0) {
+bool TrafficSimulator::scheduleVehicleSpawn(
+    Vehicle* vehicle,
+    double delaySeconds) {
+    if (!std::isfinite(delaySeconds) ||
+        delaySeconds < 0.0) {
+        ++spawnStatistics_.rejected;
         delete vehicle;
         return false;
     }
-    
-    PathResult result;
-    if (statisticsManager) {
-        result = statisticsManager->measurePathfinding(*pathFindingStrategy, *graph, startId, destId);
-    } else {
-        result = pathFindingStrategy->findPath(*graph, startId, destId);
-    }    
-    
-    if (!result.found) {
-        delete vehicle; 
+    return addVehicleWithDelay(
+        vehicle, delaySeconds);
+}
+
+bool TrafficSimulator::addVehicleWithDelay(
+    Vehicle* vehicle,
+    double delaySeconds) {
+    if (!vehicle || !graph || !pathFindingStrategy)
+    {
+        ++spawnStatistics_.rejected;
+        delete vehicle;
         return false;
     }
 
-    if (vehicle->getSpawnPOI() && vehicle->getSpawnPOI()->getConnectedRoad()) {
-        result.roadPath.insert(result.roadPath.begin(), vehicle->getSpawnPOI()->getConnectedRoad());
-    }
-    if (vehicle->getTargetPOI() && vehicle->getTargetPOI()->getConnectedRoad()) {
-        result.roadPath.push_back(vehicle->getTargetPOI()->getConnectedRoad());
+    const bool hasOrigin =
+        (vehicle->getSpawnPOI() != nullptr &&
+         vehicle->getSpawnPOI()->
+             getConnectedRoad() != nullptr &&
+         vehicle->getSpawnPOI()->
+             isSpawnPoint()) ||
+        vehicle->getSpawnPoint() != nullptr;
+    const bool hasDestination =
+        (vehicle->getTargetPOI() != nullptr &&
+         vehicle->getTargetPOI()->
+             getConnectedRoad() != nullptr &&
+         vehicle->getTargetPOI()->
+             isDestination()) ||
+        vehicle->getDestination() != nullptr;
+    if (!hasOrigin || !hasDestination) {
+        ++spawnStatistics_.rejected;
+        delete vehicle;
+        return false;
     }
 
-    try
-    {
-        if (!tryActivateVehicle(
-                vehicle, result.roadPath)) {
-            pendingVehicles.push_back(
-                PendingVehicle{
+    const bool phasedAdmission =
+        delaySeconds > 0.0;
+    const double earliestActivationTime =
+        elapsedTime +
+        std::max(0.0, delaySeconds);
+    PendingVehicle pending;
+    pending.vehicle = vehicle;
+    pending.earliestActivationTime =
+        earliestActivationTime;
+    pending.nextAttemptTime =
+        earliestActivationTime;
+    pending.deadlineTime =
+        earliestActivationTime +
+        pendingVehicleTimeoutSeconds_;
+    pending.phasedAdmission =
+        phasedAdmission;
+    vehicle->setSpawnLifecycleState(
+        phasedAdmission
+            ? SpawnLifecycleState::Scheduled
+            : SpawnLifecycleState::WaitingForRoute);
+
+    try {
+        if (!phasedAdmission) {
+            if (!resolveRoute(
                     vehicle,
-                    std::move(result.roadPath)
-                });
+                    pending.route)) {
+                ++spawnStatistics_.rejected;
+                delete vehicle;
+                return false;
+            }
+            pending.routeResolved = true;
+            if (tryActivateVehicle(
+                    vehicle,
+                    pending.route)) {
+                ++spawnStatistics_.accepted;
+                return true;
+            }
         }
+        pendingVehicles.push_back(
+            std::move(pending));
+        ++spawnStatistics_.accepted;
         return true;
-    }
-    catch(...)
-    {
+    } catch (...) {
+        ++spawnStatistics_.rejected;
         delete vehicle;
         throw;
     }
-    
 }
 
 void TrafficSimulator::removeFinishedVehicles() {
@@ -276,6 +719,83 @@ void TrafficSimulator::removeFinishedVehicles() {
         return false;
     });
     vehicles.erase(it, vehicles.end());
+}
+
+bool TrafficSimulator::addVehicleWithFixedRoute(
+    Vehicle* vehicle,
+    const std::vector<Road*>& route) {
+    if (vehicle == nullptr || graph == nullptr ||
+        route.empty() ||
+        vehicle->getCurrentRoute() != route) {
+        ++spawnStatistics_.rejected;
+        delete vehicle;
+        return false;
+    }
+    for (std::size_t index = 0;
+         index < route.size();
+         ++index) {
+        Road* road = route[index];
+        if (road == nullptr ||
+            graph->getRoad(road->getId()) != road ||
+            (index > 0 &&
+             route[index - 1]->getEnd() !=
+                 road->getStart())) {
+            ++spawnStatistics_.rejected;
+            delete vehicle;
+            return false;
+        }
+    }
+
+    try {
+        double earliestActivationTime =
+            elapsedTime;
+        if (vehicle->getVehicleKind() ==
+                VehicleKind::Bus) {
+            const auto* bus =
+                static_cast<const Bus*>(vehicle);
+            if (bus->hasTransitService()) {
+                earliestActivationTime =
+                    std::max(
+                        earliestActivationTime,
+                        bus->
+                            getScheduledDepartureTime());
+            }
+        }
+
+        if (earliestActivationTime <=
+                elapsedTime + 1e-9 &&
+            tryActivateVehicle(vehicle, route)) {
+            ++spawnStatistics_.accepted;
+            return true;
+        }
+
+        PendingVehicle pending;
+        pending.vehicle = vehicle;
+        pending.route = route;
+        pending.earliestActivationTime =
+            earliestActivationTime;
+        pending.nextAttemptTime =
+            earliestActivationTime;
+        pending.deadlineTime =
+            std::numeric_limits<double>::
+                infinity();
+        pending.routeResolved = true;
+        pending.fixedRoute = true;
+        vehicle->setSpawnLifecycleState(
+            earliestActivationTime >
+                    elapsedTime + 1e-9
+                ? SpawnLifecycleState::Scheduled
+                : SpawnLifecycleState::
+                      WaitingForRoadGap);
+        pendingVehicles.push_back(
+            std::move(pending));
+        ++spawnStatistics_.accepted;
+        return true;
+    } catch (...) {
+        ++spawnStatistics_.rejected;
+        delete vehicle;
+        throw;
+    }
 }
 
 void TrafficSimulator::removeFinishedPedestrians() {
@@ -383,6 +903,18 @@ void TrafficSimulator::setPathFindingStrategy(PathFindingStrategy* strategy) {
     if (eventManager) {
         eventManager->setRoutingStrategy(strategy);  
     }
+    for (PendingVehicle& pending :
+         pendingVehicles) {
+        if (!pending.fixedRoute) {
+            pending.route.clear();
+            pending.routeResolved = false;
+            pending.routeAttempts = 0;
+            pending.nextAttemptTime =
+                std::max(
+                    elapsedTime,
+                    pending.earliestActivationTime);
+        }
+    }
     recalculateAllVehicleRoutes();
 }
 
@@ -400,6 +932,10 @@ void TrafficSimulator::recalculateAllVehicleRoutes() {
     for (Vehicle* v : vehicles) {
         if (v->getCurrentRoad() == nullptr) {
             continue; // vehicle not actively on a road, nothing to recompute
+        }
+        if (!v->allowsDynamicRerouting()) {
+            failedRecalcIds.erase(v->getId());
+            continue;
         }
 
         bool success = v->recalculateRoute(*graph, pathFindingStrategy);
@@ -475,6 +1011,14 @@ void TrafficSimulator::setMaximumActiveVehicles(
 }
 std::size_t TrafficSimulator::getMaximumActiveVehicles() const {
     return maximumActiveVehicles_;
+}
+void TrafficSimulator::setPendingVehicleTimeout(
+    double seconds) {
+    if (std::isfinite(seconds) &&
+        seconds > 0.0) {
+        pendingVehicleTimeoutSeconds_ =
+            seconds;
+    }
 }
 const Graph& TrafficSimulator::getGraph() const { return *graph; }
 StatisticsManager* TrafficSimulator::getStatisticsManager() const { return statisticsManager.get(); }

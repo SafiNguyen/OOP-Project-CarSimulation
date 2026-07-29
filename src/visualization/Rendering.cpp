@@ -214,7 +214,6 @@ void drawActiveVehicles(sf::RenderWindow& window,
         const VehicleVisual visual =
             getVehicleVisual(
                 *vehicle, visualization, simulationTime);
-
         appendVehicleQuad(
             vehicleVertices,
             position,

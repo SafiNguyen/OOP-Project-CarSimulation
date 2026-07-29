@@ -6,7 +6,11 @@
 #include <imgui.h>
 
 #include "Intersection.h"
+#include "Bus.h"
+#include "BusService.h"
+#include "BusStop.h"
 #include "Road.h"
+#include "SpawnPoint.h"
 #include "Vehicle.h"
 #include "simulation/TrafficSimulator.h"
 #include "visualization/VehicleSprite.h"
@@ -17,6 +21,42 @@ namespace {
 // m/s -> km/h chỉ dùng để HIỂN THỊ (theo nguyên tắc trong Units.h: convert
 // chỉ ở biên UI, không đụng vào physics).
 double mpsToKmh(double mps) { return mps * 3.6; }
+
+const char* busTripStateLabel(BusTripState state) {
+    switch (state) {
+        case BusTripState::WaitingAtOrigin:
+            return "Waiting at origin";
+        case BusTripState::Departing:
+            return "Departing";
+        case BusTripState::EnRoute:
+            return "En route";
+        case BusTripState::Dwelling:
+            return "Dwelling";
+        case BusTripState::Arrived:
+            return "Arrived";
+    }
+    return "Unknown";
+}
+
+const char* spawnStateLabel(
+    SpawnLifecycleState state) {
+    switch (state) {
+        case SpawnLifecycleState::Scheduled:
+            return "Scheduled";
+        case SpawnLifecycleState::
+                WaitingForSourceCapacity:
+            return "Waiting for source capacity";
+        case SpawnLifecycleState::WaitingForRoute:
+            return "Waiting for route";
+        case SpawnLifecycleState::WaitingForRoadGap:
+            return "Waiting for a safe road gap";
+        case SpawnLifecycleState::Merging:
+            return "Merging from origin";
+        case SpawnLifecycleState::Active:
+            return "Active";
+    }
+    return "Unknown";
+}
 }
 
 void VehicleInspector::tryPickVehicle(TrafficSimulator* simulator,
@@ -87,7 +127,9 @@ void VehicleInspector::draw(TrafficSimulator* simulator, const VisualizationEngi
     }
 
     ImGui::SetNextWindowPos(ImVec2(20.0f, 20.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(320.0f, 260.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(
+        ImVec2(380.0f, 520.0f),
+        ImGuiCond_FirstUseEver);
 
     bool open = true;
     std::string title = "Vehicle #" + std::to_string(vehicle->getId());
@@ -108,6 +150,14 @@ void VehicleInspector::draw(TrafficSimulator* simulator, const VisualizationEngi
                 default: break;
             }
             ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f), "Status: %s", reasonStr);
+        } else if (vehicle->getSpawnLifecycleState() ==
+                   SpawnLifecycleState::Merging) {
+            ImGui::TextColored(
+                ImVec4(0.95f, 0.75f, 0.3f, 1.0f),
+                "Status: %s",
+                spawnStateLabel(
+                    vehicle->
+                        getSpawnLifecycleState()));
         } else {
             ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Status: Moving");
         }
@@ -117,8 +167,128 @@ void VehicleInspector::draw(TrafficSimulator* simulator, const VisualizationEngi
         // --- 1. Origin / Destination ---
         Intersection* origin = vehicle->getSpawnPoint();
         Intersection* dest = vehicle->getDestination();
-        ImGui::Text("Origin:      #%d", origin ? origin->getId() : -1);
-        ImGui::Text("Destination: #%d", dest ? dest->getId() : -1);
+        PointOfInterest* originPOI =
+            vehicle->getSpawnPOI();
+        PointOfInterest* destinationPOI =
+            vehicle->getTargetPOI();
+        if (originPOI != nullptr) {
+            ImGui::Text(
+                "Origin:      %s (#%d)",
+                originPOI->getName().c_str(),
+                originPOI->getId());
+        } else {
+            ImGui::Text(
+                "Origin:      intersection #%d",
+                origin ? origin->getId() : -1);
+        }
+        if (destinationPOI != nullptr) {
+            ImGui::Text(
+                "Destination: %s (#%d)",
+                destinationPOI->getName().c_str(),
+                destinationPOI->getId());
+        } else {
+            ImGui::Text(
+                "Destination: intersection #%d",
+                dest ? dest->getId() : -1);
+        }
+
+        if (vehicle->getVehicleKind() ==
+                VehicleKind::Bus) {
+            const auto& bus =
+                static_cast<const Bus&>(*vehicle);
+            if (bus.hasTransitService()) {
+                const BusService* service =
+                    bus.getService();
+                const BusStop* nextStop =
+                    bus.getNextScheduledStop();
+                ImGui::Separator();
+                ImGui::Text(
+                    "Service: %s",
+                    service->getCode().c_str());
+                ImGui::Text(
+                    "Trip state: %s",
+                    busTripStateLabel(
+                        bus.getTripState()));
+                ImGui::Text(
+                    "Stations: %s -> %s",
+                    bus.getOriginStation()->
+                        getCode().c_str(),
+                    bus.getDestinationStation()->
+                        getCode().c_str());
+                ImGui::Text(
+                    "Next stop: %s",
+                    nextStop != nullptr
+                        ? nextStop->getCode().c_str()
+                        : "none");
+                ImGui::Text(
+                    "Served: %d   Missed: %d",
+                    static_cast<int>(
+                        bus.getServedStopIds().size()),
+                    static_cast<int>(
+                        bus.getMissedStopIds().size()));
+                ImGui::Text("Stops assigned to this Bus:");
+                ImGui::BeginChild(
+                    "##bus_stop_list",
+                    ImVec2(0.0f, 115.0f),
+                    true);
+                const auto& stops =
+                    bus.getAssignedStops();
+                const auto& servedStopIds =
+                    bus.getServedStopIds();
+                const auto& missedStopIds =
+                    bus.getMissedStopIds();
+                for (std::size_t index = 0;
+                     index < stops.size();
+                     ++index) {
+                    const BusStop* stop =
+                        stops[index];
+                    if (stop == nullptr) continue;
+                    const bool served =
+                        std::find(
+                            servedStopIds.begin(),
+                            servedStopIds.end(),
+                            stop->getId()) !=
+                        servedStopIds.end();
+                    const bool missed =
+                        std::find(
+                            missedStopIds.begin(),
+                            missedStopIds.end(),
+                            stop->getId()) !=
+                        missedStopIds.end();
+                    const bool next =
+                        index ==
+                        bus.getScheduledStopIndex();
+                    const char* status =
+                        served ? "served"
+                        : missed ? "missed"
+                        : next ? "next"
+                        : "pending";
+                    const ImVec4 color =
+                        served
+                            ? ImVec4(
+                                  0.4f, 0.9f,
+                                  0.4f, 1.0f)
+                        : missed
+                            ? ImVec4(
+                                  0.95f, 0.4f,
+                                  0.35f, 1.0f)
+                        : next
+                            ? ImVec4(
+                                  0.4f, 0.8f,
+                                  1.0f, 1.0f)
+                            : ImVec4(
+                                  0.75f, 0.75f,
+                                  0.75f, 1.0f);
+                    ImGui::TextColored(
+                        color,
+                        "%s %s  [%s]",
+                        stop->getCode().c_str(),
+                        stop->getName().c_str(),
+                        status);
+                }
+                ImGui::EndChild();
+            }
+        }
 
         // --- 3. Algorithm ---
         if (simulator && simulator->getPathFindingStrategy()) {

@@ -23,6 +23,15 @@ enum class VehicleKind {
     Emergency
 };
 
+enum class SpawnLifecycleState {
+    Scheduled,
+    WaitingForSourceCapacity,
+    WaitingForRoute,
+    WaitingForRoadGap,
+    Merging,
+    Active
+};
+
 struct PauseUpdateResult {
     bool resumed;
     double remainingTime;

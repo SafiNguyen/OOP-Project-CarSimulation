@@ -9,6 +9,7 @@
 #include "PointOfInterest.h"
 #include "Road.h"
 #include "RoadGeometry.h"
+#include "SpawnPoint.h"
 
 namespace {
 
@@ -173,8 +174,8 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
             pole.setFillColor(sf::Color(225, 235, 245));
             target.draw(pole);
 
-            constexpr float signWidth = 14.0f;
-            constexpr float signHeight = 12.0f;
+            constexpr float signWidth = 16.0f;
+            constexpr float signHeight = 14.0f;
             sf::RectangleShape sign({signWidth, signHeight});
             sign.setOrigin(signWidth * 0.5f, signHeight * 0.5f);
             sign.setPosition(markerPos);
@@ -183,32 +184,48 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
             sign.setOutlineColor(sf::Color::White);
             target.draw(sign);
 
-            const sf::Color symbolColor = sf::Color::White;
-            sf::RectangleShape leftStroke({2.0f, 7.0f});
-            leftStroke.setPosition(markerPos.x - 4.0f, markerPos.y - 3.5f);
-            leftStroke.setFillColor(symbolColor);
-            target.draw(leftStroke);
-
-            sf::RectangleShape rightStroke({2.0f, 7.0f});
-            rightStroke.setPosition(markerPos.x + 2.0f, markerPos.y - 3.5f);
-            rightStroke.setFillColor(symbolColor);
-            target.draw(rightStroke);
-
-            sf::RectangleShape crossStroke({6.0f, 2.0f});
-            crossStroke.setPosition(markerPos.x - 3.0f, markerPos.y - 1.0f);
-            crossStroke.setFillColor(symbolColor);
-            target.draw(crossStroke);
-
+            const std::string stopCode =
+                stop->getCode().empty()
+                    ? std::to_string(stop->getId())
+                    : stop->getCode();
             if (font_) {
-                sf::Text label;
-                label.setFont(*font_);
-                label.setString(stop->getName());
-                label.setCharacterSize(9);
-                label.setFillColor(sf::Color(120, 210, 255));
-                label.setOutlineColor(sf::Color::Black);
-                label.setOutlineThickness(1.0f);
-                label.setPosition(markerPos.x + 10.0f, markerPos.y - 17.0f);
-                target.draw(label);
+                sf::Text number;
+                number.setFont(*font_);
+                number.setString(stopCode);
+                number.setCharacterSize(
+                    stopCode.size() <= 2u ? 10u : 8u);
+                number.setStyle(sf::Text::Bold);
+                number.setFillColor(sf::Color::White);
+                const sf::FloatRect bounds =
+                    number.getLocalBounds();
+                number.setOrigin(
+                    bounds.left + bounds.width * 0.5f,
+                    bounds.top + bounds.height * 0.5f);
+                number.setPosition(
+                    std::round(markerPos.x),
+                    std::round(markerPos.y));
+                target.draw(number);
+            } else {
+                int numericStopCode = 0;
+                bool codeIsNumeric = !stopCode.empty();
+                for (const char character : stopCode) {
+                    if (character < '0' || character > '9') {
+                        codeIsNumeric = false;
+                        break;
+                    }
+                    numericStopCode = std::min(
+                        999,
+                        numericStopCode * 10 +
+                            (character - '0'));
+                }
+                drawSevenSegmentNumber(
+                    target,
+                    codeIsNumeric
+                        ? numericStopCode
+                        : std::abs(stop->getId()) % 1000,
+                    markerPos,
+                    signHeight - 3.0f,
+                    sf::Color::White);
             }
         }
     }
@@ -398,6 +415,87 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
     }
 }
 
+void VisualizationEngine::drawBusStations(
+    sf::RenderTarget& target,
+    const Graph& graph) const {
+    for (const BusStation* station :
+         graph.getAllBusStations()) {
+        if (station == nullptr ||
+            station->getDepartureRoad() == nullptr) {
+            continue;
+        }
+
+        const Road* departureRoad =
+            station->getDepartureRoad();
+        const double markerProgress = std::min(
+            8.0,
+            departureRoad->getDistance() * 0.1);
+        const Vec2 markerWorld =
+            RoadGeometry::sampleSidewalk(
+                *departureRoad,
+                true,
+                markerProgress);
+        const sf::Vector2f marker =
+            worldToScreen(
+                markerWorld.x,
+                markerWorld.y);
+
+        sf::CircleShape terminal(9.0f);
+        terminal.setOrigin(9.0f, 9.0f);
+        terminal.setPosition(marker);
+        terminal.setFillColor(
+            sf::Color(35, 185, 105));
+        terminal.setOutlineThickness(2.0f);
+        terminal.setOutlineColor(sf::Color::White);
+        target.draw(terminal);
+
+        sf::RectangleShape bay(
+            {9.0f, 4.0f});
+        bay.setOrigin(4.5f, 2.0f);
+        bay.setPosition(marker);
+        bay.setFillColor(sf::Color::White);
+        target.draw(bay);
+
+        if (font_ != nullptr) {
+            const Vec2 laneWorld =
+                RoadGeometry::sampleLane(
+                    *departureRoad,
+                    departureRoad->getCurbLaneIndex(),
+                    markerProgress).position;
+            const sf::Vector2f lanePosition =
+                worldToScreen(
+                    laneWorld.x,
+                    laneWorld.y);
+            sf::Vector2f outward =
+                marker - lanePosition;
+            const float outwardLength =
+                std::sqrt(
+                    outward.x * outward.x +
+                    outward.y * outward.y);
+            if (outwardLength > 0.01f) {
+                outward /= outwardLength;
+            } else {
+                outward = {0.0f, 1.0f};
+            }
+            sf::Text label;
+            label.setFont(*font_);
+            label.setString(
+                station->getCode() + " " +
+                station->getName());
+            label.setCharacterSize(10);
+            label.setStyle(sf::Text::Bold);
+            label.setFillColor(
+                sf::Color(120, 255, 175));
+            label.setOutlineColor(sf::Color::Black);
+            label.setOutlineThickness(1.0f);
+            label.setPosition(
+                marker.x + outward.x * 15.0f,
+                marker.y + outward.y * 15.0f);
+            target.draw(label);
+        }
+    }
+}
+
 void VisualizationEngine::drawIntersectionNode(sf::RenderTarget& target, const Intersection* intersection) const {
     if (intersection == nullptr) {
         return;
@@ -565,12 +663,21 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
         if (poi->getType() == POIType::PARKING_LOT) poiColor = sf::Color(100, 100, 255);
         else if (poi->getType() == POIType::BUS_STATION) poiColor = sf::Color(50, 200, 50);
         else if (poi->getType() == POIType::HOSPITAL) poiColor = sf::Color(255, 50, 50);
+        else if (poi->getType() == POIType::RESIDENTIAL_AREA) poiColor = sf::Color(90, 190, 220);
         else if (poi->getType() == POIType::SUPERMARKET) poiColor = sf::Color(200, 200, 50);
 
         // 1. Draw driveway if POI is connected to a road
         if (poi->getConnectedRoad() != nullptr) {
             // Get position of the merging point on the road
-            Vec2 roadPoint = RoadGeometry::sampleLane(*poi->getConnectedRoad(), 0, poi->getProgressOffset()).position;
+            const int accessLane =
+                poi->getAccessLaneIndex() >= 0
+                    ? poi->getAccessLaneIndex()
+                    : poi->getConnectedRoad()->
+                          getCurbLaneIndex();
+            Vec2 roadPoint = RoadGeometry::sampleLane(
+                *poi->getConnectedRoad(),
+                accessLane,
+                poi->getProgressOffset()).position;
             sf::Vector2f screenRoadPoint = worldToScreen(roadPoint.x, roadPoint.y);
             
             // Draw a line (thin rectangle) from building to the road

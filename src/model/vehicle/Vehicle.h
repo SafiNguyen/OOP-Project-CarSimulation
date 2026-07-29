@@ -12,6 +12,7 @@ class Road;
 class Graph;
 class PathFindingStrategy;
 class PointOfInterest;
+class SpawnPoint;
 
 class Vehicle {
 public:
@@ -35,6 +36,9 @@ protected:
     Intersection* spawnPoint;
     PointOfInterest* spawnPOI = nullptr;
     PointOfInterest* targetPOI = nullptr; // optional POI destination
+    const SpawnPoint* reservedSpawnPoint_ = nullptr;
+    SpawnLifecycleState spawnLifecycleState_ =
+        SpawnLifecycleState::Scheduled;
 
     // POI Mid-road merging state
     bool isMergingFromPOI = false;
@@ -93,6 +97,8 @@ public:
     virtual double getMaxLateralAcceleration() const;
     virtual VehicleKind getVehicleKind() const;
     virtual bool canChangeLanes() const;
+    virtual bool allowsDynamicRerouting() const { return true; }
+    virtual bool allowsUTurn() const { return true; }
 
     double getCurrentSpeed() const { return currentSpeed; }
     Pose2D getPose() const;
@@ -136,6 +142,18 @@ public:
     void setSpawnPOI(PointOfInterest* poi) { spawnPOI = poi; }
     PointOfInterest* getTargetPOI() const { return targetPOI; }
     void setTargetPOI(PointOfInterest* poi) { targetPOI = poi; }
+    bool tryReserveSpawnSlot();
+    void releaseSpawnSlot();
+    bool hasSpawnSlotReservation() const {
+        return reservedSpawnPoint_ != nullptr;
+    }
+    SpawnLifecycleState getSpawnLifecycleState() const {
+        return spawnLifecycleState_;
+    }
+    void setSpawnLifecycleState(
+        SpawnLifecycleState state) {
+        spawnLifecycleState_ = state;
+    }
 
     bool getIsMergingFromPOI() const { return isMergingFromPOI; }
     void setIsMergingFromPOI(bool merging) { isMergingFromPOI = merging; }

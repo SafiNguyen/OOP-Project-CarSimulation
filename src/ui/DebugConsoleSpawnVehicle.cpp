@@ -80,7 +80,8 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
         if (!simulator) {
             spawnMessage_ = "No active simulation.";
         } else if (start == nullptr || end == nullptr) {
-            spawnMessage_ = "Pick both a start and a destination POI first.";
+            spawnMessage_ =
+                "Pick both a start and a destination intersection first.";
         } else if (start == end) {
             spawnMessage_ = "Start and destination must be different.";
         } else {

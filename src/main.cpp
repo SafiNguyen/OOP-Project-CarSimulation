@@ -1,10 +1,15 @@
 #include <SFML/Graphics.hpp>
+#include <array>
+#include <cmath>
 #include <filesystem>
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <map>
 #include <optional>
+#include <set>
 #include <string>
+#include <vector>
 
 #include <imgui-SFML.h>
 #include <imgui.h>
@@ -20,6 +25,7 @@
 #include "visualization/SimulatorFactory.h"
 #include "visualization/VehicleSprite.h"
 #include "Graph.h"
+#include "Bus.h"
 #include "simulation/TrafficSimulator.h"
 #include "ui/DebugConsole.h"
 #include "ui/StatsPanel.h"
@@ -100,6 +106,239 @@ bool loadSnapshotFont(sf::Font& font) {
     return false;
 }
 
+void printTransitSnapshotSummary(
+    const TrafficSimulator& simulator,
+    const Graph& graph) {
+    std::array<int, 4> vehicleKindCounts{};
+    std::map<int, int> sourceCounts;
+    const auto inspectSpawn =
+        [&](const Vehicle* vehicle) {
+            if (vehicle == nullptr) {
+                return;
+            }
+            const auto kindIndex =
+                static_cast<std::size_t>(
+                    vehicle->getVehicleKind());
+            if (kindIndex <
+                vehicleKindCounts.size()) {
+                ++vehicleKindCounts[kindIndex];
+            }
+            if (vehicle->getSpawnPOI() !=
+                nullptr) {
+                ++sourceCounts[
+                    vehicle->getSpawnPOI()->
+                        getId()];
+            }
+        };
+    for (const Vehicle* vehicle :
+         simulator.getVehicles()) {
+        inspectSpawn(vehicle);
+    }
+    for (const Vehicle* vehicle :
+         simulator.getPendingVehicles()) {
+        inspectSpawn(vehicle);
+    }
+    for (const Vehicle* vehicle :
+         simulator.getFinishedVehicles()) {
+        inspectSpawn(vehicle);
+    }
+    const auto& spawnStats =
+        simulator.getSpawnStatistics();
+    std::cout
+        << "Spawn summary: requests[accepted,activated,"
+           "delayed,rejected,timedOut]="
+        << spawnStats.accepted << ','
+        << spawnStats.activated << ','
+        << spawnStats.delayedAttempts << ','
+        << spawnStats.rejected << ','
+        << spawnStats.timedOut
+        << ", kinds[car,bus,motorbike,emergency]="
+        << vehicleKindCounts[0] << ','
+        << vehicleKindCounts[1] << ','
+        << vehicleKindCounts[2] << ','
+        << vehicleKindCounts[3]
+        << ", sources=";
+    bool firstSource = true;
+    for (const auto& source : sourceCounts) {
+        if (!firstSource) {
+            std::cout << ',';
+        }
+        firstSource = false;
+        std::cout
+            << source.first << ':'
+            << source.second;
+    }
+    std::cout << std::endl;
+
+    if (graph.getAllBusServices().empty()) {
+        return;
+    }
+
+    int transitBusCount = 0;
+    int initializedCount = 0;
+    int plannedRouteCount = 0;
+    int servedStopCount = 0;
+    int missedStopCount = 0;
+    std::array<int, 5> stateCounts{};
+    std::vector<const Bus*> serviceLeaders;
+    std::set<std::vector<int>> uniqueStopPlans;
+
+    const auto inspect =
+        [&](const Vehicle* vehicle, bool finished) {
+            if (vehicle == nullptr ||
+                vehicle->getVehicleKind() !=
+                    VehicleKind::Bus) {
+                return;
+            }
+            const auto& bus =
+                static_cast<const Bus&>(*vehicle);
+            if (!bus.hasTransitService()) {
+                return;
+            }
+            ++transitBusCount;
+            const BusService* service =
+                bus.getService();
+            const bool initialized =
+                !bus.getFleetCode().empty() &&
+                bus.getOriginStation() != nullptr &&
+                bus.getDestinationStation() != nullptr &&
+                service != nullptr &&
+                bus.getOriginStation() ==
+                    &service->getOriginStation() &&
+                bus.getDestinationStation() ==
+                    &service->getDestinationStation() &&
+                !bus.getCurrentRoute().empty() &&
+                !bus.getAssignedStops().empty() &&
+                bus.getAssignedStops().size() ==
+                    bus.getAssignedStopRouteIndices().
+                        size() &&
+                std::isfinite(
+                    bus.getScheduledDepartureTime());
+            if (initialized) {
+                ++initializedCount;
+            }
+            const bool plannedRoute =
+                !bus.allowsDynamicRerouting() &&
+                (finished
+                     ? !bus.getTravelHistory().empty()
+                     : !bus.getCurrentRoute().empty());
+            if (plannedRoute) {
+                ++plannedRouteCount;
+            }
+            servedStopCount += static_cast<int>(
+                bus.getServedStopIds().size());
+            missedStopCount += static_cast<int>(
+                bus.getMissedStopIds().size());
+            ++stateCounts[
+                static_cast<std::size_t>(
+                    bus.getTripState())];
+            std::vector<int> stopPlan;
+            for (const BusStop* stop :
+                 bus.getAssignedStops()) {
+                if (stop != nullptr) {
+                    stopPlan.push_back(
+                        stop->getId());
+                }
+            }
+            uniqueStopPlans.insert(
+                std::move(stopPlan));
+            if (bus.getFleetCode() ==
+                service->getCode() + "-01") {
+                serviceLeaders.push_back(&bus);
+            }
+        };
+
+    for (const Vehicle* vehicle :
+         simulator.getVehicles()) {
+        inspect(vehicle, false);
+    }
+    for (const Vehicle* vehicle :
+         simulator.getPendingVehicles()) {
+        inspect(vehicle, false);
+    }
+    for (const Vehicle* vehicle :
+         simulator.getFinishedVehicles()) {
+        inspect(vehicle, true);
+    }
+
+    int occupiedSlots = 0;
+    int stationCapacity = 0;
+    for (const BusStation* station :
+         graph.getAllBusStations()) {
+        occupiedSlots +=
+            station->getOccupiedDepartureSlots();
+        stationCapacity += station->getCapacity();
+    }
+
+    std::cout
+        << "Transit summary: buses="
+        << transitBusCount
+        << ", initialized=" << initializedCount
+        << ", plannedRoute=" << plannedRouteCount
+        << ", states[waiting,departing,enRoute,dwelling,arrived]="
+        << stateCounts[0] << ','
+        << stateCounts[1] << ','
+        << stateCounts[2] << ','
+        << stateCounts[3] << ','
+        << stateCounts[4]
+        << ", servedStops=" << servedStopCount
+        << ", missedStops=" << missedStopCount
+        << ", uniqueStopPlans="
+        << uniqueStopPlans.size()
+        << ", stationSlots=" << occupiedSlots
+        << '/' << stationCapacity
+        << ", traffic[active,pending,finished]="
+        << simulator.getVehicles().size() << ','
+        << simulator.getPendingVehicleCount() << ','
+        << simulator.getFinishedVehicles().size()
+        << std::endl;
+    for (const Bus* bus : serviceLeaders) {
+        const Road* road = bus->getCurrentRoad();
+        std::cout
+            << "  " << bus->getFleetCode()
+            << ": state="
+            << static_cast<int>(
+                   bus->getTripState())
+            << ", road="
+            << (road != nullptr ? road->getId() : 0)
+            << ", lane="
+            << bus->getCurrentLaneIndex()
+            << ", progress="
+            << bus->getProgressOnRoad()
+            << ", served="
+            << bus->getServedStopIds().size()
+            << ", missed="
+            << bus->getMissedStopIds().size()
+            << ", pauseReason="
+            << static_cast<int>(
+                   bus->getPauseReason())
+            << ", departAt="
+            << bus->getScheduledDepartureTime()
+            << ", stops=";
+        const auto& stops =
+            bus->getAssignedStops();
+        const auto& stopRouteIndices =
+            bus->getAssignedStopRouteIndices();
+        for (std::size_t index = 0u;
+             index < stops.size();
+             ++index) {
+            if (index > 0u) {
+                std::cout << ',';
+            }
+            std::cout
+                << (stops[index] != nullptr
+                        ? stops[index]->getCode()
+                        : "?")
+                << '@'
+                << (index <
+                            stopRouteIndices.size()
+                        ? stopRouteIndices[index]
+                        : 9999u);
+        }
+        std::cout << std::endl;
+    }
+}
+
 int renderSnapshot(const std::string& mapPath,
                    const SnapshotOptions& options) {
     if (mapPath.empty() || options.outputPath.empty()) {
@@ -140,6 +379,9 @@ int renderSnapshot(const std::string& mapPath,
         simulator->update(step);
         wallRemaining -= step;
     }
+    printTransitSnapshotSummary(
+        *simulator,
+        graph);
 
     sf::RenderTexture target;
     if (!target.create(options.width, options.height)) {

@@ -1,6 +1,7 @@
 #include "BusStop.h"
 
 #include <algorithm>
+#include <string>
 #include <utility>
 
 #include "Road.h"
@@ -11,8 +12,12 @@ BusStop::BusStop(int id,
                  double positionOnRoad,
                  int laneIndex,
                  double dwellTime,
-                 bool hasConfiguredDwellTime)
+                 bool hasConfiguredDwellTime,
+                 std::string code)
     : id_(id),
+      code_(code.empty()
+                ? "S" + std::to_string(id)
+                : std::move(code)),
       name_(std::move(name)),
       road_(road),
       positionOnRoad_(positionOnRoad),

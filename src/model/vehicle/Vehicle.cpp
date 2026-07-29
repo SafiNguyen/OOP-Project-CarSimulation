@@ -10,6 +10,7 @@
 #include "Crosswalk.h"
 #include "algorithm/PathFindingStrategy.h"
 #include "PointOfInterest.h"
+#include "SpawnPoint.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -142,6 +143,7 @@ Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
 }
 
 Vehicle::~Vehicle() {
+    releaseSpawnSlot();
     if (reservedIntersection_ != nullptr) {
         reservedIntersection_->exit(getId());
         reservedIntersection_ = nullptr;
@@ -150,6 +152,36 @@ Vehicle::~Vehicle() {
         currentRoad->getLane(currentLaneIndex).removeVehicle(this);
         currentRoad = nullptr;
     }
+}
+
+bool Vehicle::tryReserveSpawnSlot() {
+    if (spawnPOI == nullptr) {
+        return true;
+    }
+    if (reservedSpawnPoint_ != nullptr) {
+        return true;
+    }
+    const auto* spawnPoint =
+        dynamic_cast<const SpawnPoint*>(spawnPOI);
+    if (spawnPoint == nullptr) {
+        return false;
+    }
+    if (!spawnPoint->tryReserveSpawnSlot()) {
+        spawnLifecycleState_ =
+            SpawnLifecycleState::
+                WaitingForSourceCapacity;
+        return false;
+    }
+    reservedSpawnPoint_ = spawnPoint;
+    return true;
+}
+
+void Vehicle::releaseSpawnSlot() {
+    if (reservedSpawnPoint_ == nullptr) {
+        return;
+    }
+    reservedSpawnPoint_->releaseSpawnSlot();
+    reservedSpawnPoint_ = nullptr;
 }
 
 bool Vehicle::hasReachedDestination() const {
@@ -371,6 +403,8 @@ bool Vehicle::setRouteAt(const std::vector<Road*>& route,
                 currentRoad->addMergingVehicle(this);
             } else {
                 currentRoad->getLane(currentLaneIndex).addVehicle(this);
+                spawnLifecycleState_ =
+                    SpawnLifecycleState::Active;
             }
         }
     } else {
@@ -846,6 +880,27 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
             return;
         }
 
+        if (mergeLaneIndex < 0 ||
+            mergeLaneIndex >=
+                currentRoad->getLaneCount()) {
+            return;
+        }
+        const Lane& mergeLane =
+            currentRoad->getLane(mergeLaneIndex);
+        if (mergeLane.isBlocked() ||
+            mergeLane.getVehicleCount() >=
+                mergeLane.getCapacity()) {
+            return;
+        }
+        Intersection* entrance =
+            currentRoad->getStart();
+        if (entrance != nullptr &&
+            entrance->isOutgoingLaneReserved(
+                currentRoad,
+                mergeLaneIndex)) {
+            return;
+        }
+
         Vehicle* follower = currentRoad->findFollower(mergeLaneIndex, this);
         Vehicle* leader = currentRoad->findLeader(mergeLaneIndex, this);
         bool safeToMerge = true;
@@ -873,6 +928,9 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
             currentLaneIndex = mergeLaneIndex;
             progressOnCurrentRoad = mergeProgressOffset;
             currentSpeed = 0.0;
+            releaseSpawnSlot();
+            spawnLifecycleState_ =
+                SpawnLifecycleState::Active;
         } else {
             return; // Wait for gap
         }
@@ -901,20 +959,34 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
     }
     const double elapsedTimeThisUpdate = remainingTime;
 
-    recalculateTimer -= elapsedTimeThisUpdate;
-    if (recalculateTimer <= 0.0) {
-        recalculateTimer = 10.0 + static_cast<double>(std::rand() % 50) / 10.0; // 10-15s
-        if (graph && strategy && currentRoad &&
-            movementState_ == MovementState::OnRoad) {
-            bool hasCongestion = false;
-            for (size_t i = currentRouteIndex + 1; i < currentRoute.size(); ++i) {
-                if (currentRoute[i]->getDynamicCongestionLevel() > 1.5 || currentRoute[i]->isBlocked()) {
-                    hasCongestion = true;
-                    break;
+    if (allowsDynamicRerouting()) {
+        recalculateTimer -= elapsedTimeThisUpdate;
+        if (recalculateTimer <= 0.0) {
+            recalculateTimer = 10.0 +
+                static_cast<double>(
+                    std::rand() % 50) /
+                    10.0; // 10-15s
+            if (graph && strategy && currentRoad &&
+                movementState_ ==
+                    MovementState::OnRoad) {
+                bool hasCongestion = false;
+                for (size_t i =
+                         currentRouteIndex + 1;
+                     i < currentRoute.size();
+                     ++i) {
+                    if (currentRoute[i]->
+                                getDynamicCongestionLevel() >
+                            1.5 ||
+                        currentRoute[i]->isBlocked()) {
+                        hasCongestion = true;
+                        break;
+                    }
                 }
-            }
-            if (hasCongestion) {
-                recalculateRoute(*graph, strategy);
+                if (hasCongestion) {
+                    recalculateRoute(
+                        *graph,
+                        strategy);
+                }
             }
         }
     }
@@ -1136,7 +1208,9 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
             }
 
             stuckTimer += subDt;
-            if (stuckTimer > patienceThreshold && graph != nullptr && strategy != nullptr) {
+            if (allowsUTurn() &&
+                stuckTimer > patienceThreshold &&
+                graph != nullptr && strategy != nullptr) {
                 // Check if it's safe to U-turn (no vehicle closely behind)
                 Vehicle* follower = currentRoad->findFollower(currentLaneIndex, this);
                 bool safeToUTurn = true;
@@ -1261,7 +1335,8 @@ bool Vehicle::isRoadInUpcomingRoute(int roadId) const {
 }
 
 bool Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy) {
-    if (currentRoad == nullptr || destination == nullptr ||
+    if (!allowsDynamicRerouting() ||
+        currentRoad == nullptr || destination == nullptr ||
         movementState_ == MovementState::TraversingJunction) {
         return false;
     }
@@ -1290,7 +1365,8 @@ bool Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy
 }
 
 bool Vehicle::performUTurn(const Graph& graph, PathFindingStrategy* strategy) {
-    if (currentRoad == nullptr || destination == nullptr ||
+    if (!allowsUTurn() ||
+        currentRoad == nullptr || destination == nullptr ||
         movementState_ == MovementState::TraversingJunction) {
         return false;
     }
@@ -1378,6 +1454,8 @@ void Vehicle::setMergingFromPOI(bool merging, double offset, int laneIdx) {
     mergeLaneIndex = laneIdx;
     if (merging) {
         poiAnimationTimer = poiAnimationDuration;
+        spawnLifecycleState_ =
+            SpawnLifecycleState::Merging;
     }
 }
 

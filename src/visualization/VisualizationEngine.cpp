@@ -459,6 +459,7 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
 
     drawCrosswalks(target, graph);
     drawBusStops(target, graph);
+    drawBusStations(target, graph);
     drawPOIs(target, graph);
     drawRoadNames(target, roads);
     drawTrafficLights(target, graph);

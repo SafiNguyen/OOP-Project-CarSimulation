@@ -2,6 +2,7 @@
 #define TRAFFICSIMULATOR_H
 
 #include <vector>
+#include <deque>
 #include <memory>
 #include <set>
 #include <limits>
@@ -15,10 +16,22 @@ class TrafficEvent;
 class PathFindingStrategy;
 class StatisticsManager;
 class Pedestrian;
+class BusService;
+class PointOfInterest;
 
 
 class TrafficSimulator {
 public:
+    struct SpawnStatistics {
+        // accepted counts submissions whose ownership entered the simulator.
+        // rejected/timedOut count terminal failures, including accepted
+        // requests that later exhausted route retries or their queue lifetime.
+        std::size_t accepted = 0;
+        std::size_t activated = 0;
+        std::size_t delayedAttempts = 0;
+        std::size_t rejected = 0;
+        std::size_t timedOut = 0;
+    };
     
     TrafficSimulator(Graph* graph, PathFindingStrategy* strategy);
 
@@ -29,6 +42,12 @@ public:
     TrafficSimulator& operator=(const TrafficSimulator&) = delete;
 
     bool addVehicle(Vehicle* vehicle);
+    bool scheduleVehicleSpawn(
+        Vehicle* vehicle,
+        double delaySeconds);
+    bool addVehicleWithFixedRoute(
+        Vehicle* vehicle,
+        const std::vector<Road*>& route);
     bool addPedestrian(
         std::unique_ptr<Pedestrian> pedestrian);
 
@@ -57,6 +76,13 @@ public:
     std::vector<Vehicle*> getPendingVehicles() const;
     void setMaximumActiveVehicles(std::size_t maximum);
     std::size_t getMaximumActiveVehicles() const;
+    void setPendingVehicleTimeout(double seconds);
+    double getPendingVehicleTimeout() const {
+        return pendingVehicleTimeoutSeconds_;
+    }
+    const SpawnStatistics& getSpawnStatistics() const {
+        return spawnStatistics_;
+    }
     const Graph& getGraph() const;
     StatisticsManager* getStatisticsManager() const;
 
@@ -79,6 +105,13 @@ private:
     struct PendingVehicle {
         Vehicle* vehicle = nullptr;
         std::vector<Road*> route;
+        double earliestActivationTime = 0.0;
+        double nextAttemptTime = 0.0;
+        double deadlineTime = 0.0;
+        bool phasedAdmission = false;
+        bool routeResolved = false;
+        bool fixedRoute = false;
+        int routeAttempts = 0;
     };
 
     static constexpr double MAX_RAW_DT = 0.1;
@@ -86,13 +119,32 @@ private:
     static constexpr int MAX_SUBSTEPS_PER_CALL = 200;
     static constexpr double MAX_LEFTOVER_DT = 5.0;
     static constexpr double MIN_SPAWN_HEADWAY_SECONDS = 0.9;
+    static constexpr double TRANSIT_NETWORK_HEADWAY_SECONDS = 4.0;
+    static constexpr double TRANSIT_DEPARTURE_HEADWAY_SECONDS = 15.0;
+    static constexpr int MAX_PHASED_ACTIVATIONS_PER_UPDATE = 3;
+    static constexpr std::size_t
+        MAX_PENDING_INSPECTIONS_PER_UPDATE = 64u;
+    static constexpr double
+        DEFAULT_PENDING_TIMEOUT_SECONDS = 600.0;
+    static constexpr int MAX_ROUTE_ATTEMPTS = 8;
 
 
     void recalculateAllVehicleRoutes();
     void removeFinishedVehicles();
+    bool addVehicleWithDelay(
+        Vehicle* vehicle,
+        double delaySeconds);
     bool tryActivateVehicle(
         Vehicle* vehicle,
         const std::vector<Road*>& route);
+    bool resolveRoute(
+        Vehicle* vehicle,
+        std::vector<Road*>& route);
+    bool routeNeedsRefresh(
+        const PendingVehicle& pending) const;
+    void discardPendingVehicle(
+        PendingVehicle& pending,
+        bool timedOut);
     void activatePendingVehicles();
     void removeFinishedPedestrians();
 
@@ -100,7 +152,7 @@ private:
     Graph* graph;                                   
     PathFindingStrategy* pathFindingStrategy;  
     std::vector<Vehicle*> vehicles;
-    std::vector<PendingVehicle> pendingVehicles;
+    std::deque<PendingVehicle> pendingVehicles;
     std::vector<Vehicle*> finishedVehicles;      
     std::vector<std::unique_ptr<Pedestrian>>
         pedestrians_;
@@ -110,6 +162,14 @@ private:
         std::numeric_limits<std::size_t>::max();
     std::unordered_map<const Road*, double>
         nextSpawnTimeByRoad_;
+    std::unordered_map<const PointOfInterest*, double>
+        nextSpawnTimeBySource_;
+    std::unordered_map<const BusService*, double>
+        nextTransitDepartureTimeByService_;
+    double nextTransitNetworkDepartureTime_ = 0.0;
+    SpawnStatistics spawnStatistics_;
+    double pendingVehicleTimeoutSeconds_ =
+        DEFAULT_PENDING_TIMEOUT_SECONDS;
     std::unique_ptr<EventManager> eventManager;     
     std::unique_ptr<StatisticsManager> statisticsManager;               
 

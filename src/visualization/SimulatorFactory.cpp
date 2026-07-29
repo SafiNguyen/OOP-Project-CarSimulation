@@ -1,31 +1,44 @@
 #include "SimulatorFactory.h"
 
 #include <algorithm>
+#include <iomanip>
 #include <iostream>
+#include <optional>
 #include <random>
+#include <set>
+#include <sstream>
+#include <stdexcept>
+#include <unordered_map>
 
+#include "algorithm/DijkstraStrategy.h"
 #include "Graph.h"
 #include "Intersection.h"
 #include "Vehicle.h"
 #include "model/vehicle/VehicleFactory.h"
+#include "Bus.h"
+#include "BusService.h"
+#include "BusStop.h"
 #include "Crosswalk.h"
 #include "Pedestrian.h"
 #include "PedestrianRoute.h"
+#include "simulation/BusTripPlanner.h"
 #include "simulation/TrafficSimulator.h"
+#include "simulation/VehicleSpawnPolicy.h"
 
 namespace {
 
 constexpr int DEMO_VEHICLE_COUNT = 1000;
 
-// Car, Motorbike, Bus, EmergencyVehicle. Buses are deliberately a small
-// share of vehicle units: they carry many people, but are far less numerous
-// on the road than private cars and motorbikes.
-// Keep the weights at a total of 100 so each value is also the exact
-// percentage used when selecting a demo vehicle type.
-constexpr double CAR_WEIGHT = 39.0;
-constexpr double MOTORBIKE_WEIGHT = 41.0;
-constexpr double BUS_WEIGHT = 12.0;
-constexpr double EMERGENCY_WEIGHT = 8.0;
+constexpr double FIRST_BUS_DEPARTURE_SECONDS = 5.0;
+constexpr double NETWORK_BUS_DEPARTURE_INTERVAL_SECONDS = 4.0;
+constexpr double FIRST_GENERAL_VEHICLE_DEPARTURE_SECONDS = 1.0;
+constexpr double GENERAL_VEHICLE_DEPARTURE_INTERVAL_SECONDS = 0.35;
+constexpr double GENERAL_DEPARTURE_JITTER_SECONDS = 0.06;
+constexpr int INITIAL_CIVILIAN_WARM_START_COUNT = 72;
+constexpr double FIRST_CIVILIAN_WARM_START_SECONDS = 0.15;
+constexpr double CIVILIAN_WARM_START_INTERVAL_SECONDS = 0.08;
+constexpr std::size_t MINIMUM_STOPS_PER_BUS = 2u;
+constexpr std::size_t MAXIMUM_STOPS_PER_BUS = 4u;
 
 std::size_t recommendedActiveVehicleLimit(
     const Graph& graph) {
@@ -61,64 +74,246 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingS
     }
 
     std::mt19937 rng(42);
-    const auto& pois = graph.getAllPOIs();
-    const bool usePois = pois.size() >= 2;
-    std::uniform_int_distribution<std::size_t> poiDistribution(
-        0,
-        usePois ? pois.size() - 1 : 0);
+    VehicleSpawnPolicy spawnPolicy(graph, 42u);
     std::uniform_int_distribution<std::size_t> intersectionDistribution(
         0,
         intersections.size() - 1);
-    std::discrete_distribution<int> vehicleTypeDist({
-        CAR_WEIGHT, MOTORBIKE_WEIGHT, BUS_WEIGHT, EMERGENCY_WEIGHT
-    });
 
-    for (int i = 0; i < DEMO_VEHICLE_COUNT; ++i) {
+    auto busServices = graph.getAllBusServices();
+    std::sort(
+        busServices.begin(),
+        busServices.end(),
+        [](const BusService* lhs, const BusService* rhs) {
+            return lhs->getId() < rhs->getId();
+        });
+    std::vector<const BusStop*> busStops;
+    for (const Road* road : graph.getAllRoads()) {
+        if (road == nullptr) {
+            continue;
+        }
+        for (const auto& ownedStop :
+             road->getBusStops()) {
+            if (ownedStop != nullptr) {
+                busStops.push_back(
+                    ownedStop.get());
+            }
+        }
+    }
+    std::sort(
+        busStops.begin(),
+        busStops.end(),
+        [](const BusStop* lhs, const BusStop* rhs) {
+            return lhs->getId() < rhs->getId();
+        });
+
+    int firstGenericVehicleId = 0;
+    int genericVehicleCount = DEMO_VEHICLE_COUNT;
+    if (!busServices.empty()) {
+        if (busStops.empty()) {
+            throw std::runtime_error(
+                "Configured transit services require "
+                "at least one Bus Stop.");
+        }
+        const int transitBusCount =
+            spawnPolicy.transitBusCount(
+                DEMO_VEHICLE_COUNT);
+        std::vector<int> fleetOrdinals(
+            busServices.size(), 0);
+        std::set<std::vector<int>>
+            assignedStopPlans;
+        std::mt19937 transitRandomEngine(20250729u);
+        DijkstraStrategy transitTripStrategy;
+        for (int busIndex = 0;
+             busIndex < transitBusCount;
+             ++busIndex) {
+            const std::size_t serviceIndex =
+                static_cast<std::size_t>(busIndex) %
+                busServices.size();
+            const BusService* service =
+                busServices[serviceIndex];
+            const int ordinal =
+                ++fleetOrdinals[serviceIndex];
+            std::ostringstream fleetCode;
+            fleetCode
+                << service->getCode()
+                << '-'
+                << std::setw(2)
+                << std::setfill('0')
+                << ordinal;
+            const double scheduledDepartureTime =
+                FIRST_BUS_DEPARTURE_SECONDS +
+                static_cast<double>(busIndex) *
+                    NETWORK_BUS_DEPARTURE_INTERVAL_SECONDS;
+            std::optional<BusTripPlan> tripPlan;
+            constexpr int MAX_PLAN_ATTEMPTS = 16;
+            for (int attempt = 0;
+                 attempt < MAX_PLAN_ATTEMPTS;
+                 ++attempt) {
+                auto candidate =
+                    BusTripPlanner::buildRandomPlan(
+                        graph,
+                        transitTripStrategy,
+                        *service,
+                        busStops,
+                        transitRandomEngine,
+                        MINIMUM_STOPS_PER_BUS,
+                        MAXIMUM_STOPS_PER_BUS,
+                        scheduledDepartureTime);
+                if (!candidate.has_value()) {
+                    continue;
+                }
+                std::vector<int> stopIds;
+                for (const BusStop* stop :
+                     candidate->orderedStops) {
+                    if (stop != nullptr) {
+                        stopIds.push_back(
+                            stop->getId());
+                    }
+                }
+                const bool uniquePlan =
+                    assignedStopPlans.insert(
+                        stopIds).second;
+                tripPlan =
+                    std::move(candidate);
+                if (uniquePlan) {
+                    break;
+                }
+            }
+            if (!tripPlan.has_value()) {
+                throw std::runtime_error(
+                    "Failed to build a connected Bus trip "
+                    "plan for " +
+                    fleetCode.str() + ".");
+            }
+
+            auto* bus = new Bus(
+                busIndex,
+                fleetCode.str(),
+                *service,
+                std::move(*tripPlan),
+                15.0);
+            if (!simulator->addVehicleWithFixedRoute(
+                    bus,
+                    bus->getCurrentRoute())) {
+                throw std::runtime_error(
+                    "Failed to queue configured transit Bus " +
+                    fleetCode.str() + ".");
+            }
+        }
+        firstGenericVehicleId = transitBusCount;
+        genericVehicleCount =
+            DEMO_VEHICLE_COUNT - transitBusCount;
+    }
+
+    std::unordered_map<const PointOfInterest*, double>
+        nextDepartureByOrigin;
+    std::uniform_real_distribution<double>
+        departureJitter(
+            -GENERAL_DEPARTURE_JITTER_SECONDS,
+            GENERAL_DEPARTURE_JITTER_SECONDS);
+    int civilianScheduleIndex = 0;
+
+    for (int genericIndex = 0;
+         genericIndex < genericVehicleCount;
+         ++genericIndex) {
+        const int i =
+            firstGenericVehicleId + genericIndex;
         PointOfInterest* startPOI = nullptr;
         PointOfInterest* endPOI = nullptr;
         Intersection* startIntersection = nullptr;
         Intersection* endIntersection = nullptr;
-        if (usePois) {
-            startPOI = pois[poiDistribution(rng)];
-            endPOI = pois[poiDistribution(rng)];
-            while (startPOI == endPOI) {
-                endPOI = pois[poiDistribution(rng)];
-            }
-        } else {
+        const VehicleKind kind =
+            spawnPolicy.selectVehicleKind(
+                busServices.empty());
+        const VehicleSpawnPolicy::Trip trip =
+            spawnPolicy.selectTrip(kind);
+        startPOI = trip.origin;
+        endPOI = trip.destination;
+
+        if (startPOI == nullptr) {
             startIntersection =
                 intersections[intersectionDistribution(rng)];
+        }
+        if (endPOI == nullptr) {
             endIntersection =
                 intersections[intersectionDistribution(rng)];
-            while (startIntersection == endIntersection) {
+        }
+        if (startIntersection != nullptr &&
+            endIntersection != nullptr) {
+            while (startIntersection ==
+                   endIntersection) {
                 endIntersection =
                     intersections[intersectionDistribution(rng)];
             }
         }
 
         Vehicle* v = nullptr;
-        const int type = vehicleTypeDist(rng);
-        VehicleKind kind = VehicleKind::Car;
         double speed = 20.0;
-        if (type == 0) {
-            kind = VehicleKind::Car;
-            speed = 20.0;
-        } else if (type == 1) {
-            kind = VehicleKind::Motorbike;
+        if (kind == VehicleKind::Motorbike) {
             speed = 30.0;
-        } else if (type == 2) {
-            kind = VehicleKind::Bus;
+        } else if (kind == VehicleKind::Bus) {
             speed = 15.0;
-        } else {
-            kind = VehicleKind::Emergency;
+        } else if (kind == VehicleKind::Emergency) {
             speed = 35.0;
         }
         v = VehicleFactory::createVehicle(
             kind, i, speed, startIntersection, endIntersection);
-        if (usePois) {
+        if (startPOI != nullptr) {
             v->setSpawnPOI(startPOI);
+        }
+        if (endPOI != nullptr) {
             v->setTargetPOI(endPOI);
         }
-        simulator->addVehicle(v);
+
+        const bool isCivilian =
+            kind == VehicleKind::Car ||
+            kind == VehicleKind::Motorbike;
+        const double jitter = departureJitter(rng);
+        double spawnDelay =
+            FIRST_GENERAL_VEHICLE_DEPARTURE_SECONDS +
+            static_cast<double>(genericIndex) *
+                GENERAL_VEHICLE_DEPARTURE_INTERVAL_SECONDS +
+            jitter;
+        if (isCivilian &&
+            civilianScheduleIndex <
+                INITIAL_CIVILIAN_WARM_START_COUNT) {
+            // Front-load a bounded civilian cohort so the map looks alive
+            // immediately. Source cooldown and safe road admission remain
+            // authoritative, so this increases early demand without placing
+            // overlapping vehicles directly onto the road.
+            spawnDelay =
+                FIRST_CIVILIAN_WARM_START_SECONDS +
+                static_cast<double>(
+                    civilianScheduleIndex) *
+                    CIVILIAN_WARM_START_INTERVAL_SECONDS +
+                jitter;
+        }
+        if (isCivilian) {
+            ++civilianScheduleIndex;
+        }
+        spawnDelay =
+            std::max(
+                isCivilian
+                    ? FIRST_CIVILIAN_WARM_START_SECONDS
+                    : FIRST_GENERAL_VEHICLE_DEPARTURE_SECONDS,
+                spawnDelay);
+        if (startPOI != nullptr) {
+            double& nextDeparture =
+                nextDepartureByOrigin[startPOI];
+            spawnDelay =
+                std::max(
+                    spawnDelay,
+                    nextDeparture);
+            nextDeparture =
+                spawnDelay +
+                startPOI->getSpawnCooldownSeconds();
+        }
+        if (!simulator->scheduleVehicleSpawn(
+                v, spawnDelay)) {
+            throw std::runtime_error(
+                "Failed to schedule demo vehicle " +
+                std::to_string(i) + ".");
+        }
     }
 
     int pedestrianId = 100000;
