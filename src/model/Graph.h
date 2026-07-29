@@ -3,15 +3,19 @@
 
 #include <unordered_map>
 #include <vector>
+#include <memory>
 #include "Intersection.h"
 #include "Road.h"
 #include "PointOfInterest.h"
+
+class Crosswalk;
 
 class Graph {
 private:
     std::unordered_map<int, Intersection*> intersections;
     std::unordered_map<int, Road*> roads;
     std::vector<PointOfInterest*> pois;
+    std::vector<std::unique_ptr<Crosswalk>> crosswalks;
 
 public:
     Graph();
@@ -55,6 +59,12 @@ public:
     std::vector<PointOfInterest*> getDestinations() const;
     
     void bindPOIsToRoads();
+
+    // --- Pedestrian infrastructure ---
+    bool addCrosswalk(std::unique_ptr<Crosswalk> crosswalk);
+    void removeCrosswalk(int id);
+    Crosswalk* getCrosswalk(int id) const;
+    std::vector<Crosswalk*> getAllCrosswalks() const;
 };
 
 #endif

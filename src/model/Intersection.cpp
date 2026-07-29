@@ -1,4 +1,5 @@
 #include "Intersection.h"
+#include "Crosswalk.h"
 #include "Road.h" 
 #include "TrafficLight.h"
 #include "LaneMapping.h"
@@ -388,6 +389,55 @@ TrafficLight* Intersection::getLightForIncomingRoad(const Road* road) const {
     return getLightForIncomingRoad(road->getId());
 }
 
+void Intersection::registerCrosswalk(Crosswalk* crosswalk) {
+    if (crosswalk == nullptr ||
+        crosswalk->getIntersection() != this ||
+        crosswalk->getIncomingRoad() == nullptr ||
+        crosswalk->getIncomingRoad()->getEnd() != this ||
+        std::find(
+            crosswalks_.begin(),
+            crosswalks_.end(),
+            crosswalk) != crosswalks_.end()) {
+        return;
+    }
+    crosswalks_.push_back(crosswalk);
+}
+
+void Intersection::unregisterCrosswalk(
+    Crosswalk* crosswalk) {
+    if (crosswalk == nullptr) return;
+    crosswalk->synchronizeSignalState(
+        PedestrianSignalState::DontWalk);
+    crosswalks_.erase(
+        std::remove(
+            crosswalks_.begin(),
+            crosswalks_.end(),
+            crosswalk),
+        crosswalks_.end());
+    pedestrianPhasePending_ =
+        hasEligiblePedestrianRequest();
+}
+
+const std::vector<Crosswalk*>&
+Intersection::getCrosswalks() const {
+    return crosswalks_;
+}
+
+Crosswalk* Intersection::getCrosswalkForIncomingRoad(
+    const Road* road) const {
+    if (road == nullptr) return nullptr;
+    const auto found = std::find_if(
+        crosswalks_.begin(),
+        crosswalks_.end(),
+        [road](const Crosswalk* crosswalk) {
+            return crosswalk != nullptr &&
+                   crosswalk->getIncomingRoad() == road;
+        });
+    return found != crosswalks_.end()
+        ? *found
+        : nullptr;
+}
+
 void Intersection::unregisterIncomingLight(Road* road) {
     if (road == nullptr) return;
     trafficLights.erase(road->getId());
@@ -466,7 +516,110 @@ void Intersection::resetSignalCycle() {
         phaseGroups.empty() ? 0.0 : greenDurationSeconds_;
     preemptedRoad_ = nullptr;
     preemptionHoldSeconds_ = 0.0;
+    pedestrianPhasePending_ = false;
+    for (Crosswalk* crosswalk : crosswalks_) {
+        if (crosswalk != nullptr) {
+            crosswalk->synchronizeSignalState(
+                PedestrianSignalState::DontWalk);
+        }
+    }
     synchronizeSignalHeads();
+}
+
+bool Intersection::hasEligiblePedestrianRequest() const {
+    return std::any_of(
+        crosswalks_.begin(),
+        crosswalks_.end(),
+        [](const Crosswalk* crosswalk) {
+            return crosswalk != nullptr &&
+                   crosswalk->hasEligibleRequest();
+        });
+}
+
+bool Intersection::hasOccupiedCrosswalk() const {
+    return std::any_of(
+        crosswalks_.begin(),
+        crosswalks_.end(),
+        [](const Crosswalk* crosswalk) {
+            return crosswalk != nullptr &&
+                   crosswalk->isOccupied();
+        });
+}
+
+bool Intersection::hasIntersectionOccupants() const {
+    return !occupants_.empty();
+}
+
+double Intersection::pedestrianWalkDuration() const {
+    double duration = 0.0;
+    for (const Crosswalk* crosswalk : crosswalks_) {
+        if (crosswalk != nullptr &&
+            (crosswalk->getSignalState() ==
+                 PedestrianSignalState::Walk ||
+             crosswalk->hasEligibleRequest())) {
+            duration = std::max(
+                duration,
+                crosswalk->getTiming().
+                    walkDurationSeconds);
+        }
+    }
+    return duration;
+}
+
+double Intersection::pedestrianClearanceDuration() const {
+    double duration = 0.0;
+    for (const Crosswalk* crosswalk : crosswalks_) {
+        if (crosswalk != nullptr &&
+            (crosswalk->getSignalState() ==
+                 PedestrianSignalState::Walk ||
+             crosswalk->getSignalState() ==
+                 PedestrianSignalState::Clearance)) {
+            duration = std::max(
+                duration,
+                crosswalk->
+                    getClearanceDurationSeconds());
+        }
+    }
+    return duration;
+}
+
+void Intersection::beginPedestrianWalk() {
+    for (Crosswalk* crosswalk : crosswalks_) {
+        if (crosswalk == nullptr) continue;
+        crosswalk->synchronizeSignalState(
+            crosswalk->hasEligibleRequest()
+                ? PedestrianSignalState::Walk
+                : PedestrianSignalState::DontWalk);
+    }
+    signalStage_ = SignalStage::PEDESTRIAN_WALK;
+    stageRemainingSeconds_ =
+        std::max(0.01, pedestrianWalkDuration());
+    pedestrianPhasePending_ = false;
+}
+
+void Intersection::beginPedestrianClearance() {
+    for (Crosswalk* crosswalk : crosswalks_) {
+        if (crosswalk != nullptr &&
+            crosswalk->getSignalState() ==
+                PedestrianSignalState::Walk) {
+            crosswalk->synchronizeSignalState(
+                PedestrianSignalState::Clearance);
+        }
+    }
+    signalStage_ =
+        SignalStage::PEDESTRIAN_CLEARANCE;
+    stageRemainingSeconds_ = std::max(
+        0.0,
+        pedestrianClearanceDuration());
+}
+
+void Intersection::endPedestrianPhase() {
+    for (Crosswalk* crosswalk : crosswalks_) {
+        if (crosswalk != nullptr) {
+            crosswalk->synchronizeSignalState(
+                PedestrianSignalState::DontWalk);
+        }
+    }
 }
 
 std::size_t Intersection::phaseIndexForRoad(
@@ -529,6 +682,14 @@ void Intersection::synchronizeSignalHeads() {
                 case SignalStage::ALL_RED:
                     remaining = stageRemainingSeconds_;
                     break;
+                case SignalStage::PEDESTRIAN_WALK:
+                    remaining =
+                        stageRemainingSeconds_ +
+                        pedestrianClearanceDuration();
+                    break;
+                case SignalStage::PEDESTRIAN_CLEARANCE:
+                    remaining = stageRemainingSeconds_;
+                    break;
             }
 
             std::size_t phase = nextScheduledPhase();
@@ -584,6 +745,23 @@ void Intersection::updateTrafficLights(double dt) {
         dt <= 0.0) {
         return;
     }
+    if (signalStage_ !=
+            SignalStage::PEDESTRIAN_WALK &&
+        signalStage_ !=
+            SignalStage::PEDESTRIAN_CLEARANCE &&
+        hasEligiblePedestrianRequest()) {
+        const bool newlyPending =
+            !pedestrianPhasePending_;
+        pedestrianPhasePending_ = true;
+        if (newlyPending &&
+            signalStage_ == SignalStage::ALL_RED &&
+            preemptedRoad_ == nullptr) {
+            stageRemainingSeconds_ = std::max(
+                stageRemainingSeconds_,
+                1.5);
+        }
+    }
+
     double remainingDt = dt;
     constexpr double epsilon = 1e-9;
     while (remainingDt > epsilon) {
@@ -605,14 +783,48 @@ void Intersection::updateTrafficLights(double dt) {
         } else if (signalStage_ == SignalStage::YELLOW) {
             signalStage_ = SignalStage::ALL_RED;
             stageRemainingSeconds_ =
-                allRedDurationSeconds_;
-        } else {
+                pedestrianPhasePending_ &&
+                        preemptedRoad_ == nullptr
+                    ? std::max(
+                          allRedDurationSeconds_,
+                          1.5)
+                    : allRedDurationSeconds_;
+        } else if (signalStage_ == SignalStage::ALL_RED) {
+            if (pedestrianPhasePending_ &&
+                preemptedRoad_ == nullptr) {
+                if (hasIntersectionOccupants()) {
+                    stageRemainingSeconds_ = 0.0;
+                    break;
+                }
+                beginPedestrianWalk();
+                continue;
+            }
             const std::size_t nextPhase =
                 nextScheduledPhase();
             if (hasConflictingReservationForPhase(nextPhase)) {
                 stageRemainingSeconds_ = 0.0;
                 break;
             }
+            activePhaseGroup = nextPhase;
+            signalStage_ = SignalStage::GREEN;
+            stageRemainingSeconds_ =
+                std::max(
+                    greenDurationSeconds_,
+                    preemptionHoldSeconds_);
+            preemptedRoad_ = nullptr;
+            preemptionHoldSeconds_ = 0.0;
+        } else if (
+            signalStage_ ==
+            SignalStage::PEDESTRIAN_WALK) {
+            beginPedestrianClearance();
+        } else {
+            if (hasOccupiedCrosswalk()) {
+                stageRemainingSeconds_ = 0.0;
+                break;
+            }
+            endPedestrianPhase();
+            const std::size_t nextPhase =
+                nextScheduledPhase();
             activePhaseGroup = nextPhase;
             signalStage_ = SignalStage::GREEN;
             stageRemainingSeconds_ =
@@ -764,6 +976,12 @@ void Intersection::invalidateConnectorCache() {
 bool Intersection::canEnter(int vehicleId, const Road* fromRoad) const {
     if (occupants_.count(vehicleId) > 0) {
         return true; // dang giu cho roi
+    }
+    if (signalStage_ ==
+            SignalStage::PEDESTRIAN_WALK ||
+        signalStage_ ==
+            SignalStage::PEDESTRIAN_CLEARANCE) {
+        return false;
     }
     for (const auto& occupant : occupants_) {
         if (!areRoadsInSamePhase(

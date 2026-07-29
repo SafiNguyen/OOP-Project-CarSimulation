@@ -7,6 +7,7 @@
 #include "JunctionConnector.h"
 #include "LaneMapping.h"
 #include "RoadGeometry.h"
+#include "Crosswalk.h"
 #include "algorithm/PathFindingStrategy.h"
 #include "PointOfInterest.h"
 #include <algorithm>
@@ -175,6 +176,17 @@ PauseReason Vehicle::getIntersectionControlReason() const {
         return PauseReason::None;
     }
 
+    const Crosswalk* crosswalk =
+        nextIntersection->
+            getCrosswalkForIncomingRoad(currentRoad);
+    if (crosswalk != nullptr &&
+        (crosswalk->getSignalState() ==
+             PedestrianSignalState::Walk ||
+         crosswalk->getSignalState() ==
+             PedestrianSignalState::Clearance)) {
+        return PauseReason::PedestrianCrossing;
+    }
+
     if (mustStopForTrafficLight(nextIntersection)) {
         return PauseReason::TrafficLight;
     }
@@ -284,7 +296,9 @@ bool Vehicle::shouldPauseAt(double currentPos,
     // A red-light queue is still waiting for the signal. By contrast, a
     // vehicle held behind an intersection-waiting leader is stopped by that
     // leader, not directly by the box reservation.
-    if (controlReason == PauseReason::TrafficLight) {
+    if (controlReason == PauseReason::TrafficLight ||
+        controlReason ==
+            PauseReason::PedestrianCrossing) {
         Vehicle* leader = currentRoad->findLeader(currentLaneIndex, this);
         if (leader != nullptr && leader->isPaused()) {
             const double requiredGap =
@@ -976,7 +990,9 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
                 const PauseReason controlReason =
                     getIntersectionControlReason();
                 if (controlReason != PauseReason::None) {
-                    const double distToStopLine = currentRoad->getDistance() - progressOnCurrentRoad;
+                    const double distToStopLine =
+                        currentRoad->getDistance() -
+                        progressOnCurrentRoad;
                     const double stoppingDistance = (currentSpeed * currentSpeed) / (2.0 * std::max(getDeceleration(), 1e-6));
                     const double safetyBuffer = 1.0; // metres: small margin
                     if (distToStopLine <= stoppingDistance + safetyBuffer) {

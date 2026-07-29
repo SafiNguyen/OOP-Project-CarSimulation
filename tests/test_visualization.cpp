@@ -299,7 +299,8 @@ int main() {
         carCount + motorbikeCount + busCount + emergencyCount;
     assert(spawnedCount == 1000);
     assert(simulator->getPendingVehicleCount() > 0);
-    assert(busCount >= 30 && busCount <= 70);
+    assert(busCount >= 90 && busCount <= 150);
+    assert(emergencyCount >= 55 && emergencyCount <= 105);
     assert(carCount > busCount);
     assert(motorbikeCount > busCount);
 

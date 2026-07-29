@@ -5,6 +5,7 @@
 #include <limits>
 
 #include "Intersection.h"
+#include "Crosswalk.h"
 #include "Road.h"
 
 namespace RoadGeometry {
@@ -187,6 +188,43 @@ Vec2 roadEdgeEndpoint(const Road& road,
         atStart);
 }
 
+Vec2 sampleRoadEdge(const Road& road,
+                    bool rightEdge,
+                    double progressMetres) {
+    const double ratio = road.getDistance() > 1e-12
+        ? std::clamp(
+              progressMetres / road.getDistance(),
+              0.0,
+              1.0)
+        : 0.0;
+    return lerp(
+        roadEdgeEndpoint(road, rightEdge, true),
+        roadEdgeEndpoint(road, rightEdge, false),
+        ratio);
+}
+
+Vec2 sampleSidewalk(const Road& road,
+                    bool rightSide,
+                    double progressMetres) {
+    const Vec2 edge = sampleRoadEdge(
+        road,
+        rightSide,
+        progressMetres);
+    const Vec2 outward = rightNormal(
+        roadDirection(road)) *
+        (rightSide ? 1.0 : -1.0);
+    // The sidewalk surface starts outside the curb. Including the curb in
+    // the centre offset keeps the complete sidewalk strip beyond the
+    // carriageway instead of centring its inner border on the road edge.
+    const double centreOffsetMetres =
+        SIDEWALK_CURB_WIDTH_METRES +
+        SIDEWALK_WIDTH_METRES * 0.5;
+    return edge +
+           outward *
+               (centreOffsetMetres /
+                metresPerWorldUnit(road));
+}
+
 Vec2 sampleRoadSurface(const Road& road, double progressMetres) {
     const double ratio = road.getDistance() > 1e-12
         ? std::clamp(progressMetres / road.getDistance(), 0.0, 1.0)
@@ -214,6 +252,17 @@ Pose2D sampleLane(const Road& road,
 }
 
 double stopLineProgressMetres(const Road& incomingRoad) {
+    const Intersection* intersection =
+        incomingRoad.getEnd();
+    if (intersection != nullptr) {
+        const Crosswalk* crosswalk =
+            intersection->getCrosswalkForIncomingRoad(
+                &incomingRoad);
+        if (crosswalk != nullptr) {
+            return crosswalk->
+                getStopLineProgressMetres();
+        }
+    }
     return std::max(
         0.0,
         incomingRoad.getDistance() - STOP_LINE_SETBACK_METRES);

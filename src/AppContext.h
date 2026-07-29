@@ -2,6 +2,7 @@
 #define APP_CONTEXT_H
 
 #include <SFML/Graphics.hpp>
+#include <cstdint>
 #include <string>
 
 class Graph;
@@ -39,6 +40,15 @@ struct AppContext {
     std::string loadError;
     bool heatMapEnabled = true;
     bool showParkedVehicles = true;
+
+    // drawGraph() builds hundreds of shapes and a CPU road-overlap mask.
+    // Keep its result on the GPU and only rebuild it when the visualization
+    // geometry changes or when the lower-frequency map-state refresh is due.
+    sf::RenderTexture mapCacheTexture;
+    sf::Sprite mapCacheSprite;
+    sf::Clock mapCacheRefreshClock;
+    std::uint64_t mapCacheRevision = 0;
+    bool mapCacheReady = false;
 };
 
 #endif

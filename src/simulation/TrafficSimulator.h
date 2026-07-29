@@ -14,6 +14,7 @@ class EventManager;
 class TrafficEvent;
 class PathFindingStrategy;
 class StatisticsManager;
+class Pedestrian;
 
 
 class TrafficSimulator {
@@ -28,6 +29,8 @@ public:
     TrafficSimulator& operator=(const TrafficSimulator&) = delete;
 
     bool addVehicle(Vehicle* vehicle);
+    bool addPedestrian(
+        std::unique_ptr<Pedestrian> pedestrian);
 
     void triggerEvent(std::unique_ptr<TrafficEvent> event);
 
@@ -44,6 +47,12 @@ public:
 
     const std::vector<Vehicle*>& getVehicles() const;
     const std::vector<Vehicle*>& getFinishedVehicles() const;
+    const std::vector<std::unique_ptr<Pedestrian>>&
+        getPedestrians() const;
+    const std::vector<std::unique_ptr<Pedestrian>>&
+        getFinishedPedestrians() const;
+    std::size_t getWaitingPedestrianCount() const;
+    std::size_t getCrossingPedestrianCount() const;
     std::size_t getPendingVehicleCount() const;
     std::vector<Vehicle*> getPendingVehicles() const;
     void setMaximumActiveVehicles(std::size_t maximum);
@@ -85,6 +94,7 @@ private:
         Vehicle* vehicle,
         const std::vector<Road*>& route);
     void activatePendingVehicles();
+    void removeFinishedPedestrians();
 
 
     Graph* graph;                                   
@@ -92,6 +102,10 @@ private:
     std::vector<Vehicle*> vehicles;
     std::vector<PendingVehicle> pendingVehicles;
     std::vector<Vehicle*> finishedVehicles;      
+    std::vector<std::unique_ptr<Pedestrian>>
+        pedestrians_;
+    std::vector<std::unique_ptr<Pedestrian>>
+        finishedPedestrians_;
     std::size_t maximumActiveVehicles_ =
         std::numeric_limits<std::size_t>::max();
     std::unordered_map<const Road*, double>
