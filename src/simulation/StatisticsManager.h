@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "../algorithm/PathFindingStrategy.h" // PathResult
-#include "../model/Pedestrian.h"
+#include "Pedestrian.h"
 
 class Graph;
 class PathFindingStrategy;

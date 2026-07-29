@@ -1344,3 +1344,59 @@ bool Vehicle::performUTurn(const Graph& graph, PathFindingStrategy* strategy) {
     onRoadChanged();
     return true;
 }
+
+double Vehicle::getAcceleration() const { return 3.0; }
+double Vehicle::getDeceleration() const { return 5.0; }
+double Vehicle::getMaxLateralAcceleration() const { return 3.0; }
+VehicleKind Vehicle::getVehicleKind() const { return VehicleKind::Car; }
+bool Vehicle::canChangeLanes() const { return true; }
+PauseUpdateResult Vehicle::updatePause(double availableTime) {
+    return {true, availableTime};
+}
+double Vehicle::getYieldSpeedFactor() const { return YIELD_SPEED_FACTOR; }
+double Vehicle::getYieldEscapeSpeedFactor() const { return YIELD_ESCAPE_SPEED_FACTOR; }
+void Vehicle::notifyEmergencyApproaching(int emergencyLaneIndex) {
+    yielding = true;
+    yieldCooldownTimer = YIELD_COOLDOWN_DURATION;
+    emergencyLaneToAvoid = emergencyLaneIndex;
+}
+double Vehicle::getLength() const { return 4.5; }    // metres
+double Vehicle::getWidth() const { return 1.8; }     // metres
+double Vehicle::getHeight() const { return 1.5; }    // metres
+double Vehicle::getWeight() const { return 1.5; }    // tonnes
+double Vehicle::getMiniGap() const { return 0.0; }
+double Vehicle::getMinGap() const { return getMiniGap(); }
+double Vehicle::getTimeHeadway() const { return 1.5; }
+
+void Vehicle::updatePoiAnimation(double dt) {
+    if (poiAnimationTimer > 0) poiAnimationTimer -= dt;
+}
+
+void Vehicle::setMergingFromPOI(bool merging, double offset, int laneIdx) {
+    isMergingFromPOI = merging;
+    mergeProgressOffset = offset;
+    mergeLaneIndex = laneIdx;
+    if (merging) {
+        poiAnimationTimer = poiAnimationDuration;
+    }
+}
+
+void Vehicle::setEnteringPOI(bool entering) {
+    isEnteringPOI = entering;
+    if (entering) {
+        poiAnimationTimer = poiAnimationDuration;
+    }
+}
+
+double Vehicle::getIntersectionTransitionProgress() const {
+    if (movementState_ != MovementState::TraversingJunction ||
+        activeConnector_ == nullptr) {
+        return 0.0;
+    }
+    const double length = activeConnector_->getLength();
+    if (length <= 0.0) {
+        return 1.0;
+    }
+    return junctionProgressMetres_ / length;
+}
+

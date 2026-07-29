@@ -4,16 +4,13 @@
 #include <iostream>
 #include <random>
 
-#include "model/Bus.h"
-#include "model/Car.h"
-#include "model/EmergencyVehicle.h"
-#include "model/Graph.h"
-#include "model/Intersection.h"
-#include "model/Motorbike.h"
-#include "model/Vehicle.h"
-#include "model/Crosswalk.h"
-#include "model/Pedestrian.h"
-#include "model/PedestrianRoute.h"
+#include "Graph.h"
+#include "Intersection.h"
+#include "Vehicle.h"
+#include "model/vehicle/VehicleFactory.h"
+#include "Crosswalk.h"
+#include "Pedestrian.h"
+#include "PedestrianRoute.h"
 #include "simulation/TrafficSimulator.h"
 
 namespace {
@@ -100,19 +97,23 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingS
 
         Vehicle* v = nullptr;
         const int type = vehicleTypeDist(rng);
+        VehicleKind kind = VehicleKind::Car;
+        double speed = 20.0;
         if (type == 0) {
-            v = new Car(
-                i, 20.0, startIntersection, endIntersection);
+            kind = VehicleKind::Car;
+            speed = 20.0;
         } else if (type == 1) {
-            v = new Motorbike(
-                i, 30.0, startIntersection, endIntersection);
+            kind = VehicleKind::Motorbike;
+            speed = 30.0;
         } else if (type == 2) {
-            v = new Bus(
-                i, 15.0, startIntersection, endIntersection);
+            kind = VehicleKind::Bus;
+            speed = 15.0;
         } else {
-            v = new EmergencyVehicle(
-                i, 35.0, startIntersection, endIntersection);
+            kind = VehicleKind::Emergency;
+            speed = 35.0;
         }
+        v = VehicleFactory::createVehicle(
+            kind, i, speed, startIntersection, endIntersection);
         if (usePois) {
             v->setSpawnPOI(startPOI);
             v->setTargetPOI(endPOI);

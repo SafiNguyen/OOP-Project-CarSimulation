@@ -5,12 +5,9 @@
 #include <imgui.h>
 
 #include "DebugConsoleInternal.h"
-#include "model/Bus.h"
-#include "model/Car.h"
-#include "model/EmergencyVehicle.h"
-#include "model/Intersection.h"
-#include "model/Motorbike.h"
-#include "model/Vehicle.h"
+#include "Intersection.h"
+#include "Vehicle.h"
+#include "model/vehicle/VehicleFactory.h"
 #include "simulation/TrafficSimulator.h"
 #include "UiTheme.h"
 
@@ -91,12 +88,18 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
             for (int i = 0; i < spawnVehicleCount_; ++i) {
                 const int newId = nextFreeVehicleId(simulator.get());
                 Vehicle* v = nullptr;
-                switch (spawnVehicleTypeIdx_) {
-                    case 0: v = new Car(newId, spawnVehicleSpeed_, start, end); break;
-                    case 1: v = new Bus(newId, spawnVehicleSpeed_, start, end); break;
-                    case 2: v = new Motorbike(newId, spawnVehicleSpeed_, start, end); break;
-                    default: v = new EmergencyVehicle(newId, spawnVehicleSpeed_, start, end); break;
+                VehicleKind kind = VehicleKind::Car;
+                if (spawnVehicleTypeIdx_ == 0) {
+                    kind = VehicleKind::Car;
+                } else if (spawnVehicleTypeIdx_ == 1) {
+                    kind = VehicleKind::Bus;
+                } else if (spawnVehicleTypeIdx_ == 2) {
+                    kind = VehicleKind::Motorbike;
+                } else {
+                    kind = VehicleKind::Emergency;
                 }
+                v = VehicleFactory::createVehicle(
+                    kind, newId, spawnVehicleSpeed_, start, end);
                 if (simulator->addVehicle(v)) {
                     successCount++;
                 }

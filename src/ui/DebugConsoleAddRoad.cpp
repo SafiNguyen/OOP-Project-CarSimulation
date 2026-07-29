@@ -5,9 +5,9 @@
 #include <imgui.h>
 
 #include "DebugConsoleInternal.h"
-#include "model/Graph.h"
-#include "model/Intersection.h"
-#include "model/Road.h"
+#include "Graph.h"
+#include "Intersection.h"
+#include "Road.h"
 #include "UiTheme.h"
 #include "visualization/VisualizationEngine.h"
 

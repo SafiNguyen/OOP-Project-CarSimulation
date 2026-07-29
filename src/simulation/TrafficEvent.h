@@ -2,7 +2,7 @@
 #define TRAFFIC_EVENT_H
 
 #include <string>
-#include "../model/Graph.h"
+#include "Graph.h"
 
 class TrafficEvent {
 protected:

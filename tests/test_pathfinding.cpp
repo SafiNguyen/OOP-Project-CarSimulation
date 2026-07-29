@@ -21,9 +21,9 @@
 #include <memory>
 
 #include "../tests/TestFramework.h"
-#include "../src/model/Graph.h"
-#include "../src/model/Intersection.h"
-#include "../src/model/Road.h"
+#include "Graph.h"
+#include "Intersection.h"
+#include "Road.h"
 #include "../src/algorithm/PathFindingStrategy.h"
 #include "../src/algorithm/BFSStrategy.h"
 #include "../src/algorithm/DijkstraStrategy.h"

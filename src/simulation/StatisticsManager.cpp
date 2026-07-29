@@ -5,7 +5,7 @@
 #include <iostream>
 
 #include "../algorithm/PathFindingStrategy.h"
-#include "../model/Graph.h"
+#include "Graph.h"
 
 
 

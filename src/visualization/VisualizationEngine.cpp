@@ -4,11 +4,11 @@
 #include <cmath>
 #include <unordered_set>
 
-#include "model/Graph.h"
-#include "model/Intersection.h"
-#include "model/Road.h"
-#include "model/RoadGeometry.h"
-#include "model/PointOfInterest.h"
+#include "Graph.h"
+#include "Intersection.h"
+#include "Road.h"
+#include "RoadGeometry.h"
+#include "PointOfInterest.h"
 
 VisualizationEngine::VisualizationEngine(sf::Vector2u windowSize, float margin)
     : windowSize_(windowSize),

@@ -1,7 +1,7 @@
 #include <iostream>
 #include <string>
-#include "model/Graph.h"
-#include "model/BusStop.h"
+#include "Graph.h"
+#include "BusStop.h"
 #include "Mapload.h"
 
 int main() {

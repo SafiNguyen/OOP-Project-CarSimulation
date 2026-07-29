@@ -6,7 +6,7 @@
 #include "visualization/Camera.h"
 #include "DemoMap.h"
 #include "Mapload.h"
-#include "model/Graph.h"
+#include "Graph.h"
 #include "visualization/VisualizationEngine.h"
 
 bool loadGraphFromPath(AppContext& ctx, const std::string& requestedPath) {

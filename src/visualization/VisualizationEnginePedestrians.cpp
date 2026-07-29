@@ -4,10 +4,10 @@
 #include <cmath>
 #include <unordered_set>
 
-#include "model/Crosswalk.h"
-#include "model/Graph.h"
-#include "model/Road.h"
-#include "model/RoadGeometry.h"
+#include "Crosswalk.h"
+#include "Graph.h"
+#include "Road.h"
+#include "RoadGeometry.h"
 
 void VisualizationEngine::drawSidewalks(
     sf::RenderTarget& target,

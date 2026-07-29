@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-#include "model/RoadGeometry.h"
+#include "RoadGeometry.h"
 
 sf::Vector2f VisualizationEngine::worldToScreen(double x, double y) const {
     const float sx = static_cast<float>(

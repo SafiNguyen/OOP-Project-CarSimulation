@@ -4,7 +4,7 @@
 #include <SFML/Graphics.hpp>
 #include <cstdint>
 #include <vector>
-#include "model/TrafficLight.h"
+#include "TrafficLight.h"
 
 class Graph;
 class Road;

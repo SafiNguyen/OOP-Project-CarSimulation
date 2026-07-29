@@ -5,9 +5,9 @@
 #include <algorithm>
 #include <limits>
 
-#include "../model/Graph.h"
-#include "../model/Intersection.h"
-#include "../model/Road.h"
+#include "Graph.h"
+#include "Intersection.h"
+#include "Road.h"
 
 namespace {
 // Min-heap entry: (costSoFar, intersectionId)

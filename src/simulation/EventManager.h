@@ -4,8 +4,8 @@
 #include <vector>
 #include <memory>
 #include "TrafficEvent.h"
-#include "../model/Vehicle.h"
-#include "../model/Graph.h"
+#include "Vehicle.h"
+#include "Graph.h"
 #include "../algorithm/PathFindingStrategy.h"
 class StatisticsManager;
 class EventManager {

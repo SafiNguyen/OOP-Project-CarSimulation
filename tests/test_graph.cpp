@@ -14,11 +14,11 @@
 #include <filesystem>
 
 #include "../tests/TestFramework.h"
-#include "../src/model/Graph.h"
-#include "../src/model/Intersection.h"
-#include "../src/model/Road.h"
-#include "../src/model/BusStop.h"
-#include "../src/Mapload.h"
+#include "Graph.h"
+#include "Intersection.h"
+#include "Road.h"
+#include "BusStop.h"
+#include "Mapload.h"
 
 using TestFramework::reportResult;
 using TestFramework::nearlyEqual;

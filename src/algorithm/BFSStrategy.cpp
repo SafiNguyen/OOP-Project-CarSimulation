@@ -5,9 +5,9 @@
 #include <unordered_set>
 #include <algorithm>
 
-#include "../model/Graph.h"
-#include "../model/Intersection.h"
-#include "../model/Road.h"
+#include "Graph.h"
+#include "Intersection.h"
+#include "Road.h"
 
 PathResult BFSStrategy::findPath(const Graph& graph, int startId, int goalId) const {
     PathResult result;

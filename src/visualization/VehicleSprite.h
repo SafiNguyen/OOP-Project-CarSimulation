@@ -2,7 +2,7 @@
 #define VEHICLE_SPRITE_H
 
 #include <SFML/Graphics.hpp>
-#include "../model/Vehicle.h"
+#include "Vehicle.h"
 #include "VisualizationEngine.h"
 
 class VehicleSprite {

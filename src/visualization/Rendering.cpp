@@ -10,9 +10,9 @@
 #include <imgui.h>
 
 #include "AppContext.h"
-#include "model/Intersection.h"
-#include "model/Pedestrian.h"
-#include "model/Vehicle.h"
+#include "Intersection.h"
+#include "Pedestrian.h"
+#include "Vehicle.h"
 #include "simulation/StatisticsManager.h"
 #include "simulation/TrafficSimulator.h"
 #include "ui/DebugConsole.h"

@@ -11,18 +11,18 @@
 
 #include <nlohmann/json.hpp>
 
-#include "model/Graph.h"
-#include "model/Intersection.h"
-#include "model/Road.h"
-#include "model/RoadGeometry.h"
-#include "model/Roundabout.h"
-#include "model/Bridge.h"
-#include "model/Tunnel.h"
-#include "model/PointOfInterest.h"
-#include "model/SpawnPoint.h"
-#include "model/Destination.h"
-#include "model/BusStop.h"
-#include "model/Crosswalk.h"
+#include "Graph.h"
+#include "Intersection.h"
+#include "Road.h"
+#include "RoadGeometry.h"
+#include "Roundabout.h"
+#include "Bridge.h"
+#include "Tunnel.h"
+#include "PointOfInterest.h"
+#include "SpawnPoint.h"
+#include "Destination.h"
+#include "BusStop.h"
+#include "Crosswalk.h"
 #include "common/Units.h"
 
 using nlohmann::json;

@@ -1,7 +1,7 @@
 #ifndef VEHICLE_RENDER_GEOMETRY_H
 #define VEHICLE_RENDER_GEOMETRY_H
 
-#include "model/Vehicle.h"
+#include "Vehicle.h"
 #include "visualization/VisualizationEngine.h"
 
 struct VehicleScreenSize {

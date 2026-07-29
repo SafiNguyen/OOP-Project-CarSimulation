@@ -19,7 +19,7 @@
 #include "visualization/Rendering.h"
 #include "visualization/SimulatorFactory.h"
 #include "visualization/VehicleSprite.h"
-#include "model/Graph.h"
+#include "Graph.h"
 #include "simulation/TrafficSimulator.h"
 #include "ui/DebugConsole.h"
 #include "ui/StatsPanel.h"

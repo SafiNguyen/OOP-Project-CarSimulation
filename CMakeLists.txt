@@ -73,20 +73,19 @@ target_include_directories(imgui-sfml-lib PUBLIC
     ${sfml_SOURCE_DIR}/include
 )
 
-file(GLOB CORE_SOURCE_FILES CONFIGURE_DEPENDS
-    "src/model/*.cpp"
-    "src/algorithm/*.cpp"
-    "src/simulation/*.cpp"
-    "src/visualization/*.cpp"
-    "src/Mapload.cpp"
+file(GLOB_RECURSE CORE_SOURCE_FILES CONFIGURE_DEPENDS
     "src/*.cpp"
-    "src/ui/*.cpp"
 )
 
 add_library(urban_core STATIC ${CORE_SOURCE_FILES})
 
 target_include_directories(urban_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/model
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/model/vehicle
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/model/infrastructure
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/model/pedestrian
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/loader
     ${sfml_SOURCE_DIR}/include
     ${imgui_SOURCE_DIR}
     ${imgui-sfml_SOURCE_DIR}

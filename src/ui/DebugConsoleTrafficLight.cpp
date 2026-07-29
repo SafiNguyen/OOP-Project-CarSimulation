@@ -6,10 +6,10 @@
 #include <imgui.h>
 
 #include "DebugConsoleInternal.h"
-#include "model/Graph.h"
-#include "model/Intersection.h"
-#include "model/Road.h"
-#include "model/TrafficLight.h"
+#include "Graph.h"
+#include "Intersection.h"
+#include "Road.h"
+#include "TrafficLight.h"
 
 using debugconsole_detail::intersectionLabel;
 

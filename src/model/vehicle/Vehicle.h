@@ -5,39 +5,13 @@
 #include <vector>
 #include "Geometry.h"
 #include "JunctionConnector.h"
+#include "VehicleTypes.h"
 
 class Intersection;
 class Road;
 class Graph;
 class PathFindingStrategy;
 class PointOfInterest;
-
-enum class PauseReason {
-    None,
-    TrafficLight,
-    PedestrianCrossing,
-    Intersection,
-    BusStop
-};
-
-enum class MovementState {
-    OnRoad,
-    WaitingAtIntersection,
-    TraversingJunction,
-    DwellingAtBusStop
-};
-
-enum class VehicleKind {
-    Car,
-    Bus,
-    Motorbike,
-    Emergency
-};
-
-struct PauseUpdateResult {
-    bool resumed;
-    double remainingTime;
-};
 
 class Vehicle {
 public:
@@ -114,11 +88,11 @@ public:
 
     virtual double calculateCurrentSpeed() const = 0;
     virtual void onRoadChanged() {}
-    virtual double getAcceleration() const { return 3.0; }
-    virtual double getDeceleration() const { return 5.0; }
-    virtual double getMaxLateralAcceleration() const { return 3.0; }
-    virtual VehicleKind getVehicleKind() const { return VehicleKind::Car; }
-    virtual bool canChangeLanes() const { return true; }
+    virtual double getAcceleration() const;
+    virtual double getDeceleration() const;
+    virtual double getMaxLateralAcceleration() const;
+    virtual VehicleKind getVehicleKind() const;
+    virtual bool canChangeLanes() const;
 
     double getCurrentSpeed() const { return currentSpeed; }
     Pose2D getPose() const;
@@ -132,17 +106,11 @@ public:
                                 double& pausePos);
     virtual bool mustStopForTrafficLight(Intersection* nextIntersection) const;
     virtual void onPauseStarted() {}
-    virtual PauseUpdateResult updatePause(double availableTime) {
-        return {true, availableTime};
-    }
+    virtual PauseUpdateResult updatePause(double availableTime);
     virtual void update(double dt, Graph* graph = nullptr, PathFindingStrategy* strategy = nullptr);
-    virtual double getYieldSpeedFactor() const { return YIELD_SPEED_FACTOR; }
-    virtual double getYieldEscapeSpeedFactor() const { return YIELD_ESCAPE_SPEED_FACTOR; }
-    virtual void notifyEmergencyApproaching(int emergencyLaneIndex = -1) {
-        yielding = true;
-        yieldCooldownTimer = YIELD_COOLDOWN_DURATION;
-        emergencyLaneToAvoid = emergencyLaneIndex;
-    }
+    virtual double getYieldSpeedFactor() const;
+    virtual double getYieldEscapeSpeedFactor() const;
+    virtual void notifyEmergencyApproaching(int emergencyLaneIndex = -1);
     bool isYielding() const { return yielding; }
 
     void setRoute(const std::vector<Road*>& route);
@@ -154,13 +122,13 @@ public:
     Intersection* getSpawnPoint() const { return spawnPoint; }
     Intersection* getDestination() const { return destination; }
     double getBaseSpeed() const { return baseSpeed; }
-    virtual double getLength() const { return 4.5; }    // metres
-    virtual double getWidth() const { return 1.8; }     // metres
-    virtual double getHeight() const { return 1.5; }    // metres
-    virtual double getWeight() const { return 1.5; }    // tonnes
-    virtual double getMiniGap() const { return 0.0; }
-    virtual double getMinGap() const { return getMiniGap(); }
-    virtual double getTimeHeadway() const { return 1.5; }
+    virtual double getLength() const;    // metres
+    virtual double getWidth() const;     // metres
+    virtual double getHeight() const;    // metres
+    virtual double getWeight() const;    // tonnes
+    virtual double getMiniGap() const;
+    virtual double getMinGap() const;
+    virtual double getTimeHeadway() const;
     double getProgressOnRoad() const { return progressOnCurrentRoad; }
 
     // --- POI support ---
@@ -174,26 +142,12 @@ public:
     
     double getPoiAnimationTimer() const { return poiAnimationTimer; }
     double getPoiAnimationDuration() const { return poiAnimationDuration; }
-    void updatePoiAnimation(double dt) {
-        if (poiAnimationTimer > 0) poiAnimationTimer -= dt;
-    }
+    void updatePoiAnimation(double dt);
 
-    void setMergingFromPOI(bool merging, double offset = -1.0, int laneIdx = -1) {
-        isMergingFromPOI = merging;
-        mergeProgressOffset = offset;
-        mergeLaneIndex = laneIdx;
-        if (merging) {
-            poiAnimationTimer = poiAnimationDuration;
-        }
-    }
+    void setMergingFromPOI(bool merging, double offset = -1.0, int laneIdx = -1);
 
     bool getIsEnteringPOI() const { return isEnteringPOI; }
-    void setEnteringPOI(bool entering) {
-        isEnteringPOI = entering;
-        if (entering) {
-            poiAnimationTimer = poiAnimationDuration;
-        }
-    }
+    void setEnteringPOI(bool entering);
 
     double getMergeProgressOffset() const { return mergeProgressOffset; }
     int getMergeLaneIndex() const { return mergeLaneIndex; }
@@ -216,17 +170,7 @@ public:
     bool isAwaitingIntersectionTransition() const {
         return movementState_ == MovementState::TraversingJunction;
     }
-    double getIntersectionTransitionProgress() const {
-        if (movementState_ != MovementState::TraversingJunction ||
-            activeConnector_ == nullptr) {
-            return 0.0;
-        }
-        const double length = activeConnector_->getLength();
-        if (length <= 0.0) {
-            return 1.0;
-        }
-        return junctionProgressMetres_ / length;
-    }
+    double getIntersectionTransitionProgress() const;
 
 protected:
     PauseReason getIntersectionControlReason() const;

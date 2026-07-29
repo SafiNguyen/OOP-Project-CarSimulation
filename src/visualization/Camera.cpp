@@ -5,7 +5,7 @@
 #include <imgui.h>
 
 #include "AppContext.h"
-#include "model/Graph.h"
+#include "Graph.h"
 #include "visualization/VisualizationEngine.h"
 
 void clampViewToMap(AppContext& ctx) {
