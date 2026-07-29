@@ -13,6 +13,7 @@ enum class POIType {
     PARKING_LOT,
     BUS_STATION,
     HOSPITAL,
+    RESIDENTIAL_AREA,
     // --- Destinations (where vehicles travel to) ---
     RESTAURANT,
     CINEMA,
@@ -38,12 +39,20 @@ protected:
     Intersection* nearestIntersection; // for pathfinding
     Road* connectedRoad;               // Road the POI is physically attached to
     double progressOffset;             // Distance from the start of the connectedRoad
+    int accessLaneIndex;               // -1 selects the curb lane automatically
+    double spawnWeight;
+    double destinationWeight;
+    double spawnCooldownSeconds;
+    bool explicitRoadAccess;
 
 public:
     PointOfInterest(int id, const std::string& name, POIType type,
                     double x, double y, Intersection* nearest = nullptr)
         : id(id), name(name), type(type), x(x), y(y),
-          nearestIntersection(nearest), connectedRoad(nullptr), progressOffset(0.0) {}
+          nearestIntersection(nearest), connectedRoad(nullptr),
+          progressOffset(0.0), accessLaneIndex(-1),
+          spawnWeight(1.0), destinationWeight(1.0),
+          spawnCooldownSeconds(1.0), explicitRoadAccess(false) {}
 
     virtual ~PointOfInterest() = default;
 
@@ -56,10 +65,35 @@ public:
     Intersection* getNearestIntersection() const { return nearestIntersection; }
     Road* getConnectedRoad() const { return connectedRoad; }
     double getProgressOffset() const { return progressOffset; }
+    int getAccessLaneIndex() const { return accessLaneIndex; }
+    double getSpawnWeight() const { return spawnWeight; }
+    double getDestinationWeight() const { return destinationWeight; }
+    double getSpawnCooldownSeconds() const {
+        return spawnCooldownSeconds;
+    }
+    bool hasExplicitRoadAccess() const { return explicitRoadAccess; }
 
     void setNearestIntersection(Intersection* i) { nearestIntersection = i; }
     void setConnectedRoad(Road* r) { connectedRoad = r; }
     void setProgressOffset(double p) { progressOffset = p; }
+    void setAccessLaneIndex(int laneIndex) {
+        accessLaneIndex = laneIndex;
+    }
+    void setSpawnWeight(double weight) { spawnWeight = weight; }
+    void setDestinationWeight(double weight) {
+        destinationWeight = weight;
+    }
+    void setSpawnCooldownSeconds(double seconds) {
+        spawnCooldownSeconds = seconds;
+    }
+    void configureRoadAccess(Road* road,
+                             double progressMetres,
+                             int laneIndex = -1) {
+        connectedRoad = road;
+        progressOffset = progressMetres;
+        accessLaneIndex = laneIndex;
+        explicitRoadAccess = road != nullptr;
+    }
 
     /// Returns true if this POI can be used as a vehicle spawn point.
     virtual bool isSpawnPoint() const { return false; }
@@ -73,6 +107,8 @@ public:
             case POIType::PARKING_LOT:  return "Parking Lot";
             case POIType::BUS_STATION:  return "Bus Station";
             case POIType::HOSPITAL:     return "Hospital";
+            case POIType::RESIDENTIAL_AREA:
+                return "Residential Area";
             case POIType::RESTAURANT:   return "Restaurant";
             case POIType::CINEMA:       return "Cinema";
             case POIType::SUPERMARKET:  return "Supermarket";
@@ -83,9 +119,12 @@ public:
 
     /// Converts a string (from JSON) to a POIType enum.
     static POIType typeFromString(const std::string& s) {
-        if (s == "parking_lot")  return POIType::PARKING_LOT;
+        if (s == "parking_lot" || s == "parking")
+            return POIType::PARKING_LOT;
         if (s == "bus_station")  return POIType::BUS_STATION;
         if (s == "hospital")     return POIType::HOSPITAL;
+        if (s == "residential_area" || s == "residential")
+            return POIType::RESIDENTIAL_AREA;
         if (s == "restaurant")   return POIType::RESTAURANT;
         if (s == "cinema")       return POIType::CINEMA;
         if (s == "supermarket")  return POIType::SUPERMARKET;
