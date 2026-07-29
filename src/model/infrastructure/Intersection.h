@@ -12,6 +12,21 @@ class Road;
 class TrafficLight;
 class Crosswalk;
 
+struct EmergencyApproach {
+    int vehicleId = -1;
+    const Road* incomingRoad = nullptr;
+    int incomingLane = -1;
+    const Road* outgoingRoad = nullptr;
+    int outgoingLane = -1;
+    double vehicleWidthMetres = 0.0;
+
+    bool isValid() const {
+        return vehicleId >= 0 &&
+               incomingRoad != nullptr &&
+               incomingLane >= 0 &&
+               vehicleWidthMetres > 0.0;
+    }
+};
 
 enum class IntersectionType {
     PASS_THROUGH, // 0-2 incoming roads: nothing to arbitrate between
@@ -93,6 +108,11 @@ private:
 
     const Road* preemptedRoad_ = nullptr;
     double preemptionHoldSeconds_ = 0.0;
+    EmergencyApproach emergencyApproach_;
+    double emergencyPriorityRemainingSeconds_ = 0.0;
+
+    void clearEmergencyPriority();
+    void updateEmergencyPriority(double dt);
 
 protected:
     virtual std::shared_ptr<const JunctionConnector> createConnector(
@@ -176,7 +196,20 @@ public:
     // they are the same phase group, or one/both have no light at all).
     bool areRoadsInSamePhase(const Road* a, const Road* b) const;
 
-    void requestEmergencyPreemption(const Road* incomingRoad, double holdDuration);
+    void requestEmergencyPreemption(
+        int vehicleId,
+        const Road* incomingRoad,
+        int incomingLane,
+        const Road* outgoingRoad,
+        int outgoingLane,
+        double vehicleWidthMetres,
+        double holdDuration);
+    bool hasActiveEmergencyPriority() const;
+    bool isPrioritizedEmergencyVehicle(
+        int vehicleId,
+        const Road* incomingRoad) const;
+    const EmergencyApproach* getEmergencyApproach() const;
+    bool isEmergencyPathClear(int vehicleId) const;
     virtual bool canEnter(int vehicleId, const Road* fromRoad) const;
     virtual bool canEnterMovement(
         int vehicleId,

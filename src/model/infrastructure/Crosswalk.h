@@ -8,11 +8,18 @@
 class Intersection;
 class Pedestrian;
 class Road;
+struct EmergencyApproach;
 
 enum class PedestrianSignalState {
     DontWalk,
     Walk,
     Clearance
+};
+
+enum class EmergencyCrossingGuidance {
+    None,
+    HoldBeforeVehiclePath,
+    ExpediteOutOfVehiclePath
 };
 
 struct CrosswalkTiming {
@@ -71,14 +78,29 @@ public:
     bool hasEligibleRequest() const;
     bool isOccupied() const;
     double getOldestRequestAgeSeconds() const;
+    EmergencyCrossingGuidance getEmergencyGuidance(
+        const Pedestrian& pedestrian) const;
+    bool isEmergencyPathClear(
+        const EmergencyApproach& approach) const;
 
 private:
+    struct ConflictZone {
+        bool valid = false;
+        double startMetres = 0.0;
+        double endMetres = 0.0;
+    };
+
     static bool containsPedestrian(
         const std::vector<Pedestrian*>& pedestrians,
         int pedestrianId);
     static void erasePedestrian(
         std::vector<Pedestrian*>& pedestrians,
         int pedestrianId);
+    bool isAffectedBy(
+        const EmergencyApproach& approach) const;
+    ConflictZone getConflictZone(
+        const Pedestrian& pedestrian,
+        const EmergencyApproach& approach) const;
 
     int id_;
     Intersection* intersection_;

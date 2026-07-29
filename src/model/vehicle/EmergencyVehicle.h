@@ -10,6 +10,7 @@ public:
     static constexpr double YIELD_LOOKAHEAD_DISTANCE = 60.0;
     static constexpr double PREEMPTION_LOOKAHEAD_DISTANCE = 80.0;
     static constexpr double PREEMPTION_HOLD_DURATION = 3.0;
+    static constexpr double JUNCTION_CAUTION_SPEED_FACTOR = 0.85;
 
     EmergencyVehicle(int id,
                      double speed,
@@ -30,15 +31,32 @@ public:
         return VehicleKind::Emergency;
     }
 
-    // Preemption changes the shared signal plan. Emergency vehicles still
-    // obey RED/YELLOW until the controller has completed YELLOW + ALL_RED.
+    // Preemption reserves the emergency approach before this vehicle may
+    // proceed against RED/YELLOW. Junction occupants and pedestrians inside
+    // the vehicle's physical lane remain hard safety constraints.
     double getLength() const override { return 6.0; }
     double getWidth() const override { return 2.2; }
     double getHeight() const override { return 2.5; }
     double getWeight() const override { return 3.5; }
     double getMinGap() const override { return 2.5; }
     double getYieldSpeedFactor() const override { return 1.0; }
+    double getEmergencyJunctionSpeedLimit(
+        double freeFlowSpeed) const override {
+        return freeFlowSpeed *
+               JUNCTION_CAUTION_SPEED_FACTOR;
+    }
     void notifyEmergencyApproaching(int /*emergencyLaneIndex*/) override {}
+    bool mustStopForTrafficLight(
+        Intersection* nextIntersection) const override {
+        if (nextIntersection != nullptr &&
+            nextIntersection->
+                isPrioritizedEmergencyVehicle(
+                    getId(), getCurrentRoad())) {
+            return false;
+        }
+        return Vehicle::mustStopForTrafficLight(
+            nextIntersection);
+    }
 
     void update(double dt,
                 Graph* graph = nullptr,
@@ -58,8 +76,20 @@ private:
         const double distanceToEnd =
             road->getDistance() - getProgressOnRoad();
         if (distanceToEnd <= PREEMPTION_LOOKAHEAD_DISTANCE) {
+            const LaneMapping mapping =
+                getJunctionEntryLaneMapping();
+            Road* outgoing =
+                mapping.valid ? getNextRoad() : nullptr;
             next->requestEmergencyPreemption(
-                road, PREEMPTION_HOLD_DURATION);
+                getId(),
+                road,
+                getCurrentLaneIndex(),
+                outgoing,
+                mapping.valid
+                    ? mapping.outgoingLane
+                    : -1,
+                getWidth(),
+                PREEMPTION_HOLD_DURATION);
         }
     }
 

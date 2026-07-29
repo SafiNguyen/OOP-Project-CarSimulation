@@ -8,6 +8,12 @@
 #include "Road.h"
 #include "RoadGeometry.h"
 
+namespace {
+
+constexpr double EMERGENCY_PATH_CLEARANCE_METRES = 0.75;
+
+}
+
 Crosswalk::Crosswalk(int id,
                      Intersection* intersection,
                      Road* incomingRoad,
@@ -231,7 +237,13 @@ PedestrianSignalState Crosswalk::getSignalState() const {
 
 bool Crosswalk::canStartCrossing(
     const Pedestrian& pedestrian) const {
+    const EmergencyApproach* emergency =
+        intersection_ != nullptr
+            ? intersection_->getEmergencyApproach()
+            : nullptr;
     return signalState_ == PedestrianSignalState::Walk &&
+           (emergency == nullptr ||
+            !isAffectedBy(*emergency)) &&
            pedestrian.getState() ==
                PedestrianState::WaitingToCross &&
            pedestrian.getCurrentCrosswalk() == this &&
@@ -275,4 +287,149 @@ double Crosswalk::getOldestRequestAgeSeconds() const {
         }
     }
     return oldest;
+}
+
+bool Crosswalk::isAffectedBy(
+    const EmergencyApproach& approach) const {
+    if (!approach.isValid() ||
+        incomingRoad_ == nullptr) {
+        return false;
+    }
+    if (incomingRoad_ == approach.incomingRoad) {
+        return true;
+    }
+    return approach.outgoingRoad != nullptr &&
+           getReverseRoad() == approach.outgoingRoad;
+}
+
+Crosswalk::ConflictZone Crosswalk::getConflictZone(
+    const Pedestrian& pedestrian,
+    const EmergencyApproach& approach) const {
+    const PedestrianRouteSegment* segment =
+        pedestrian.getCurrentSegment();
+    if (segment == nullptr ||
+        segment->kind !=
+            PedestrianSegmentKind::Crosswalk ||
+        segment->crosswalk != this ||
+        segment->lengthMetres <= 1e-9 ||
+        !isAffectedBy(approach)) {
+        return {};
+    }
+
+    const Road* emergencyRoad = nullptr;
+    int emergencyLane = -1;
+    double roadProgress = 0.0;
+    if (incomingRoad_ == approach.incomingRoad) {
+        emergencyRoad = approach.incomingRoad;
+        emergencyLane = approach.incomingLane;
+        roadProgress = getCentreProgressMetres();
+    } else {
+        emergencyRoad = approach.outgoingRoad;
+        emergencyLane = approach.outgoingLane;
+        roadProgress = getReverseCentreProgressMetres();
+    }
+    if (emergencyRoad == nullptr ||
+        emergencyLane < 0 ||
+        emergencyLane >=
+            emergencyRoad->getLaneCount()) {
+        return {};
+    }
+
+    const Vec2 crossingVector =
+        segment->end - segment->start;
+    const double squaredLength =
+        dot(crossingVector, crossingVector);
+    if (squaredLength <= 1e-12) {
+        return {};
+    }
+    const Vec2 laneCentre =
+        RoadGeometry::sampleLane(
+            *emergencyRoad,
+            emergencyLane,
+            roadProgress).position;
+    const double ratio = std::clamp(
+        dot(laneCentre - segment->start,
+            crossingVector) /
+            squaredLength,
+        0.0,
+        1.0);
+    const double centreMetres =
+        ratio * segment->lengthMetres;
+    const double halfClearance =
+        approach.vehicleWidthMetres * 0.5 +
+        EMERGENCY_PATH_CLEARANCE_METRES;
+    return {
+        true,
+        std::max(0.0, centreMetres - halfClearance),
+        std::min(
+            segment->lengthMetres,
+            centreMetres + halfClearance)
+    };
+}
+
+EmergencyCrossingGuidance
+Crosswalk::getEmergencyGuidance(
+    const Pedestrian& pedestrian) const {
+    const EmergencyApproach* approach =
+        intersection_ != nullptr
+            ? intersection_->getEmergencyApproach()
+            : nullptr;
+    if (approach == nullptr ||
+        !isAffectedBy(*approach)) {
+        return EmergencyCrossingGuidance::None;
+    }
+    if (pedestrian.getState() ==
+            PedestrianState::WaitingToCross) {
+        return EmergencyCrossingGuidance::
+            HoldBeforeVehiclePath;
+    }
+    if (pedestrian.getState() !=
+            PedestrianState::Crossing) {
+        return EmergencyCrossingGuidance::None;
+    }
+
+    const ConflictZone zone =
+        getConflictZone(pedestrian, *approach);
+    if (!zone.valid) {
+        return EmergencyCrossingGuidance::
+            ExpediteOutOfVehiclePath;
+    }
+    const double progress =
+        pedestrian.getProgressOnSegmentMetres();
+    if (progress + 1e-9 < zone.startMetres) {
+        return EmergencyCrossingGuidance::
+            HoldBeforeVehiclePath;
+    }
+    if (progress <= zone.endMetres + 1e-9) {
+        return EmergencyCrossingGuidance::
+            ExpediteOutOfVehiclePath;
+    }
+    return EmergencyCrossingGuidance::None;
+}
+
+bool Crosswalk::isEmergencyPathClear(
+    const EmergencyApproach& approach) const {
+    if (!isAffectedBy(approach)) {
+        return true;
+    }
+    for (const Pedestrian* pedestrian : occupants_) {
+        if (pedestrian == nullptr ||
+            pedestrian->getState() !=
+                PedestrianState::Crossing) {
+            continue;
+        }
+        const ConflictZone zone =
+            getConflictZone(*pedestrian, approach);
+        if (!zone.valid) {
+            return false;
+        }
+        const double progress =
+            pedestrian->
+                getProgressOnSegmentMetres();
+        if (progress + 1e-9 >= zone.startMetres &&
+            progress <= zone.endMetres + 1e-9) {
+            return false;
+        }
+    }
+    return true;
 }

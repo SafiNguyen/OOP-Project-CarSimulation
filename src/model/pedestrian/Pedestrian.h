@@ -19,6 +19,7 @@ enum class PedestrianState {
 class Pedestrian {
 public:
     static constexpr double DEFAULT_WALKING_SPEED = 1.4;
+    static constexpr double EMERGENCY_CLEARING_SPEED_FACTOR = 2.0;
 
     Pedestrian(
         int id,
@@ -52,7 +53,9 @@ public:
     double getCurrentCrosswalkWaitSeconds() const;
 
 private:
-    void advanceAlongCurrentSegment(double availableTime);
+    void advanceAlongCurrentSegment(
+        double availableTime,
+        double speedMultiplier = 1.0);
     void completeCurrentSegment();
     void arriveAtCrosswalk();
     void finishJourney();

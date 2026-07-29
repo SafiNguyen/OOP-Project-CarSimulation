@@ -29,6 +29,8 @@ public:
     static constexpr double YIELD_COOLDOWN_DURATION = 2.0;  
     static constexpr double YIELD_SPEED_FACTOR = 0.4; 
     static constexpr double YIELD_ESCAPE_SPEED_FACTOR = 1.25;
+    static constexpr double EMERGENCY_JUNCTION_CAUTION_DISTANCE = 45.0;
+    static constexpr double EMERGENCY_JUNCTION_YIELD_SPEED_FACTOR = 0.25;
 
 protected:
     int id;
@@ -202,11 +204,16 @@ protected:
     virtual double getJunctionLanePreparationDistance() const {
         return 30.0;
     }
+    virtual double getEmergencyJunctionSpeedLimit(
+        double freeFlowSpeed) const {
+        return freeFlowSpeed *
+               EMERGENCY_JUNCTION_YIELD_SPEED_FACTOR;
+    }
+    LaneMapping getJunctionEntryLaneMapping() const;
 
 private:
     bool advanceToNextRoad();
     LaneMapping getUpcomingLaneMapping() const;
-    LaneMapping getJunctionEntryLaneMapping() const;
     bool beginJunctionTraversal(
         const LaneMapping& mapping,
         Intersection* intersection);

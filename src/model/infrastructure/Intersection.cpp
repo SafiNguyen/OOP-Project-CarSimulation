@@ -516,6 +516,8 @@ void Intersection::resetSignalCycle() {
         phaseGroups.empty() ? 0.0 : greenDurationSeconds_;
     preemptedRoad_ = nullptr;
     preemptionHoldSeconds_ = 0.0;
+    emergencyApproach_ = {};
+    emergencyPriorityRemainingSeconds_ = 0.0;
     pedestrianPhasePending_ = false;
     for (Crosswalk* crosswalk : crosswalks_) {
         if (crosswalk != nullptr) {
@@ -740,6 +742,7 @@ bool Intersection::areRoadsInSamePhase(const Road* a, const Road* b) const {
 }
 
 void Intersection::updateTrafficLights(double dt) {
+    updateEmergencyPriority(dt);
     if (phaseGroups.empty() ||
         !std::isfinite(dt) ||
         dt <= 0.0) {
@@ -755,7 +758,7 @@ void Intersection::updateTrafficLights(double dt) {
         pedestrianPhasePending_ = true;
         if (newlyPending &&
             signalStage_ == SignalStage::ALL_RED &&
-            preemptedRoad_ == nullptr) {
+            !hasActiveEmergencyPriority()) {
             stageRemainingSeconds_ = std::max(
                 stageRemainingSeconds_,
                 1.5);
@@ -784,14 +787,14 @@ void Intersection::updateTrafficLights(double dt) {
             signalStage_ = SignalStage::ALL_RED;
             stageRemainingSeconds_ =
                 pedestrianPhasePending_ &&
-                        preemptedRoad_ == nullptr
+                        !hasActiveEmergencyPriority()
                     ? std::max(
                           allRedDurationSeconds_,
                           1.5)
                     : allRedDurationSeconds_;
         } else if (signalStage_ == SignalStage::ALL_RED) {
             if (pedestrianPhasePending_ &&
-                preemptedRoad_ == nullptr) {
+                !hasActiveEmergencyPriority()) {
                 if (hasIntersectionOccupants()) {
                     stageRemainingSeconds_ = 0.0;
                     break;
@@ -838,13 +841,107 @@ void Intersection::updateTrafficLights(double dt) {
     synchronizeSignalHeads();
 }
 
+void Intersection::clearEmergencyPriority() {
+    emergencyApproach_ = {};
+    emergencyPriorityRemainingSeconds_ = 0.0;
+    preemptedRoad_ = nullptr;
+    preemptionHoldSeconds_ = 0.0;
+}
+
+void Intersection::updateEmergencyPriority(double dt) {
+    if (!hasActiveEmergencyPriority() ||
+        !std::isfinite(dt) ||
+        dt <= 0.0) {
+        return;
+    }
+    emergencyPriorityRemainingSeconds_ =
+        std::max(
+            0.0,
+            emergencyPriorityRemainingSeconds_ - dt);
+    if (emergencyPriorityRemainingSeconds_ <= 1e-9) {
+        clearEmergencyPriority();
+    }
+}
+
+bool Intersection::hasActiveEmergencyPriority() const {
+    return emergencyPriorityRemainingSeconds_ > 1e-9 &&
+           emergencyApproach_.isValid();
+}
+
+bool Intersection::isPrioritizedEmergencyVehicle(
+    int vehicleId,
+    const Road* incomingRoad) const {
+    return hasActiveEmergencyPriority() &&
+           emergencyApproach_.vehicleId == vehicleId &&
+           emergencyApproach_.incomingRoad == incomingRoad;
+}
+
+const EmergencyApproach*
+Intersection::getEmergencyApproach() const {
+    return hasActiveEmergencyPriority()
+        ? &emergencyApproach_
+        : nullptr;
+}
+
+bool Intersection::isEmergencyPathClear(
+    int vehicleId) const {
+    if (!hasActiveEmergencyPriority() ||
+        emergencyApproach_.vehicleId != vehicleId) {
+        return false;
+    }
+    return std::all_of(
+        crosswalks_.begin(),
+        crosswalks_.end(),
+        [this](const Crosswalk* crosswalk) {
+            return crosswalk == nullptr ||
+                   crosswalk->isEmergencyPathClear(
+                       emergencyApproach_);
+        });
+}
+
 void Intersection::requestEmergencyPreemption(
+    int vehicleId,
     const Road* incomingRoad,
+    int incomingLane,
+    const Road* outgoingRoad,
+    int outgoingLane,
+    double vehicleWidthMetres,
     double holdDuration) {
-    if (incomingRoad == nullptr ||
+    if (vehicleId < 0 ||
+        incomingRoad == nullptr ||
+        incomingRoad->getEnd() != this ||
+        incomingLane < 0 ||
+        incomingLane >= incomingRoad->getLaneCount() ||
+        !std::isfinite(vehicleWidthMetres) ||
+        vehicleWidthMetres <= 0.0 ||
         !std::isfinite(holdDuration) ||
-        holdDuration <= 0.0 ||
-        getLightForIncomingRoad(incomingRoad) == nullptr) {
+        holdDuration <= 0.0) {
+        return;
+    }
+    if (hasActiveEmergencyPriority() &&
+        emergencyApproach_.vehicleId != vehicleId) {
+        return;
+    }
+
+    const bool validOutgoing =
+        outgoingRoad != nullptr &&
+        outgoingRoad->getStart() == this &&
+        outgoingLane >= 0 &&
+        outgoingLane < outgoingRoad->getLaneCount();
+    emergencyApproach_ = {
+        vehicleId,
+        incomingRoad,
+        incomingLane,
+        validOutgoing ? outgoingRoad : nullptr,
+        validOutgoing ? outgoingLane : -1,
+        vehicleWidthMetres
+    };
+    emergencyPriorityRemainingSeconds_ =
+        std::max(
+            emergencyPriorityRemainingSeconds_,
+            holdDuration);
+
+    if (getLightForIncomingRoad(incomingRoad) == nullptr) {
         return;
     }
 
@@ -977,11 +1074,25 @@ bool Intersection::canEnter(int vehicleId, const Road* fromRoad) const {
     if (occupants_.count(vehicleId) > 0) {
         return true; // dang giu cho roi
     }
+    const bool prioritizedEmergency =
+        isPrioritizedEmergencyVehicle(
+            vehicleId, fromRoad);
+    if (hasActiveEmergencyPriority() &&
+        !prioritizedEmergency &&
+        fromRoad != emergencyApproach_.incomingRoad) {
+        return false;
+    }
+    if (prioritizedEmergency &&
+        !isEmergencyPathClear(vehicleId)) {
+        return false;
+    }
     if (signalStage_ ==
             SignalStage::PEDESTRIAN_WALK ||
         signalStage_ ==
             SignalStage::PEDESTRIAN_CLEARANCE) {
-        return false;
+        if (!prioritizedEmergency) {
+            return false;
+        }
     }
     for (const auto& occupant : occupants_) {
         if (!areRoadsInSamePhase(
@@ -1255,6 +1366,10 @@ bool Intersection::isOutgoingLaneReserved(
 
 void Intersection::exit(int vehicleId) {
     occupants_.erase(vehicleId);
+    if (hasActiveEmergencyPriority() &&
+        emergencyApproach_.vehicleId == vehicleId) {
+        clearEmergencyPriority();
+    }
 }
 
 bool Intersection::isFull() const {

@@ -355,6 +355,95 @@ void testConnectorCacheAndVehicleLifecycle() {
     }
 }
 
+void testEmergencyRedLightPriorityAndCaution() {
+    Graph graph;
+    graph.addIntersection(
+        new Intersection(1, -100.0, 0.0));
+    graph.addIntersection(
+        new Intersection(2, 0.0, 0.0));
+    graph.addIntersection(
+        new Intersection(3, 0.0, -100.0));
+    graph.addIntersection(
+        new Intersection(4, 100.0, 0.0));
+    graph.addIntersection(
+        new Intersection(5, 0.0, 100.0));
+    graph.addRoad(new Road(
+        20, "west-in",
+        graph.getIntersection(1),
+        graph.getIntersection(2),
+        100.0, 20.0));
+    graph.addRoad(new Road(
+        21, "south-in",
+        graph.getIntersection(3),
+        graph.getIntersection(2),
+        100.0, 20.0));
+    graph.addRoad(new Road(
+        22, "east-out",
+        graph.getIntersection(2),
+        graph.getIntersection(4),
+        100.0, 20.0));
+    graph.addRoad(new Road(
+        23, "north-out",
+        graph.getIntersection(2),
+        graph.getIntersection(5),
+        100.0, 20.0));
+
+    Road* westIn = graph.getRoad(20);
+    Road* southIn = graph.getRoad(21);
+    Road* eastOut = graph.getRoad(22);
+    Road* northOut = graph.getRoad(23);
+    Intersection* centre = graph.getIntersection(2);
+    std::string signalError;
+    check(
+        centre->configureTrafficSignals(
+            {{westIn}, {southIn}},
+            30.0, 3.0, 2.0,
+            &signalError),
+        "emergency fixture signal plan configures: " +
+            signalError);
+    check(
+        centre->mustStopForRoad(southIn),
+        "emergency fixture starts with the ambulance approach red");
+
+    MotionTestEmergency emergency(
+        80, 25.0,
+        graph.getIntersection(3),
+        graph.getIntersection(5));
+    emergency.setRoute({southIn, northOut});
+    emergency.place(65.0, 25.0);
+
+    MotionTestCar conflictingCar(
+        81, 20.0,
+        graph.getIntersection(1),
+        graph.getIntersection(4));
+    conflictingCar.setRoute({westIn, eastOut});
+    conflictingCar.place(65.0, 15.0);
+
+    emergency.update(0.1);
+    const double emergencyCautiousSpeed =
+        emergency.getCurrentSpeed();
+    check(
+        centre->hasActiveEmergencyPriority() &&
+            emergencyCautiousSpeed > 20.0 &&
+            emergencyCautiousSpeed < 25.0,
+        "emergency keeps most of its speed while cautiously approaching");
+
+    conflictingCar.update(1.0);
+    check(
+        conflictingCar.getCurrentSpeed() <= 10.1 &&
+            emergencyCautiousSpeed >
+                conflictingCar.getCurrentSpeed() * 2.0,
+        "conflicting approach yields with a substantially lower speed");
+
+    emergency.place(99.0, 8.0);
+    emergency.update(0.5);
+    check(
+        centre->mustStopForRoad(southIn) &&
+            emergency.getMovementState() ==
+                MovementState::TraversingJunction,
+        "prioritized emergency enters safely while its signal remains red");
+}
+
 void testSignalizedMultiLaneQueueDischarge() {
     {
         Graph graph;
@@ -708,6 +797,7 @@ int main() {
     testBezierGeometry();
     testLaneMapping();
     testConnectorCacheAndVehicleLifecycle();
+    testEmergencyRedLightPriorityAndCaution();
     testSignalizedMultiLaneQueueDischarge();
     testFrameRateIndependence();
     testRoundaboutGeometryAndCapacity();

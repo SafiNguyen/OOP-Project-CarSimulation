@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <memory>
@@ -7,6 +8,7 @@
 #include "algorithm/DijkstraStrategy.h"
 #include "Car.h"
 #include "Crosswalk.h"
+#include "EmergencyVehicle.h"
 #include "Graph.h"
 #include "Intersection.h"
 #include "Pedestrian.h"
@@ -96,6 +98,16 @@ struct SignalizedCrosswalkFixture {
 class PositionedCar : public Car {
 public:
     using Car::Car;
+
+    void place(double progress, double speed) {
+        progressOnCurrentRoad = progress;
+        currentSpeed = speed;
+    }
+};
+
+class PositionedEmergency : public EmergencyVehicle {
+public:
+    using EmergencyVehicle::EmergencyVehicle;
 
     void place(double progress, double speed) {
         progressOnCurrentRoad = progress;
@@ -335,6 +347,167 @@ void testVehicleStopsBeforeCrosswalk() {
         "rendered stop line is upstream of zebra stripes");
 }
 
+void testEmergencyClearsPedestrianPath() {
+    CrosswalkTiming timing;
+    timing.minimumWaitSeconds = 0.0;
+    timing.walkDurationSeconds = 20.0;
+    timing.designWalkingSpeedMetresPerSecond =
+        1.0;
+    timing.clearanceBufferSeconds = 0.5;
+    SignalizedCrosswalkFixture fixture(timing);
+
+    auto holdingRoute = buildCrosswalkJourney(
+        *fixture.crosswalk,
+        CrossingDirection::SideAToB,
+        2.0,
+        2.0);
+    auto clearingRoute = buildCrosswalkJourney(
+        *fixture.crosswalk,
+        CrossingDirection::SideAToB,
+        2.0,
+        2.0);
+    Pedestrian holdingPedestrian(
+        40, 1.0, std::move(holdingRoute));
+    Pedestrian clearingPedestrian(
+        41, 1.0, std::move(clearingRoute));
+    holdingPedestrian.update(2.0);
+    clearingPedestrian.update(2.0);
+
+    fixture.end->updateTrafficLights(1.0);
+    fixture.end->updateTrafficLights(0.5);
+    fixture.end->updateTrafficLights(1.5);
+    check(
+        fixture.end->getSignalStage() ==
+            SignalStage::PEDESTRIAN_WALK,
+        "emergency pedestrian fixture reaches WALK");
+    fixture.crosswalk->grantEligiblePedestrians();
+    check(
+        holdingPedestrian.getState() ==
+                PedestrianState::Crossing &&
+            clearingPedestrian.getState() ==
+                PedestrianState::Crossing,
+        "pedestrians enter before the emergency arrives");
+
+    const PedestrianRouteSegment* crossing =
+        clearingPedestrian.getCurrentSegment();
+    const Vec2 laneCentre =
+        RoadGeometry::sampleLane(
+            *fixture.incoming,
+            0,
+            fixture.crosswalk->
+                getCentreProgressMetres()).position;
+    const Vec2 crossingVector =
+        crossing->end - crossing->start;
+    const double crossingRatio = std::clamp(
+        dot(laneCentre - crossing->start,
+            crossingVector) /
+            dot(crossingVector, crossingVector),
+        0.0,
+        1.0);
+    clearingPedestrian.update(
+        crossingRatio *
+        crossing->lengthMetres);
+
+    PositionedEmergency emergency(
+        90, 25.0,
+        fixture.start,
+        fixture.end);
+    emergency.setRoute({fixture.incoming});
+    emergency.place(65.0, 20.0);
+    emergency.update(0.05);
+
+    check(
+        fixture.end->hasActiveEmergencyPriority() &&
+            fixture.crosswalk->
+                getEmergencyGuidance(
+                    holdingPedestrian) ==
+                EmergencyCrossingGuidance::
+                    HoldBeforeVehiclePath &&
+            fixture.crosswalk->
+                getEmergencyGuidance(
+                    clearingPedestrian) ==
+                EmergencyCrossingGuidance::
+                    ExpediteOutOfVehiclePath,
+        "crosswalk tells pedestrians to hold or expedite based on their position");
+    check(
+        !fixture.end->
+             isEmergencyPathClear(
+                 emergency.getId()),
+        "emergency path remains closed while a pedestrian occupies its lane");
+
+    emergency.place(90.0, 8.0);
+    for (int step = 0;
+         step < 300 &&
+         emergency.getPauseReason() !=
+             PauseReason::PedestrianCrossing;
+         ++step) {
+        emergency.update(0.05);
+    }
+    check(
+        emergency.getPauseReason() ==
+            PauseReason::PedestrianCrossing,
+        "emergency slows and waits until its crosswalk lane is clear");
+
+    const double heldProgress =
+        holdingPedestrian.
+            getProgressOnSegmentMetres();
+    const double clearingProgress =
+        clearingPedestrian.
+            getProgressOnSegmentMetres();
+    holdingPedestrian.update(0.25);
+    clearingPedestrian.update(0.25);
+    check(
+        near(
+            holdingPedestrian.
+                getProgressOnSegmentMetres(),
+            heldProgress),
+        "pedestrian before the emergency lane stops in place");
+    check(
+        clearingPedestrian.
+                getProgressOnSegmentMetres() -
+                clearingProgress >
+            clearingPedestrian.getWalkingSpeed() *
+                0.25 * 1.5,
+        "pedestrian inside the emergency lane accelerates to clear it");
+
+    for (int step = 0;
+         step < 300 &&
+         !fixture.end->
+              isEmergencyPathClear(
+                  emergency.getId());
+         ++step) {
+        clearingPedestrian.update(0.05);
+    }
+    check(
+        fixture.end->
+                isEmergencyPathClear(
+                    emergency.getId()) &&
+            fixture.crosswalk->isOccupied(),
+        "emergency lane clears before every pedestrian finishes crossing");
+
+    for (int step = 0;
+         step < 600 &&
+         !emergency.hasReachedDestination();
+         ++step) {
+        emergency.update(0.05);
+    }
+    check(
+        emergency.hasReachedDestination() &&
+            fixture.end->getSignalStage() ==
+                SignalStage::PEDESTRIAN_WALK,
+        "emergency proceeds through red after pedestrians clear only its path");
+
+    const double resumeProgress =
+        holdingPedestrian.
+            getProgressOnSegmentMetres();
+    holdingPedestrian.update(0.25);
+    check(
+        holdingPedestrian.
+            getProgressOnSegmentMetres() >
+                resumeProgress,
+        "held pedestrian resumes after emergency priority is released");
+}
+
 void testPauseAndMapLoading() {
     CrosswalkTiming timing;
     timing.minimumWaitSeconds = 0.5;
@@ -530,6 +703,7 @@ int main() {
     testPedestrianLifecycle();
     testSharedSignalControllerAndSafetyHold();
     testVehicleStopsBeforeCrosswalk();
+    testEmergencyClearsPedestrianPath();
     testPauseAndMapLoading();
     testDemandAndSpeedMultiplier();
 

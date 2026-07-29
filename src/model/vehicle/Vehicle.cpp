@@ -211,11 +211,21 @@ PauseReason Vehicle::getIntersectionControlReason() const {
     const Crosswalk* crosswalk =
         nextIntersection->
             getCrosswalkForIncomingRoad(currentRoad);
+    const bool prioritizedEmergency =
+        nextIntersection->
+            isPrioritizedEmergencyVehicle(
+                getId(), currentRoad);
+    if (prioritizedEmergency &&
+        !nextIntersection->
+             isEmergencyPathClear(getId())) {
+        return PauseReason::PedestrianCrossing;
+    }
     if (crosswalk != nullptr &&
         (crosswalk->getSignalState() ==
              PedestrianSignalState::Walk ||
          crosswalk->getSignalState() ==
-             PedestrianSignalState::Clearance)) {
+             PedestrianSignalState::Clearance) &&
+        !prioritizedEmergency) {
         return PauseReason::PedestrianCrossing;
     }
 
@@ -1059,6 +1069,18 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
         if (currentRoad != nullptr) {
             Intersection* nextIntersectionForLight = currentRoad->getEnd();
             if (nextIntersectionForLight != nullptr) {
+                const double distanceToIntersection =
+                    currentRoad->getDistance() -
+                    progressOnCurrentRoad;
+                if (nextIntersectionForLight->
+                        hasActiveEmergencyPriority() &&
+                    distanceToIntersection <=
+                        EMERGENCY_JUNCTION_CAUTION_DISTANCE) {
+                    targetSpeed = std::min(
+                        targetSpeed,
+                        getEmergencyJunctionSpeedLimit(
+                            freeFlowSpeed));
+                }
                 const PauseReason controlReason =
                     getIntersectionControlReason();
                 if (controlReason != PauseReason::None) {
@@ -1128,14 +1150,12 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
             targetSpeed = 0.0;
         }
 
-        if (!yielding) {
-            targetSpeed = std::min(
-                targetSpeed,
-                std::clamp(
-                    getLanePreparationSpeedLimit(freeFlowSpeed),
-                    0.0,
-                    freeFlowSpeed));
-        }
+        targetSpeed = std::min(
+            targetSpeed,
+            std::clamp(
+                getLanePreparationSpeedLimit(freeFlowSpeed),
+                0.0,
+                freeFlowSpeed));
 
         Vehicle* leader = currentRoad->findLeader(currentLaneIndex, this);
         double minGap = getMinGap();

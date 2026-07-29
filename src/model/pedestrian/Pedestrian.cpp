@@ -66,12 +66,39 @@ void Pedestrian::update(double dt) {
         totalWaitingTimeSeconds_ += dt;
         return;
     }
-    advanceAlongCurrentSegment(dt);
+
+    double speedMultiplier = 1.0;
+    if (state_ == PedestrianState::Crossing) {
+        Crosswalk* crosswalk = getCurrentCrosswalk();
+        const EmergencyCrossingGuidance guidance =
+            crosswalk != nullptr
+                ? crosswalk->
+                      getEmergencyGuidance(*this)
+                : EmergencyCrossingGuidance::None;
+        if (guidance ==
+            EmergencyCrossingGuidance::
+                HoldBeforeVehiclePath) {
+            totalCrossingTimeSeconds_ += dt;
+            return;
+        }
+        if (guidance ==
+            EmergencyCrossingGuidance::
+                ExpediteOutOfVehiclePath) {
+            speedMultiplier =
+                EMERGENCY_CLEARING_SPEED_FACTOR;
+        }
+    }
+    advanceAlongCurrentSegment(
+        dt, speedMultiplier);
 }
 
 void Pedestrian::advanceAlongCurrentSegment(
-    double availableTime) {
+    double availableTime,
+    double speedMultiplier) {
     double remainingTime = availableTime;
+    const double movementSpeed =
+        walkingSpeedMetresPerSecond_ *
+        std::max(0.0, speedMultiplier);
     constexpr double epsilon = 1e-9;
     while (remainingTime > epsilon &&
            state_ != PedestrianState::Arrived &&
@@ -89,13 +116,13 @@ void Pedestrian::advanceAlongCurrentSegment(
                 progressOnSegmentMetres_);
         const double timeToFinish =
             remainingDistance /
-            walkingSpeedMetresPerSecond_;
+            std::max(epsilon, movementSpeed);
         const double consumedTime =
             std::min(remainingTime, timeToFinish);
         progressOnSegmentMetres_ = std::min(
             segment->lengthMetres,
             progressOnSegmentMetres_ +
-                walkingSpeedMetresPerSecond_ *
+                movementSpeed *
                     consumedTime);
         pose_ = segment->sample(
             progressOnSegmentMetres_);
