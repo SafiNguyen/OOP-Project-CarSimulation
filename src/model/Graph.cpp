@@ -1,9 +1,6 @@
 #include "Graph.h"
 #include <cmath>
 #include <limits>
-#include <algorithm>
-
-#include "Crosswalk.h"
 
 Graph::Graph() {
 }
@@ -15,12 +12,10 @@ Graph::~Graph() {
 Graph::Graph(Graph&& other) noexcept
     : intersections(std::move(other.intersections)),
       roads(std::move(other.roads)),
-      pois(std::move(other.pois)),
-      crosswalks(std::move(other.crosswalks)) {
+      pois(std::move(other.pois)) {
     other.intersections.clear();
     other.roads.clear();
     other.pois.clear();
-    other.crosswalks.clear();
 }
 
 Graph& Graph::operator=(Graph&& other) noexcept {
@@ -30,27 +25,16 @@ Graph& Graph::operator=(Graph&& other) noexcept {
         intersections = std::move(other.intersections);
         roads = std::move(other.roads);
         pois = std::move(other.pois);
-        crosswalks = std::move(other.crosswalks);
         
         other.intersections.clear();
         other.roads.clear();
         other.pois.clear();
-        other.crosswalks.clear();
     }
     return *this;
 }
 
 // --- Utility ---
 void Graph::clearGraph() {
-    for (const auto& crosswalk : crosswalks) {
-        if (crosswalk != nullptr &&
-            crosswalk->getIntersection() != nullptr) {
-            crosswalk->getIntersection()->
-                unregisterCrosswalk(crosswalk.get());
-        }
-    }
-    crosswalks.clear();
-
     // Remove all roads via removeRoad() so intersections are updated safely
     std::vector<int> roadIds;
     roadIds.reserve(roads.size());
@@ -92,18 +76,6 @@ void Graph::removeIntersection(int id) {
     auto it = intersections.find(id);
     if (it != intersections.end()) {
         Intersection* intersection = it->second;
-
-        std::vector<int> crosswalkIds;
-        for (const auto& crosswalk : crosswalks) {
-            if (crosswalk != nullptr &&
-                crosswalk->getIntersection() == intersection) {
-                crosswalkIds.push_back(
-                    crosswalk->getId());
-            }
-        }
-        for (int crosswalkId : crosswalkIds) {
-            removeCrosswalk(crosswalkId);
-        }
         
 // Remove all roads connected to this intersection
         std::vector<int> roadsToRemove;
@@ -190,19 +162,6 @@ void Graph::removeRoad(int id) {
     auto it = roads.find(id);
     if (it != roads.end()) {
         Road* road = it->second;
-
-        std::vector<int> crosswalkIds;
-        for (const auto& crosswalk : crosswalks) {
-            if (crosswalk != nullptr &&
-                (crosswalk->getIncomingRoad() == road ||
-                 crosswalk->getReverseRoad() == road)) {
-                crosswalkIds.push_back(
-                    crosswalk->getId());
-            }
-        }
-        for (int crosswalkId : crosswalkIds) {
-            removeCrosswalk(crosswalkId);
-        }
         
 // Get the start and end intersections
         Intersection* start = road->getStart();
@@ -390,72 +349,4 @@ void Graph::bindPOIsToRoads() {
             poi->setProgressOffset(bestOffset);
         }
     }
-}
-
-bool Graph::addCrosswalk(
-    std::unique_ptr<Crosswalk> crosswalk) {
-    if (crosswalk == nullptr ||
-        !crosswalk->isValid() ||
-        crosswalk->getIntersection() == nullptr ||
-        crosswalk->getIncomingRoad() == nullptr ||
-        getIntersection(
-            crosswalk->getIntersection()->getId()) !=
-            crosswalk->getIntersection() ||
-        getRoad(
-            crosswalk->getIncomingRoad()->getId()) !=
-            crosswalk->getIncomingRoad() ||
-        crosswalk->getIncomingRoad()->getEnd() !=
-            crosswalk->getIntersection() ||
-        getCrosswalk(crosswalk->getId()) != nullptr ||
-        crosswalk->getIntersection()->
-                getCrosswalkForIncomingRoad(
-                    crosswalk->getIncomingRoad()) !=
-            nullptr) {
-        return false;
-    }
-
-    Crosswalk* stored = crosswalk.get();
-    crosswalks.push_back(std::move(crosswalk));
-    stored->getIntersection()->registerCrosswalk(stored);
-    return true;
-}
-
-void Graph::removeCrosswalk(int id) {
-    const auto found = std::find_if(
-        crosswalks.begin(),
-        crosswalks.end(),
-        [id](const std::unique_ptr<Crosswalk>& crosswalk) {
-            return crosswalk != nullptr &&
-                   crosswalk->getId() == id;
-        });
-    if (found == crosswalks.end()) return;
-    if ((*found)->getIntersection() != nullptr) {
-        (*found)->getIntersection()->
-            unregisterCrosswalk(found->get());
-    }
-    crosswalks.erase(found);
-}
-
-Crosswalk* Graph::getCrosswalk(int id) const {
-    const auto found = std::find_if(
-        crosswalks.begin(),
-        crosswalks.end(),
-        [id](const std::unique_ptr<Crosswalk>& crosswalk) {
-            return crosswalk != nullptr &&
-                   crosswalk->getId() == id;
-        });
-    return found != crosswalks.end()
-        ? found->get()
-        : nullptr;
-}
-
-std::vector<Crosswalk*> Graph::getAllCrosswalks() const {
-    std::vector<Crosswalk*> result;
-    result.reserve(crosswalks.size());
-    for (const auto& crosswalk : crosswalks) {
-        if (crosswalk != nullptr) {
-            result.push_back(crosswalk.get());
-        }
-    }
-    return result;
 }

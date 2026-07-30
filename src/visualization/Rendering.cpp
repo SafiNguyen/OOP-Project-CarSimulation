@@ -1,6 +1,5 @@
 #include "Rendering.h"
 
-#include <algorithm>
 #include <cmath>
 #include <map>
 #include <vector>
@@ -11,7 +10,6 @@
 
 #include "AppContext.h"
 #include "model/Intersection.h"
-#include "model/Pedestrian.h"
 #include "model/Vehicle.h"
 #include "simulation/StatisticsManager.h"
 #include "simulation/TrafficSimulator.h"
@@ -25,8 +23,6 @@
 namespace {
 
 constexpr float kVehicleOutlinePixels = 0.55f;
-constexpr float kMapCacheRefreshSeconds = 0.5f;
-constexpr int kPedestrianDiscSegments = 10;
 
 struct VehicleVisual {
     float halfLength;
@@ -88,82 +84,6 @@ void appendVehicleQuad(std::vector<sf::Vertex>& vertices,
     vertices.emplace_back(center + longitudinal - lateral, color);
     vertices.emplace_back(center + longitudinal + lateral, color);
     vertices.emplace_back(center - longitudinal + lateral, color);
-}
-
-void appendDisc(std::vector<sf::Vertex>& vertices,
-                const sf::Vector2f& center,
-                float radius,
-                sf::Color color) {
-    constexpr float tau = 6.28318530718f;
-    for (int segment = 0;
-         segment < kPedestrianDiscSegments;
-         ++segment) {
-        const float angleA =
-            tau * static_cast<float>(segment) /
-            static_cast<float>(kPedestrianDiscSegments);
-        const float angleB =
-            tau * static_cast<float>(segment + 1) /
-            static_cast<float>(kPedestrianDiscSegments);
-        vertices.emplace_back(center, color);
-        vertices.emplace_back(
-            center +
-                sf::Vector2f(std::cos(angleA), std::sin(angleA)) *
-                    radius,
-            color);
-        vertices.emplace_back(
-            center +
-                sf::Vector2f(std::cos(angleB), std::sin(angleB)) *
-                    radius,
-            color);
-    }
-}
-
-bool drawCachedGraph(AppContext& ctx) {
-    const sf::Vector2u requestedSize(
-        ctx.windowW,
-        ctx.windowH);
-    if (requestedSize.x == 0u || requestedSize.y == 0u) {
-        return false;
-    }
-
-    const std::uint64_t visualizationRevision =
-        ctx.visualization.getRevision();
-    const bool geometryChanged =
-        !ctx.mapCacheReady ||
-        ctx.mapCacheRevision != visualizationRevision ||
-        ctx.mapCacheTexture.getSize() != requestedSize;
-    const bool dynamicRefreshDue =
-        ctx.mapCacheRefreshClock.getElapsedTime().asSeconds() >=
-            kMapCacheRefreshSeconds;
-
-    if (geometryChanged || dynamicRefreshDue) {
-        if (ctx.mapCacheTexture.getSize() != requestedSize &&
-            !ctx.mapCacheTexture.create(
-                requestedSize.x,
-                requestedSize.y)) {
-            ctx.mapCacheReady = false;
-            return false;
-        }
-
-        ctx.mapCacheTexture.setView(
-            ctx.mapCacheTexture.getDefaultView());
-        // Match the window clear color so translucent map details are blended
-        // exactly once before this opaque cached texture is composited.
-        ctx.mapCacheTexture.clear(sf::Color(34, 42, 48));
-        ctx.visualization.drawGraph(
-            ctx.mapCacheTexture,
-            ctx.graph);
-        ctx.mapCacheTexture.display();
-        ctx.mapCacheSprite.setTexture(
-            ctx.mapCacheTexture.getTexture(),
-            true);
-        ctx.mapCacheRevision = visualizationRevision;
-        ctx.mapCacheReady = true;
-        ctx.mapCacheRefreshClock.restart();
-    }
-
-    ctx.window.draw(ctx.mapCacheSprite);
-    return true;
 }
 
 void drawActiveVehicles(sf::RenderWindow& window,
@@ -251,14 +171,6 @@ void drawParkedVehicles(sf::RenderWindow& window, const VisualizationEngine& vis
         }
     }
 
-    static std::vector<sf::Vertex> parkedVertices;
-    parkedVertices.clear();
-    const std::size_t requiredVertices =
-        simulator.getFinishedVehicles().size() * 8u;
-    if (parkedVertices.capacity() < requiredVertices) {
-        parkedVertices.reserve(requiredVertices);
-    }
-
     for (const auto& pair : parked) {
         Intersection* dest = pair.first;
         const auto& list = pair.second;
@@ -282,8 +194,7 @@ void drawParkedVehicles(sf::RenderWindow& window, const VisualizationEngine& vis
         box.setOutlineColor(sf::Color(150, 150, 150));
         window.draw(box);
 
-        // Batch all parked vehicles into one submission. This matters late in
-        // a run, when the completed-trip list can contain all 1000 vehicles.
+        // Draw vehicles inside the box
         for (size_t i = 0; i < list.size(); ++i) {
             int col = i % cols;
             int row = i / cols;
@@ -291,37 +202,10 @@ void drawParkedVehicles(sf::RenderWindow& window, const VisualizationEngine& vis
             sf::Vector2f vPos(boxX + 4.0f + col * cellWidth + cellWidth * 0.5f,
                               boxY + 4.0f + row * cellHeight + cellHeight * 0.5f);
 
-            const VehicleVisual visual =
-                getVehicleVisual(
-                    *list[i],
-                    visualization,
-                    simulator.getElapsedTime());
-            const sf::Vector2f forward(0.0f, -1.0f);
-            const sf::Vector2f side(1.0f, 0.0f);
-            appendVehicleQuad(
-                parkedVertices,
-                vPos,
-                forward,
-                side,
-                visual.halfLength + kVehicleOutlinePixels,
-                visual.halfWidth + kVehicleOutlinePixels,
-                sf::Color::Black);
-            appendVehicleQuad(
-                parkedVertices,
-                vPos,
-                forward,
-                side,
-                visual.halfLength,
-                visual.halfWidth,
-                visual.color);
+            VehicleSprite sprite(list[i], &visualization);
+            // Draw pointing UP (angle = -90)
+            sprite.drawAt(window, vPos, -90.0f);
         }
-    }
-
-    if (!parkedVertices.empty()) {
-        window.draw(
-            parkedVertices.data(),
-            parkedVertices.size(),
-            sf::Quads);
     }
 }
 
@@ -364,100 +248,6 @@ void drawSelectedVehicleHighlight(sf::RenderWindow& window,
 
 } // namespace
 
-void drawPedestrians(
-    sf::RenderTarget& target,
-    const VisualizationEngine& visualization,
-    const TrafficSimulator& simulator) {
-    static std::vector<sf::Vertex> pedestrianTriangles;
-    static std::vector<sf::Vertex> directionLines;
-    pedestrianTriangles.clear();
-    directionLines.clear();
-    const std::size_t pedestrianCount =
-        simulator.getPedestrians().size();
-    const std::size_t requiredTriangleVertices =
-        pedestrianCount *
-        static_cast<std::size_t>(
-            kPedestrianDiscSegments * 6);
-    if (pedestrianTriangles.capacity() <
-        requiredTriangleVertices) {
-        pedestrianTriangles.reserve(
-            requiredTriangleVertices);
-    }
-    if (directionLines.capacity() <
-        pedestrianCount * 2u) {
-        directionLines.reserve(
-            pedestrianCount * 2u);
-    }
-
-    for (const auto& ownedPedestrian :
-         simulator.getPedestrians()) {
-        const Pedestrian* pedestrian =
-            ownedPedestrian.get();
-        if (pedestrian == nullptr ||
-            pedestrian->hasArrived()) {
-            continue;
-        }
-
-        const Pose2D pose = pedestrian->getPose();
-        const sf::Vector2f position =
-            visualization.worldToScreen(
-                pose.position.x,
-                pose.position.y);
-        const Road* referenceRoad =
-            pedestrian->getReferenceRoad();
-        const float radius = std::clamp(
-            visualization.metresToScreenPixels(
-                0.32,
-                referenceRoad),
-            3.0f,
-            6.0f);
-        sf::Color color(70, 175, 235);
-        if (pedestrian->getState() ==
-            PedestrianState::WaitingToCross) {
-            color = sf::Color(245, 170, 45);
-        } else if (pedestrian->getState() ==
-                   PedestrianState::Crossing) {
-            color = sf::Color(65, 220, 115);
-        }
-
-        appendDisc(
-            pedestrianTriangles,
-            position,
-            radius + 1.0f,
-            sf::Color(20, 24, 28));
-        appendDisc(
-            pedestrianTriangles,
-            position,
-            radius,
-            color);
-
-        const sf::Vector2f facing(
-            static_cast<float>(
-                std::cos(pose.headingRadians)),
-            static_cast<float>(
-                -std::sin(pose.headingRadians)));
-        directionLines.emplace_back(
-            position,
-            sf::Color(25, 28, 32));
-        directionLines.emplace_back(
-            position + facing * radius,
-            sf::Color(25, 28, 32));
-    }
-
-    if (!pedestrianTriangles.empty()) {
-        target.draw(
-            pedestrianTriangles.data(),
-            pedestrianTriangles.size(),
-            sf::Triangles);
-    }
-    if (!directionLines.empty()) {
-        target.draw(
-            directionLines.data(),
-            directionLines.size(),
-            sf::Lines);
-    }
-}
-
 void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
                   std::unique_ptr<TrafficSimulator>& simulator, StatsPanel& statsPanel,
                   VehicleInspector& vehicleInspector, float dt) {
@@ -465,19 +255,11 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
 
     window.setView(ctx.view);
     window.clear(sf::Color(34, 42, 48));
-    if (!drawCachedGraph(ctx)) {
-        ctx.visualization.drawGraph(
-            window,
-            ctx.graph);
-    }
+    ctx.visualization.drawGraph(window, ctx.graph);
 
     if (simulator) {
         drawActiveVehicles(
             window, ctx.visualization, *simulator, ctx.view);
-        drawPedestrians(
-            window,
-            ctx.visualization,
-            *simulator);
         debugConsole.drawFailedRecalcMarkers(window, simulator.get(), ctx.visualization);
         drawSelectedVehicleHighlight(window, ctx.visualization, *simulator, vehicleInspector);
         if (ctx.showParkedVehicles) {

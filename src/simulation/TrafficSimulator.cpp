@@ -4,8 +4,6 @@
 #include "../model/Lane.h"
 #include "../model/Vehicle.h"
 #include "../model/Intersection.h"
-#include "../model/Crosswalk.h"
-#include "../model/Pedestrian.h"
 #include "algorithm/PathFindingStrategy.h"
 #include <algorithm> 
 #include <cmath>
@@ -28,8 +26,6 @@ TrafficSimulator::TrafficSimulator(Graph* graph, PathFindingStrategy* strategy)
 }
 
 TrafficSimulator::~TrafficSimulator() {
-    pedestrians_.clear();
-    finishedPedestrians_.clear();
     eventManager.reset();
     statisticsManager.reset();
     for (Vehicle* v : vehicles) {
@@ -44,31 +40,6 @@ TrafficSimulator::~TrafficSimulator() {
     vehicles.clear();
     pendingVehicles.clear();
     finishedVehicles.clear();
-}
-
-bool TrafficSimulator::addPedestrian(
-    std::unique_ptr<Pedestrian> pedestrian) {
-    if (pedestrian == nullptr ||
-        !pedestrian->isValid()) {
-        return false;
-    }
-    const int id = pedestrian->getId();
-    const auto hasId =
-        [id](const auto& pedestrians) {
-            return std::any_of(
-                pedestrians.begin(),
-                pedestrians.end(),
-                [id](const auto& candidate) {
-                    return candidate != nullptr &&
-                           candidate->getId() == id;
-                });
-        };
-    if (hasId(pedestrians_) ||
-        hasId(finishedPedestrians_)) {
-        return false;
-    }
-    pedestrians_.push_back(std::move(pedestrian));
-    return true;
 }
 
 bool TrafficSimulator::tryActivateVehicle(
@@ -278,25 +249,6 @@ void TrafficSimulator::removeFinishedVehicles() {
     vehicles.erase(it, vehicles.end());
 }
 
-void TrafficSimulator::removeFinishedPedestrians() {
-    for (auto it = pedestrians_.begin();
-         it != pedestrians_.end();) {
-        if (*it != nullptr &&
-            (*it)->hasArrived()) {
-            if (statisticsManager) {
-                statisticsManager->
-                    markPedestrianCompleted(
-                        (*it)->getId());
-            }
-            finishedPedestrians_.push_back(
-                std::move(*it));
-            it = pedestrians_.erase(it);
-        } else {
-            ++it;
-        }
-    }
-}
-
 void TrafficSimulator::triggerEvent(std::unique_ptr<TrafficEvent> event) {
     if (eventManager) {
          eventManager->triggerEvent(std::move(event));
@@ -325,13 +277,6 @@ void TrafficSimulator::update(double dt) {
             for (Intersection* intersection : graph->getAllIntersections()) {
                 intersection->updateTrafficLights(step);
             }
-            for (Crosswalk* crosswalk :
-                 graph->getAllCrosswalks()) {
-                if (crosswalk != nullptr) {
-                    crosswalk->
-                        grantEligiblePedestrians();
-                }
-            }
         }
 
         if (eventManager) {
@@ -346,24 +291,10 @@ void TrafficSimulator::update(double dt) {
             }
         }
 
-        for (const auto& pedestrian : pedestrians_) {
-            if (pedestrian != nullptr) {
-                pedestrian->update(step);
-                if (statisticsManager) {
-                    statisticsManager->
-                        recordPedestrianTravel(
-                            pedestrian->getId(),
-                            pedestrian->getState(),
-                            step);
-                }
-            }
-        }
-
         // Don xe da den dich ngay sau moi sub-step, khong doi den cuoi
         // update(): voi speedMultiplier cao, nhieu xe co the hoan thanh
         // route ngay giua chung cac sub-step.
         removeFinishedVehicles();
-        removeFinishedPedestrians();
 
         remaining -= step;
         ++stepsRun;
@@ -428,36 +359,6 @@ double TrafficSimulator::getSpeedMultiplier() const { return speedMultiplier; }
 
 const std::vector<Vehicle*>& TrafficSimulator::getVehicles() const { return vehicles; }
 const std::vector<Vehicle*>& TrafficSimulator::getFinishedVehicles() const { return finishedVehicles; }
-const std::vector<std::unique_ptr<Pedestrian>>&
-TrafficSimulator::getPedestrians() const {
-    return pedestrians_;
-}
-const std::vector<std::unique_ptr<Pedestrian>>&
-TrafficSimulator::getFinishedPedestrians() const {
-    return finishedPedestrians_;
-}
-std::size_t
-TrafficSimulator::getWaitingPedestrianCount() const {
-    return static_cast<std::size_t>(std::count_if(
-        pedestrians_.begin(),
-        pedestrians_.end(),
-        [](const auto& pedestrian) {
-            return pedestrian != nullptr &&
-                   pedestrian->getState() ==
-                       PedestrianState::WaitingToCross;
-        }));
-}
-std::size_t
-TrafficSimulator::getCrossingPedestrianCount() const {
-    return static_cast<std::size_t>(std::count_if(
-        pedestrians_.begin(),
-        pedestrians_.end(),
-        [](const auto& pedestrian) {
-            return pedestrian != nullptr &&
-                   pedestrian->getState() ==
-                       PedestrianState::Crossing;
-        }));
-}
 std::size_t TrafficSimulator::getPendingVehicleCount() const {
     return pendingVehicles.size();
 }

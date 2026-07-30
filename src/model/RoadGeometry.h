@@ -11,10 +11,6 @@ namespace RoadGeometry {
 constexpr double LANE_WIDTH_METRES = 3.5;
 constexpr double MEDIAN_GAP_METRES = 0.5;
 constexpr double STOP_LINE_SETBACK_METRES = 1.5;
-// Wide enough for two pedestrians to pass and remain legible in the
-// full-map visualization while still representing a realistic urban curb.
-constexpr double SIDEWALK_WIDTH_METRES = 5.0;
-constexpr double SIDEWALK_CURB_WIDTH_METRES = 0.35;
 
 double metresPerWorldUnit(const Road& road);
 double metresPerWorldUnit(const Intersection& intersection);
@@ -33,12 +29,6 @@ Vec2 laneBoundaryEndpoint(const Road& road,
 Vec2 roadEdgeEndpoint(const Road& road,
                       bool rightEdge,
                       bool atStart);
-Vec2 sampleRoadEdge(const Road& road,
-                    bool rightEdge,
-                    double progressMetres);
-Vec2 sampleSidewalk(const Road& road,
-                    bool rightSide,
-                    double progressMetres);
 Vec2 sampleRoadSurface(const Road& road, double progressMetres);
 Pose2D sampleLane(const Road& road,
                   int laneIndex,

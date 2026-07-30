@@ -15,7 +15,6 @@ class PointOfInterest;
 enum class PauseReason {
     None,
     TrafficLight,
-    PedestrianCrossing,
     Intersection,
     BusStop
 };

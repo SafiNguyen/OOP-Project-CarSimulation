@@ -124,49 +124,6 @@ keeping explicit phase plans at regular four-way intersections. A signalized
 roundabout still applies its circulating-traffic yield and safe-gap checks
 after an entry receives green.
 
-## Pedestrians and signalized crosswalks
-
-Pedestrians are independent simulation agents rather than `Vehicle`
-subclasses. A pedestrian follows a route made from model-space sidewalk and
-crosswalk segments, using the state sequence `Walking -> WaitingToCross ->
-Crossing -> Walking -> Arrived`. `TrafficSimulator` owns active/completed
-pedestrians, while `Graph` owns static `Crosswalk` infrastructure.
-
-Crosswalk requests join the intersection's shared signal controller. When a
-request has waited long enough, the sequence becomes `GREEN -> YELLOW ->
-ALL_RED -> PEDESTRIAN_WALK -> PEDESTRIAN_CLEARANCE -> GREEN`. All vehicle
-heads remain red during the pedestrian stages, new junction reservations are
-rejected, and green is held if a slow pedestrian still occupies the crossing.
-Pedestrians arriving during clearance wait for the next cycle.
-
-Crosswalks are optional and backward-compatible:
-
-```json
-{
-  "crosswalks": [
-    {
-      "id": 301,
-      "intersectionId": 2,
-      "incomingRoadId": 101,
-      "enabled": true,
-      "width": 3.0,
-      "minimumWait": 3.0,
-      "walkDuration": 4.0,
-      "designWalkingSpeed": 1.2,
-      "clearanceBuffer": 1.0
-    }
-  ]
-}
-```
-
-The incoming road must end at the configured signalized intersection. When a
-reverse direction exists, one crossing spans the paired physical road without
-duplicate rendering. `RoadGeometry` derives sidewalk centres, zebra geometry
-and an upstream stop line in metres; roads without crosswalks retain their
-previous stop-line behavior. The deterministic demo factory creates a small
-number of pedestrians with visible sidewalk approach and departure segments
-for every configured crosswalk.
-
 ## Build Instructions
 
 **Prerequisites:**

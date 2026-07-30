@@ -153,10 +153,6 @@ int renderSnapshot(const std::string& mapPath,
         VehicleSprite sprite(vehicle, &visualization);
         sprite.draw(target);
     }
-    drawPedestrians(
-        target,
-        visualization,
-        *simulator);
     target.display();
     if (!target.getTexture().copyToImage().saveToFile(
             options.outputPath)) {

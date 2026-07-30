@@ -253,30 +253,17 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                     1.5f,
                     metresToScreenPixels(0.25, road)));
 
-            // Anchor the complete signal assembly beyond the outer curb.
-            // Keeping this calculation in world/metre space makes the
-            // placement stable at every zoom level and prevents the housing
-            // or countdown box from covering a carriageway or sidewalk.
-            const double sidewalkOuterOffsetMetres =
-                RoadGeometry::SIDEWALK_WIDTH_METRES +
-                RoadGeometry::SIDEWALK_CURB_WIDTH_METRES;
-            const Vec2 signalAnchorWorld =
-                stopRightWorld +
-                outwardWorld *
-                    (sidewalkOuterOffsetMetres /
-                     metricScale);
+            const Vec2 edgeWorld = stopRightWorld;
             const Vec2 outsideProbeWorld =
-                signalAnchorWorld +
+                edgeWorld +
                 outwardWorld * (1.0 / metricScale);
-            const sf::Vector2f signalAnchor =
-                worldToScreen(
-                    signalAnchorWorld.x,
-                    signalAnchorWorld.y);
+            const sf::Vector2f roadEdge =
+                worldToScreen(edgeWorld.x, edgeWorld.y);
             sf::Vector2f outwardDirection =
                 worldToScreen(
                     outsideProbeWorld.x,
                     outsideProbeWorld.y) -
-                signalAnchor;
+                roadEdge;
             const float outwardLength =
                 std::sqrt(
                     outwardDirection.x * outwardDirection.x +
@@ -313,14 +300,21 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                     outwardDirection.x) *
                 180.0f / 3.14159265f;
             const sf::Vector2f housingCenter =
-                signalAnchor +
+                roadEdge +
                 outwardDirection *
                     (edgeGap + housingLength * 0.5f);
             const sf::Vector2f countdownCenter =
-                signalAnchor +
+                roadEdge +
                 outwardDirection *
                     (edgeGap + housingLength +
                      countdownSize * 0.5f - 0.5f);
+
+            drawRoadStrip(
+                target,
+                roadEdge,
+                housingCenter,
+                sf::Color(45, 45, 45),
+                2.0f);
 
             sf::RectangleShape housing(
                 {housingLength, housingThickness});

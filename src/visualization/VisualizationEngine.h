@@ -37,7 +37,6 @@ public:
 
     void setHeatMapEnabled(bool enabled);
     bool isHeatMapEnabled() const;
-    std::uint64_t getRevision() const;
 
 private:
     static sf::Color mixColor(const sf::Color& a, const sf::Color& b, float t);
@@ -68,10 +67,6 @@ private:
                               unsigned int cellSize) const;
     void drawTrafficLights(sf::RenderTarget& target, const Graph& graph) const;
     void drawBusStops(sf::RenderTarget& target, const Graph& graph) const;
-    void drawSidewalks(sf::RenderTarget& target, const Graph& graph) const;
-    void drawCrosswalks(sf::RenderTarget& target, const Graph& graph) const;
-    void drawCrosswalkSignals(sf::RenderTarget& target,
-                              const Graph& graph) const;
     void drawIntersectionNode(sf::RenderTarget& target, const Intersection* intersection) const;
     
     sf::Color lightColor(LightState state) const;
@@ -98,7 +93,6 @@ private:
     sf::Vector2f spriteSize_;
     const sf::Font* font_;
     bool heatMapEnabled_;
-    std::uint64_t revision_ = 0;
 };
 
 #endif

@@ -35,7 +35,6 @@ void VisualizationEngine::setWindowSize(sf::Vector2u windowSize) {
 }
 
 void VisualizationEngine::prepare(const Graph& graph) {
-    ++revision_;
     auto intersections = graph.getAllIntersections();
     std::sort(intersections.begin(), intersections.end(), [](Intersection* lhs, Intersection* rhs) {
         return lhs->getId() < rhs->getId();
@@ -66,16 +65,6 @@ void VisualizationEngine::prepare(const Graph& graph) {
                     RoadGeometry::laneEndpoint(*road, lane, true));
                 includePoint(
                     RoadGeometry::laneEndpoint(*road, lane, false));
-            }
-            for (bool rightSide : {false, true}) {
-                includePoint(
-                    RoadGeometry::sampleSidewalk(
-                        *road, rightSide, 0.0));
-                includePoint(
-                    RoadGeometry::sampleSidewalk(
-                        *road,
-                        rightSide,
-                        road->getDistance()));
             }
         }
         for (const Intersection* intersection : intersections) {
@@ -141,8 +130,6 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
     std::sort(intersections.begin(), intersections.end(), [](Intersection* lhs, Intersection* rhs) {
         return lhs->getId() < rhs->getId();
     });
-
-    drawSidewalks(target, graph);
 
     constexpr unsigned int kBorderMaskCellSize = 2; // 2x2 px cells
     const sf::Vector2u targetSize = target.getSize();
@@ -221,9 +208,7 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
         drawList.push_back(rd);
     }
 
-    // Pass 1: road bodies and blocked-lane fills. Markings are deliberately
-    // deferred until every body exists so a later road cannot paint over an
-    // earlier road's lane dividers.
+    // Pass 1: bodies + lane markers + mask population.
     for (const RoadDraw& rd : drawList) {
         drawRoadStrip(
             target,
@@ -254,11 +239,7 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
                     std::max(1.0f, rd.laneWidth - 1.0f));
             }
         }
-    }
 
-    // Pass 2: lane dividers and carriageway edges.
-    for (const RoadDraw& rd : drawList) {
-        Road* roadObj = rd.road;
         // Lane divider lines for multi-lane roads.
         if (rd.laneCount > 1) {
             for (int i = 1; i < rd.laneCount; ++i) {
@@ -291,13 +272,9 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
                     laneDirection / laneLineLength;
 
                 const float dashLength =
-                    std::max(
-                        4.0f,
-                        metresToScreenPixels(4.0, roadObj));
+                    metresToScreenPixels(3.0, roadObj);
                 const float gapLength =
-                    std::max(
-                        3.0f,
-                        metresToScreenPixels(3.0, roadObj));
+                    metresToScreenPixels(6.0, roadObj);
                 const float segmentLength = dashLength + gapLength;
                 float traveled = 0.0f;
                 while (traveled < laneLineLength) {
@@ -317,7 +294,7 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
                         dashB,
                         sf::Color(245, 245, 245, 190),
                         std::max(
-                            1.25f,
+                            0.8f,
                             metresToScreenPixels(
                                 0.12, roadObj)));
                     traveled += segmentLength;
@@ -340,7 +317,7 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
                 worldToScreen(edgeEnd.x, edgeEnd.y),
                 sf::Color(245, 245, 245, 205),
                 std::max(
-                    1.5f,
+                    0.8f,
                     metresToScreenPixels(0.12, roadObj)));
         }
     }
@@ -393,38 +370,17 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
                     originalCentreEnd,
                     forwardRatio);
         }
-        const Vec2 centreDirection = normalized(
-            centreEnd - centreStart,
-            RoadGeometry::roadDirection(*rd.road));
-        const Vec2 centreNormal =
-            rightNormal(centreDirection);
-        const double metricScale =
-            RoadGeometry::metresPerWorldUnit(*rd.road);
-        constexpr double centrelineSeparationMetres = 0.36;
-        const Vec2 halfSeparation =
-            centreNormal *
-            (centrelineSeparationMetres * 0.5 /
-             metricScale);
-        for (double side : {-1.0, 1.0}) {
-            const Vec2 offset =
-                halfSeparation * side;
-            drawRoadStrip(
-                target,
-                worldToScreen(
-                    centreStart.x + offset.x,
-                    centreStart.y + offset.y),
-                worldToScreen(
-                    centreEnd.x + offset.x,
-                    centreEnd.y + offset.y),
-                sf::Color(245, 195, 45),
-                std::max(
-                    1.25f,
-                    metresToScreenPixels(
-                        0.12, rd.road)));
-        }
+        drawRoadStrip(
+            target,
+            worldToScreen(centreStart.x, centreStart.y),
+            worldToScreen(centreEnd.x, centreEnd.y),
+            sf::Color(245, 195, 45),
+            std::max(
+                1.0f,
+                metresToScreenPixels(0.15, rd.road)));
     }
 
-    // Pass 3: borders, skipping any chunk that lands on another road's body.
+    // Pass 2: borders, skipping any chunk that lands on another road's body.
     for (const RoadDraw& rd : drawList) {
         if (!rd.hasBorder || rd.borderWidth <= 0.0f) {
             continue;
@@ -457,7 +413,6 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
         drawIntersectionNode(target, intersection);
     }
 
-    drawCrosswalks(target, graph);
     drawBusStops(target, graph);
     drawPOIs(target, graph);
     drawRoadNames(target, roads);
@@ -466,15 +421,10 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
 
 void VisualizationEngine::setFont(const sf::Font& font) {
     font_ = &font;
-    ++revision_;
 }
 
 void VisualizationEngine::clearFont() {
-    if (font_ == nullptr) {
-        return;
-    }
     font_ = nullptr;
-    ++revision_;
 }
 
 void VisualizationEngine::setSpriteTexture(const sf::Texture& texture,
@@ -483,33 +433,20 @@ void VisualizationEngine::setSpriteTexture(const sf::Texture& texture,
     spriteTexture_ = &texture;
     spriteRect_ = rect;
     spriteSize_ = size;
-    ++revision_;
 }
 
 void VisualizationEngine::clearSpriteTexture() {
-    if (spriteTexture_ == nullptr) {
-        return;
-    }
     spriteTexture_ = nullptr;
     spriteRect_ = sf::IntRect();
     spriteSize_ = {24.0f, 24.0f};
-    ++revision_;
 }
 
 void VisualizationEngine::setHeatMapEnabled(bool enabled) {
-    if (heatMapEnabled_ == enabled) {
-        return;
-    }
     heatMapEnabled_ = enabled;
-    ++revision_;
 }
 
 bool VisualizationEngine::isHeatMapEnabled() const {
     return heatMapEnabled_;
-}
-
-std::uint64_t VisualizationEngine::getRevision() const {
-    return revision_;
 }
 
 const std::vector<sf::Vector2f>& VisualizationEngine::getRoutePoints() const {

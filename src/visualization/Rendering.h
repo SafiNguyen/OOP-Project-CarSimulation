@@ -3,16 +3,11 @@
 
 #include <memory>
 
-namespace sf {
-class RenderTarget;
-}
-
 struct AppContext;
 class DebugConsole;
 class StatsPanel;
 class TrafficSimulator;
 class VehicleInspector;
-class VisualizationEngine;
 
 // Draws one full frame: the map/graph, vehicle sprites, failed-recalc
 // markers, the "parked" boxes of finished vehicles grouped by destination,
@@ -21,10 +16,5 @@ class VisualizationEngine;
 void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
                   std::unique_ptr<TrafficSimulator>& simulator, StatsPanel& statsPanel,
                   VehicleInspector& vehicleInspector, float dt);
-
-void drawPedestrians(
-    sf::RenderTarget& target,
-    const VisualizationEngine& visualization,
-    const TrafficSimulator& simulator);
 
 #endif

@@ -11,9 +11,6 @@
 #include "model/Intersection.h"
 #include "model/Motorbike.h"
 #include "model/Vehicle.h"
-#include "model/Crosswalk.h"
-#include "model/Pedestrian.h"
-#include "model/PedestrianRoute.h"
 #include "simulation/TrafficSimulator.h"
 
 namespace {
@@ -23,12 +20,10 @@ constexpr int DEMO_VEHICLE_COUNT = 1000;
 // Car, Motorbike, Bus, EmergencyVehicle. Buses are deliberately a small
 // share of vehicle units: they carry many people, but are far less numerous
 // on the road than private cars and motorbikes.
-// Keep the weights at a total of 100 so each value is also the exact
-// percentage used when selecting a demo vehicle type.
-constexpr double CAR_WEIGHT = 39.0;
-constexpr double MOTORBIKE_WEIGHT = 41.0;
-constexpr double BUS_WEIGHT = 12.0;
-constexpr double EMERGENCY_WEIGHT = 8.0;
+constexpr double CAR_WEIGHT = 45.0;
+constexpr double MOTORBIKE_WEIGHT = 48.0;
+constexpr double BUS_WEIGHT = 5.0;
+constexpr double EMERGENCY_WEIGHT = 2.0;
 
 std::size_t recommendedActiveVehicleLimit(
     const Graph& graph) {
@@ -118,41 +113,6 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingS
             v->setTargetPOI(endPOI);
         }
         simulator->addVehicle(v);
-    }
-
-    int pedestrianId = 100000;
-    for (Crosswalk* crosswalk :
-         graph.getAllCrosswalks()) {
-        if (crosswalk == nullptr) continue;
-        constexpr int PEDESTRIANS_PER_CROSSWALK = 2;
-        for (int index = 0;
-             index < PEDESTRIANS_PER_CROSSWALK;
-             ++index) {
-            const CrossingDirection direction =
-                index % 2 == 0
-                    ? CrossingDirection::SideAToB
-                    : CrossingDirection::SideBToA;
-            const double approachDistance =
-                10.0 +
-                static_cast<double>(index) * 8.0;
-            const double departureDistance =
-                30.0 +
-                static_cast<double>(index % 4) * 7.0;
-            auto route = buildCrosswalkJourney(
-                *crosswalk,
-                direction,
-                approachDistance,
-                departureDistance);
-            if (route.empty()) continue;
-            const double speed =
-                1.25 +
-                static_cast<double>(index % 5) * 0.05;
-            simulator->addPedestrian(
-                std::make_unique<Pedestrian>(
-                    pedestrianId++,
-                    speed,
-                    std::move(route)));
-        }
     }
     return simulator;
 }

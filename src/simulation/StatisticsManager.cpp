@@ -1,13 +1,14 @@
 #include "StatisticsManager.h"
 
 #include <chrono>
-#include <cmath>
 #include <iostream>
 
 #include "../algorithm/PathFindingStrategy.h"
 #include "../model/Graph.h"
 
-
+// ------------------------------------------------------------------
+// Thứ 5: Benchmark thuật toán tìm đường (độc lập với TrafficSimulator)
+// ------------------------------------------------------------------
 
 PathResult StatisticsManager::measurePathfinding(const PathFindingStrategy& strategy,
                                                   const Graph& graph,
@@ -53,7 +54,9 @@ void StatisticsManager::resetAlgorithmMetrics() {
     algorithmMetrics.clear();
 }
 
-
+// ------------------------------------------------------------------
+// Thứ 6: Tích hợp runtime với TrafficSimulator::update()
+// ------------------------------------------------------------------
 
 TravelMetric& StatisticsManager::getOrCreateTravelMetric(int vehicleId) {
     auto it = travelMetrics.find(vehicleId);
@@ -89,51 +92,6 @@ void StatisticsManager::markVehicleCompleted(int vehicleId) {
     metric.completed = true;
 }
 
-PedestrianMetric&
-StatisticsManager::getOrCreatePedestrianMetric(
-    int pedestrianId) {
-    auto found =
-        pedestrianMetrics.find(pedestrianId);
-    if (found != pedestrianMetrics.end()) {
-        return found->second;
-    }
-    PedestrianMetric metric;
-    metric.pedestrianId = pedestrianId;
-    return pedestrianMetrics.emplace(
-        pedestrianId,
-        metric).first->second;
-}
-
-void StatisticsManager::recordPedestrianTravel(
-    int pedestrianId,
-    PedestrianState state,
-    double dt) {
-    if (!std::isfinite(dt) || dt <= 0.0) return;
-    PedestrianMetric& metric =
-        getOrCreatePedestrianMetric(pedestrianId);
-    metric.currentState = state;
-    metric.totalTravelTime += dt;
-    if (state ==
-        PedestrianState::WaitingToCross) {
-        metric.totalWaitingTime += dt;
-    } else if (
-        state == PedestrianState::Crossing) {
-        metric.totalCrossingTime += dt;
-    }
-}
-
-void StatisticsManager::markPedestrianCompleted(
-    int pedestrianId) {
-    PedestrianMetric& metric =
-        getOrCreatePedestrianMetric(pedestrianId);
-    metric.currentState =
-        PedestrianState::Arrived;
-    if (!metric.completed) {
-        ++completedPedestrianTrips;
-    }
-    metric.completed = true;
-}
-
 void StatisticsManager::printPeriodicReport(long long tickCount, int everyNTicks) const {
     if (everyNTicks <= 0 || tickCount % everyNTicks != 0) return;
 
@@ -141,10 +99,6 @@ void StatisticsManager::printPeriodicReport(long long tickCount, int everyNTicks
     std::cout << "  Simulated time     : " << totalSimulatedTime << "s\n";
     std::cout << "  Vehicles tracked   : " << travelMetrics.size() << "\n";
     std::cout << "  Completed trips    : " << completedTrips << "\n";
-    std::cout << "  Pedestrians tracked: "
-              << pedestrianMetrics.size() << "\n";
-    std::cout << "  Pedestrian trips   : "
-              << completedPedestrianTrips << "\n";
     std::cout << "  Total recalculations: " << totalRecalculations << "\n";
 
     for (const auto& pair : algorithmMetrics) {
@@ -167,12 +121,9 @@ const TravelMetric* StatisticsManager::getTravelMetric(int vehicleId) const {
     return &it->second;
 }
 
-const std::unordered_map<int, PedestrianMetric>&
-StatisticsManager::getPedestrianMetrics() const {
-    return pedestrianMetrics;
-}
-
-
+// ------------------------------------------------------------------
+// Thứ 7 (chuẩn bị trước): tổng hợp cho Statistics Panel
+// ------------------------------------------------------------------
 
 StatisticsSummary StatisticsManager::getSummary() const {
     StatisticsSummary summary;
@@ -180,37 +131,6 @@ StatisticsSummary StatisticsManager::getSummary() const {
     summary.totalVehiclesTracked = static_cast<int>(travelMetrics.size());
     summary.totalRecalculations = totalRecalculations;
     summary.totalCompletedTrips = completedTrips;
-    summary.totalPedestriansTracked =
-        static_cast<int>(pedestrianMetrics.size());
-    summary.completedPedestrianTrips =
-        completedPedestrianTrips;
-
-    double completedWaitTotal = 0.0;
-    int completedWaitSamples = 0;
-    for (const auto& entry : pedestrianMetrics) {
-        const PedestrianMetric& metric = entry.second;
-        if (!metric.completed) {
-            ++summary.activePedestrians;
-            if (metric.currentState ==
-                PedestrianState::WaitingToCross) {
-                ++summary.waitingPedestrians;
-            } else if (
-                metric.currentState ==
-                PedestrianState::Crossing) {
-                ++summary.crossingPedestrians;
-            }
-        } else {
-            completedWaitTotal +=
-                metric.totalWaitingTime;
-            ++completedWaitSamples;
-        }
-    }
-    summary.averagePedestrianWaitSeconds =
-        completedWaitSamples > 0
-            ? completedWaitTotal /
-                  static_cast<double>(
-                      completedWaitSamples)
-            : 0.0;
 
     summary.perAlgorithm.reserve(algorithmMetrics.size());
     for (const auto& pair : algorithmMetrics) {

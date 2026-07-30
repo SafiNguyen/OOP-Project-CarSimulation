@@ -10,7 +10,6 @@
 
 class Road;  
 class TrafficLight;
-class Crosswalk;
 
 
 enum class IntersectionType {
@@ -23,9 +22,7 @@ enum class IntersectionType {
 enum class SignalStage {
     GREEN,
     YELLOW,
-    ALL_RED,
-    PEDESTRIAN_WALK,
-    PEDESTRIAN_CLEARANCE
+    ALL_RED
 };
 
 // attributes
@@ -48,7 +45,6 @@ private:
     std::vector<Road*> outgoingRoads;
     // key = id cua incoming road; moi road vao co dung 1 den rieng
     std::unordered_map<int, std::unique_ptr<TrafficLight>> trafficLights;
-    std::vector<Crosswalk*> crosswalks_; // non-owning; Graph owns
 
     
     std::vector<std::vector<Road*>> phaseGroups;
@@ -59,19 +55,10 @@ private:
     double yellowDurationSeconds_ = 3.0;
     double allRedDurationSeconds_ = 2.0;
     bool explicitSignalPlan_ = false;
-    bool pedestrianPhasePending_ = false;
 
     void rebuildPhaseGroups();
     void resetSignalCycle();
     void synchronizeSignalHeads();
-    bool hasEligiblePedestrianRequest() const;
-    bool hasOccupiedCrosswalk() const;
-    bool hasIntersectionOccupants() const;
-    double pedestrianWalkDuration() const;
-    double pedestrianClearanceDuration() const;
-    void beginPedestrianWalk();
-    void beginPedestrianClearance();
-    void endPedestrianPhase();
     std::size_t phaseIndexForRoad(const Road* road) const;
     std::size_t nextScheduledPhase() const;
     bool hasConflictingReservationForPhase(
@@ -145,11 +132,6 @@ public:
     bool hasTrafficLights() const;
     TrafficLight* getLightForIncomingRoad(int roadId) const;
     TrafficLight* getLightForIncomingRoad(const Road* road) const;
-    void registerCrosswalk(Crosswalk* crosswalk);
-    void unregisterCrosswalk(Crosswalk* crosswalk);
-    const std::vector<Crosswalk*>& getCrosswalks() const;
-    Crosswalk* getCrosswalkForIncomingRoad(
-        const Road* road) const;
     // Goi moi tick tu TrafficSimulator::update(dt)
     void updateTrafficLights(double dt);
     bool mustStopForRoad(const Road* road) const;
