@@ -113,6 +113,11 @@ private:
         std::shared_ptr<const JunctionConnector>,
         ConnectorKeyHash> connectorCache_;
 
+    // Cache for hasPriorityVehicleApproaching to avoid O(N^2) per frame.
+    // Cleared once per frame in TrafficSimulator::update().
+    mutable std::unordered_map<const Road*, bool> priorityVehicleCache_;
+    mutable bool priorityVehicleCacheValid_ = false;
+
     const Road* preemptedRoad_ = nullptr;
     double preemptionHoldSeconds_ = 0.0;
     EmergencyApproach emergencyApproach_;
@@ -242,6 +247,12 @@ public:
         double vehicleLengthMetres = 4.5,
         double vehicleWidthMetres = 1.8) const;
 
+    // Checks whether any vehicle on a non-yielding, non-stopping road is
+    // approaching within the lookahead distance. Uses a per-frame cache
+    // to avoid O(N^2) behavior; call clearFrameCache() once per frame.
+    bool hasPriorityVehicleApproaching(
+        const Road* yieldingRoad) const;
+
     // --- Intersection-box reservation ---
     // Attempts to claim one of the `capacity_` slots for `vehicleId`. Returns
     // true if the vehicle now holds a slot (either newly granted, or it
@@ -288,6 +299,14 @@ public:
     int getCapacity() const { return capacity_; }
 
 
+
+    // Clears the per-frame cache used by hasPriorityVehicleApproaching.
+    // Called once per frame from TrafficSimulator::update() before the
+    // vehicle update loop.
+    void clearFrameCache() const {
+        priorityVehicleCacheValid_ = false;
+        priorityVehicleCache_.clear();
+    }
 
     std::string toString() const;  
 

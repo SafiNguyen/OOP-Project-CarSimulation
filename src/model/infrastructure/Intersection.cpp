@@ -1006,14 +1006,20 @@ JunctionDecision Intersection::getMovementDecision(
     return JunctionDecision::Yield;
 }
 
-namespace {
-
-bool hasPriorityVehicleApproaching(
-    const Intersection& intersection,
-    const Road* yieldingRoad) {
-    for (const Road* road : intersection.getIncomingRoads()) {
+bool Intersection::hasPriorityVehicleApproaching(
+    const Road* yieldingRoad) const {
+    // Use the per-frame cache to avoid O(N^2) behavior.
+    // clearFrameCache() is called once per frame from
+    // TrafficSimulator::update() before the vehicle update loop.
+    if (priorityVehicleCacheValid_) {
+        auto it = priorityVehicleCache_.find(yieldingRoad);
+        if (it != priorityVehicleCache_.end()) {
+            return it->second;
+        }
+    }
+    for (const Road* road : getIncomingRoads()) {
         if (road == nullptr || road == yieldingRoad ||
-            intersection.mustStopForRoad(road)) {
+            mustStopForRoad(road)) {
             continue;
         }
         for (const Lane& lane : road->getLanes()) {
@@ -1034,15 +1040,17 @@ bool hasPriorityVehicleApproaching(
                     (speed <= 1e-6 ||
                      distanceToStop / speed <=
                          RIGHT_ON_RED_PRIORITY_TIME_SECONDS)) {
+                    priorityVehicleCache_[yieldingRoad] = true;
+                    priorityVehicleCacheValid_ = true;
                     return true;
                 }
             }
         }
     }
+    priorityVehicleCache_[yieldingRoad] = false;
+    priorityVehicleCacheValid_ = true;
     return false;
 }
-
-} // namespace
 
 std::shared_ptr<const JunctionConnector> Intersection::createConnector(
     const Road& incoming,
@@ -1192,31 +1200,53 @@ bool Intersection::canEnterMovement(
         return true;
     }
 
+    // Precompute occupant OBB samples once, so the inner loop does not
+    // redundantly call makeVehicleBounds (which calls cos/sin) for every
+    // (candidate_position, occupant_position) pair. This reduces OBB
+    // creation from O(steps1 * steps2) to O(steps1 + steps2) per occupant.
+    struct OccupantPath {
+        std::vector<OrientedVehicleBounds> samples;
+    };
+    std::vector<OccupantPath> occupantPaths;
+    occupantPaths.reserve(occupants_.size());
+    for (const auto& entry : occupants_) {
+        if (entry.first == vehicleId) continue;
+        const Reservation& res = entry.second;
+        if (res.connector == nullptr) continue;
+        if (connectorsPreserveLaneOrder(
+                *connector, *res.connector) ||
+            oppositeApproachMovementsAreNonCrossing(
+                *connector, *res.connector)) {
+            continue;
+        }
+        OccupantPath path;
+        const double length2 = res.connector->getLength();
+        const std::size_t estimatedSteps =
+            static_cast<std::size_t>(
+                std::ceil(length2 / step)) + 1u;
+        path.samples.reserve(estimatedSteps);
+        for (double p2 = res.progressMetres;
+             p2 <= length2; p2 += step) {
+            path.samples.push_back(makeVehicleBounds(
+                res.connector->sampleByDistance(p2),
+                metricScale,
+                res.vehicleLengthMetres,
+                res.vehicleWidthMetres,
+                0.5));
+        }
+        occupantPaths.push_back(std::move(path));
+    }
+
     for (double p1 = 0.0; p1 <= length1; p1 += step) {
         const OrientedVehicleBounds candidate = makeVehicleBounds(
-            connector->sampleByDistance(p1), metricScale, vehicleLengthMetres, vehicleWidthMetres, 0.5);
+            connector->sampleByDistance(p1),
+            metricScale,
+            vehicleLengthMetres,
+            vehicleWidthMetres,
+            0.5);
 
-        for (const auto& entry : occupants_) {
-            if (entry.first == vehicleId) continue;
-            const Reservation& res = entry.second;
-            if (res.connector == nullptr) continue;
-            if (connectorsPreserveLaneOrder(
-                    *connector, *res.connector) ||
-                oppositeApproachMovementsAreNonCrossing(
-                    *connector, *res.connector)) {
-                // Lane-preserving movements and non-turning/right-turning
-                // traffic from opposite green approaches do not cross.
-                // Avoid resampling both complete connector paths for every
-                // waiting vehicle tick. Live OBB checks still guard actual
-                // traversal spacing.
-                continue;
-            }
-
-            const double length2 = res.connector->getLength();
-            for (double p2 = res.progressMetres; p2 <= length2; p2 += step) {
-                const OrientedVehicleBounds other = makeVehicleBounds(
-                    res.connector->sampleByDistance(p2), metricScale, res.vehicleLengthMetres, res.vehicleWidthMetres, 0.5);
-                
+        for (const auto& path : occupantPaths) {
+            for (const auto& other : path.samples) {
                 if (boundsOverlap(candidate, other)) {
                     return false; // Paths overlap, must yield
                 }
@@ -1239,7 +1269,7 @@ bool Intersection::canEnterYieldingMovement(
             connector->getMovementType()) !=
             JunctionDecision::Yield ||
         hasPriorityVehicleApproaching(
-            *this, connector->getIncomingRoad())) {
+            connector->getIncomingRoad())) {
         return false;
     }
     return canEnterMovement(

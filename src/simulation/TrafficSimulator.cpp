@@ -10,6 +10,7 @@
 #include "PointOfInterest.h"
 #include "algorithm/PathFindingStrategy.h"
 #include <algorithm> 
+#include <chrono>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -875,8 +876,8 @@ void TrafficSimulator::triggerEvent(std::unique_ptr<TrafficEvent> event) {
 void TrafficSimulator::update(double dt) {
     if (paused) return;
 
+    // High-resolution profiling using std::chrono
     static int profileFrames = 0;
-
     static double activateTime = 0.0;
     static double trafficLightTime = 0.0;
     static double eventTime = 0.0;
@@ -885,6 +886,7 @@ void TrafficSimulator::update(double dt) {
     static double removeTime = 0.0;
     static double totalTime = 0.0;
 
+    auto frameStart = std::chrono::high_resolution_clock::now();
 
     double safeDt = std::clamp(dt, 0.0, MAX_RAW_DT);
     double remaining = leftoverDt + safeDt * speedMultiplier;
@@ -892,13 +894,20 @@ void TrafficSimulator::update(double dt) {
 
     int stepsRun = 0;
 
+    // Admission runs once per frame, not per substep, to keep scheduled
+    // traffic density independent of the frame rate / speed multiplier.
+    {
+        auto start = std::chrono::high_resolution_clock::now();
+        activatePendingVehicles();
+        auto end = std::chrono::high_resolution_clock::now();
+        activateTime += std::chrono::duration<double, std::micro>(end - start).count();
+    }
+
     while (remaining > 0.0 && stepsRun < MAX_SUBSTEPS_PER_CALL) {
 
         double step = std::min(remaining, MAX_SUBSTEP);
 
         elapsedTime += step;
-
-        activatePendingVehicles();
 
         if (statisticsManager) {
             statisticsManager->recordTick(step);
@@ -906,66 +915,97 @@ void TrafficSimulator::update(double dt) {
 
 
         if (graph) {
-            for (Intersection* intersection : graph->getAllIntersections()) {
-                intersection->updateTrafficLights(step);
+            {
+                auto start = std::chrono::high_resolution_clock::now();
+                for (Intersection* intersection : graph->getAllIntersections()) {
+                    intersection->updateTrafficLights(step);
+                }
+                for (Crosswalk* crosswalk : graph->getAllCrosswalks()) {
+                    if (crosswalk)
+                        crosswalk->grantEligiblePedestrians();
+                }
+                auto end = std::chrono::high_resolution_clock::now();
+                trafficLightTime += std::chrono::duration<double, std::micro>(end - start).count();
             }
 
-            for (Crosswalk* crosswalk : graph->getAllCrosswalks()) {
-                if (crosswalk)
-                    crosswalk->grantEligiblePedestrians();
-            }
-        }
-
-
-
-        if (eventManager) {
-            eventManager->update(step);
-        }
-
-
-
-        const std::size_t vehicleCount = vehicles.size();
-        const std::size_t rerouteStart =
-            vehicleCount == 0u ? 0u : dynamicRerouteCursor_ % vehicleCount;
-        dynamicRerouteCursor_ +=
-            MAX_DYNAMIC_REROUTES_PER_SUBSTEP;
-
-        std::size_t vehicleIndex = 0u;
-        for (Vehicle* v : vehicles) {
-            const std::size_t offset =
-                (vehicleIndex + vehicleCount - rerouteStart) %
-                (vehicleCount == 0u ? 1u : vehicleCount);
-            const bool allowDynamicReroute =
-                offset < MAX_DYNAMIC_REROUTES_PER_SUBSTEP;
-            ++vehicleIndex;
-
-            v->update(
-                step, graph, pathFindingStrategy, allowDynamicReroute);
-
-            if (statisticsManager) {
-                statisticsManager->recordVehicleTravel(v->getId(), step);
-            }
-        }
-
-
-
-        for (const auto& pedestrian : pedestrians_) {
-            if (pedestrian) {
-                pedestrian->update(step);
-
-                if (statisticsManager) {
-                    statisticsManager->recordPedestrianTravel(
-                        pedestrian->getId(),
-                        pedestrian->getState(),
-                        step);
+            // Clear the per-frame cache used by
+            // Intersection::hasPriorityVehicleApproaching so the O(N^2)
+            // guard is recomputed once per substep rather than once per
+            // vehicle at each intersection.
+            for (Intersection* intersection :
+                 graph->getAllIntersections()) {
+                if (intersection != nullptr) {
+                    intersection->clearFrameCache();
                 }
             }
         }
 
 
+        {
+            auto start = std::chrono::high_resolution_clock::now();
+            if (eventManager) {
+                eventManager->update(step);
+            }
+            auto end = std::chrono::high_resolution_clock::now();
+            eventTime += std::chrono::duration<double, std::micro>(end - start).count();
+        }
 
-        removeFinishedVehicles();
-        removeFinishedPedestrians();
+
+        {
+            auto start = std::chrono::high_resolution_clock::now();
+            const std::size_t vehicleCount = vehicles.size();
+            const std::size_t rerouteStart =
+                vehicleCount == 0u ? 0u : dynamicRerouteCursor_ % vehicleCount;
+            dynamicRerouteCursor_ +=
+                MAX_DYNAMIC_REROUTES_PER_SUBSTEP;
+
+            std::size_t vehicleIndex = 0u;
+            for (Vehicle* v : vehicles) {
+                const std::size_t offset =
+                    (vehicleIndex + vehicleCount - rerouteStart) %
+                    (vehicleCount == 0u ? 1u : vehicleCount);
+                const bool allowDynamicReroute =
+                    offset < MAX_DYNAMIC_REROUTES_PER_SUBSTEP;
+                ++vehicleIndex;
+
+                v->update(
+                    step, graph, pathFindingStrategy, allowDynamicReroute);
+
+                if (statisticsManager) {
+                    statisticsManager->recordVehicleTravel(v->getId(), step);
+                }
+            }
+            auto end = std::chrono::high_resolution_clock::now();
+            vehicleTime += std::chrono::duration<double, std::micro>(end - start).count();
+        }
+
+
+        {
+            auto start = std::chrono::high_resolution_clock::now();
+            for (const auto& pedestrian : pedestrians_) {
+                if (pedestrian) {
+                    pedestrian->update(step);
+
+                    if (statisticsManager) {
+                        statisticsManager->recordPedestrianTravel(
+                            pedestrian->getId(),
+                            pedestrian->getState(),
+                            step);
+                    }
+                }
+            }
+            auto end = std::chrono::high_resolution_clock::now();
+            pedestrianTime += std::chrono::duration<double, std::micro>(end - start).count();
+        }
+
+
+        {
+            auto start = std::chrono::high_resolution_clock::now();
+            removeFinishedVehicles();
+            removeFinishedPedestrians();
+            auto end = std::chrono::high_resolution_clock::now();
+            removeTime += std::chrono::duration<double, std::micro>(end - start).count();
+        }
 
 
         remaining -= step;
@@ -981,6 +1021,8 @@ void TrafficSimulator::update(double dt) {
     }
 
 
+    auto frameEnd = std::chrono::high_resolution_clock::now();
+    totalTime += std::chrono::duration<double, std::micro>(frameEnd - frameStart).count();
     profileFrames++;
 
     if (profileFrames >= 60) {

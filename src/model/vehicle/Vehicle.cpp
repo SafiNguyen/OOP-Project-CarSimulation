@@ -1628,7 +1628,7 @@ void Vehicle::update(double dt,
             const double timeToEnd =
                 (speed > 0.0) ? distToEnd / speed : 0.0;
 
-            remainingTime -= timeToEnd;
+            remainingTime -= std::max(subDt, timeToEnd);
             remainingTime = std::max(0.0, remainingTime);
 
             if (hasNextRoad) {
@@ -1639,7 +1639,7 @@ void Vehicle::update(double dt,
                     reservedIntersection_ = nullptr;
                 }
 
-                if (!advanceToNextRoad()) {
+                if (!advanceToNextRoad() || hasReachedDestination()) {
                     break;
                 }
             }
