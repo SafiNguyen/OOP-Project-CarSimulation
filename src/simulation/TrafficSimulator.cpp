@@ -876,39 +876,63 @@ void TrafficSimulator::triggerEvent(std::unique_ptr<TrafficEvent> event) {
 void TrafficSimulator::update(double dt) {
     if (paused) return;
 
-    double safeDt = std::clamp(dt, 0.0, MAX_RAW_DT);     
+    static sf::Clock profilerClock;
+    static int profileFrames = 0;
+
+    static double activateTime = 0.0;
+    static double trafficLightTime = 0.0;
+    static double eventTime = 0.0;
+    static double vehicleTime = 0.0;
+    static double pedestrianTime = 0.0;
+    static double removeTime = 0.0;
+    static double totalTime = 0.0;
+
+    sf::Clock totalClock;
+
+    double safeDt = std::clamp(dt, 0.0, MAX_RAW_DT);
     double remaining = leftoverDt + safeDt * speedMultiplier;
     leftoverDt = 0.0;
+
     int stepsRun = 0;
+
     while (remaining > 0.0 && stepsRun < MAX_SUBSTEPS_PER_CALL) {
+
         double step = std::min(remaining, MAX_SUBSTEP);
 
         elapsedTime += step;
-        // Admission follows simulation time rather than render-frame time.
-        // This keeps scheduled traffic dense and deterministic even when a
-        // high speed multiplier produces many simulation substeps per frame.
+
+        profilerClock.restart();
         activatePendingVehicles();
+        activateTime += profilerClock.getElapsedTime().asMicroseconds();
 
         if (statisticsManager) {
             statisticsManager->recordTick(step);
         }
 
+        profilerClock.restart();
+
         if (graph) {
             for (Intersection* intersection : graph->getAllIntersections()) {
                 intersection->updateTrafficLights(step);
             }
-            for (Crosswalk* crosswalk :
-                 graph->getAllCrosswalks()) {
-                if (crosswalk != nullptr) {
-                    crosswalk->
-                        grantEligiblePedestrians();
-                }
+
+            for (Crosswalk* crosswalk : graph->getAllCrosswalks()) {
+                if (crosswalk)
+                    crosswalk->grantEligiblePedestrians();
             }
         }
+
+        trafficLightTime += profilerClock.getElapsedTime().asMicroseconds();
+
+        profilerClock.restart();
 
         if (eventManager) {
             eventManager->update(step);
         }
+
+        eventTime += profilerClock.getElapsedTime().asMicroseconds();
+
+        profilerClock.restart();
 
         for (Vehicle* v : vehicles) {
             v->update(step, graph, pathFindingStrategy);
@@ -918,33 +942,84 @@ void TrafficSimulator::update(double dt) {
             }
         }
 
+        vehicleTime += profilerClock.getElapsedTime().asMicroseconds();
+
+        profilerClock.restart();
+
         for (const auto& pedestrian : pedestrians_) {
-            if (pedestrian != nullptr) {
+            if (pedestrian) {
                 pedestrian->update(step);
+
                 if (statisticsManager) {
-                    statisticsManager->
-                        recordPedestrianTravel(
-                            pedestrian->getId(),
-                            pedestrian->getState(),
-                            step);
+                    statisticsManager->recordPedestrianTravel(
+                        pedestrian->getId(),
+                        pedestrian->getState(),
+                        step);
                 }
             }
         }
 
-        // Don xe da den dich ngay sau moi sub-step, khong doi den cuoi
-        // update(): voi speedMultiplier cao, nhieu xe co the hoan thanh
-        // route ngay giua chung cac sub-step.
+        pedestrianTime += profilerClock.getElapsedTime().asMicroseconds();
+
+        profilerClock.restart();
+
         removeFinishedVehicles();
         removeFinishedPedestrians();
+
+        removeTime += profilerClock.getElapsedTime().asMicroseconds();
 
         remaining -= step;
         ++stepsRun;
     }
-    leftoverDt = std::min(remaining, MAX_LEFTOVER_DT); // Save any leftover time for the next update call
+
+    leftoverDt = std::min(remaining, MAX_LEFTOVER_DT);
 
     tickCount++;
+
     if (statisticsManager && tickCount % 600 == 0) {
         statisticsManager->printPeriodicReport(tickCount, 600);
+    }
+
+    totalTime += totalClock.getElapsedTime().asMicroseconds();
+
+    profileFrames++;
+
+    if (profileFrames >= 60) {
+
+        std::cout << "\n========== TrafficSimulator::update ==========\n";
+        std::cout << "activatePendingVehicles : "
+                  << activateTime / profileFrames / 1000.0 << " ms\n";
+
+        std::cout << "traffic lights         : "
+                  << trafficLightTime / profileFrames / 1000.0 << " ms\n";
+
+        std::cout << "eventManager           : "
+                  << eventTime / profileFrames / 1000.0 << " ms\n";
+
+        std::cout << "vehicle update         : "
+                  << vehicleTime / profileFrames / 1000.0 << " ms\n";
+
+        std::cout << "pedestrian update      : "
+                  << pedestrianTime / profileFrames / 1000.0 << " ms\n";
+
+        std::cout << "remove finished        : "
+                  << removeTime / profileFrames / 1000.0 << " ms\n";
+
+        std::cout << "TOTAL                  : "
+                  << totalTime / profileFrames / 1000.0 << " ms\n";
+
+        std::cout << "Vehicles: " << vehicles.size()
+                  << " Pending: " << pendingVehicles.size()
+                  << "\n=============================================\n";
+
+        activateTime = 0.0;
+        trafficLightTime = 0.0;
+        eventTime = 0.0;
+        vehicleTime = 0.0;
+        pedestrianTime = 0.0;
+        removeTime = 0.0;
+        totalTime = 0.0;
+        profileFrames = 0;
     }
 }
 
