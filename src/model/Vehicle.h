@@ -243,7 +243,6 @@ protected:
 private:
     bool advanceToNextRoad();
     LaneMapping getUpcomingLaneMapping() const;
-    LaneMapping getJunctionEntryLaneMapping() const;
     bool beginJunctionTraversal(
         const LaneMapping& mapping,
         Intersection* intersection);

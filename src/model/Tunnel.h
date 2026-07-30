@@ -20,10 +20,8 @@ public:
     Tunnel(int id, const std::string& name, Intersection* start, Intersection* end,
            double distance, double speedLimit,
            double congestionLevel = 1.0, int laneCount = 1,
-           double heightLimit = 3.5,
-           double laneWidthMetres = 3.5)
-        : Road(id, name, start, end, distance, speedLimit, congestionLevel,
-               laneCount, laneWidthMetres),
+           double heightLimit = 3.5)
+        : Road(id, name, start, end, distance, speedLimit, congestionLevel, laneCount),
           heightLimit(heightLimit) {}
 
     double getHeightLimit() const { return heightLimit; }

@@ -14,7 +14,6 @@
 #include "model/Graph.h"
 #include "model/Intersection.h"
 #include "model/Road.h"
-#include "model/RoadGeometry.h"
 #include "model/Roundabout.h"
 #include "model/Bridge.h"
 #include "model/Tunnel.h"
@@ -196,23 +195,13 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 	std::string defaultDistanceUnit = "legacy";
 	std::string defaultSpeedUnit = "km/h";
 	std::string defaultRadiusUnit = "km";
-	double defaultLaneWidth = RoadGeometry::LANE_WIDTH_METRES;
 	{
 		std::string rootUnitError;
 		if (!getStringOptional(root, "defaultDistanceUnit", defaultDistanceUnit, rootUnitError) ||
 			!getStringOptional(root, "defaultSpeedUnit", defaultSpeedUnit, rootUnitError) ||
-			!getStringOptional(root, "defaultRadiusUnit", defaultRadiusUnit, rootUnitError) ||
-			!getDoubleOptional(root, "defaultLaneWidth", defaultLaneWidth, rootUnitError)) {
+			!getStringOptional(root, "defaultRadiusUnit", defaultRadiusUnit, rootUnitError)) {
 			if (error) {
 				*error = rootUnitError;
-			}
-			return false;
-		}
-		if (!std::isfinite(defaultLaneWidth) ||
-			defaultLaneWidth <= 0.0) {
-			if (error) {
-				*error =
-					"defaultLaneWidth must be finite and positive.";
 			}
 			return false;
 		}
@@ -317,7 +306,6 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 		double distance = 0.0;
 		double speedLimit = 0.0;
 		double congestionLevel = 1.0;
-		double laneWidth = defaultLaneWidth;
 		int lanes = 1;
 		bool twoWay = false;
 		bool blocked = false;
@@ -335,7 +323,6 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 		}
 
 		if (!getDoubleOptional(item, "congestionLevel", congestionLevel, localError) ||
-			!getDoubleOptional(item, "laneWidth", laneWidth, localError) ||
 			!getIntOptional(item, "lanes", lanes, localError) ||
 			!getBoolOptional(item, "twoWay", twoWay, localError) ||
 			!getBoolOptional(item, "blocked", blocked, localError)) {
@@ -378,15 +365,10 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 		const double speedMetresPerSecond = speedLimit * speedFactor;
 		if (!std::isfinite(distanceMeters) || distanceMeters <= 0.0 ||
 			!std::isfinite(speedMetresPerSecond) ||
-			speedMetresPerSecond <= 0.0 ||
-			!std::isfinite(laneWidth) || laneWidth <= 0.0 ||
-			lanes <= 0 ||
-			!std::isfinite(congestionLevel) ||
-			congestionLevel < 1.0) {
+			speedMetresPerSecond <= 0.0) {
 			if (error) {
 				*error = "Road " + std::to_string(id) +
-					": distance, speedLimit, laneWidth and lanes must be "
-					"positive; congestionLevel must be finite and at least 1.";
+					": distance and speedLimit must be finite and positive.";
 			}
 			return false;
 		}
@@ -394,14 +376,6 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 		if (graph.getRoad(id) != nullptr) {
 			if (error) {
 				*error = "Duplicate road id: " + std::to_string(id);
-			}
-			return false;
-		}
-		if (twoWay &&
-			(id == 0 || graph.getRoad(-id) != nullptr)) {
-			if (error) {
-				*error = "Road " + std::to_string(id) +
-					": its generated reverse id is zero or already in use.";
 			}
 			return false;
 		}
@@ -460,16 +434,14 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 			getDoubleOptional(item, "heightLimit", heightLimit, localError);
 			getDoubleOptional(item, "weightLimit", weightLimit, localError);
 			road = new Bridge(id, roadName, start, end, distanceMeters, speedMetresPerSecond,
-			                  congestionLevel, lanes, heightLimit, weightLimit,
-			                  laneWidth);
+			                  congestionLevel, lanes, heightLimit, weightLimit);
 		} else if (roadType == "tunnel") {
 			double heightLimit = 3.5;
 			getDoubleOptional(item, "heightLimit", heightLimit, localError);
 			road = new Tunnel(id, roadName, start, end, distanceMeters, speedMetresPerSecond,
-			                  congestionLevel, lanes, heightLimit, laneWidth);
+			                  congestionLevel, lanes, heightLimit);
 		} else {
-			road = new Road(id, roadName, start, end, distanceMeters,
-				speedMetresPerSecond, congestionLevel, lanes, laneWidth);
+			road = new Road(id, roadName, start, end, distanceMeters, speedMetresPerSecond, congestionLevel, lanes);
 		}
 		if (blocked) {
 			road->blockRoad();
@@ -488,202 +460,17 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 				getDoubleOptional(item, "heightLimit", heightLimit, localError);
 				getDoubleOptional(item, "weightLimit", weightLimit, localError);
 				revRoad = new Bridge(-id, revRoadName, end, start, distanceMeters, speedMetresPerSecond,
-				                     congestionLevel, lanes, heightLimit, weightLimit,
-				                     laneWidth);
+				                     congestionLevel, lanes, heightLimit, weightLimit);
 			} else if (roadType == "tunnel") {
 				double heightLimit = 3.5;
 				getDoubleOptional(item, "heightLimit", heightLimit, localError);
 				revRoad = new Tunnel(-id, revRoadName, end, start, distanceMeters, speedMetresPerSecond,
-				                     congestionLevel, lanes, heightLimit, laneWidth);
+				                     congestionLevel, lanes, heightLimit);
 			} else {
-				revRoad = new Road(-id, revRoadName, end, start, distanceMeters,
-					speedMetresPerSecond, congestionLevel, lanes, laneWidth);
+				revRoad = new Road(-id, revRoadName, end, start, distanceMeters, speedMetresPerSecond, congestionLevel, lanes);
 			}
 			if (blocked) revRoad->blockRoad();
 			graph.addRoad(revRoad);
-		}
-	}
-
-	// --- Parse explicit intersection signal plans (optional/backward-compatible) ---
-	if (root.contains("trafficLights")) {
-		if (!root.at("trafficLights").is_array()) {
-			if (error) {
-				*error = "Invalid 'trafficLights': expected an array.";
-			}
-			return false;
-		}
-
-		std::unordered_set<int> configuredIntersections;
-		const auto& signalItems = root.at("trafficLights");
-		for (std::size_t index = 0;
-			 index < signalItems.size();
-			 ++index) {
-			const auto& item = signalItems.at(index);
-			const std::string context =
-				"Traffic light config at index " +
-				std::to_string(index);
-			if (!item.is_object()) {
-				if (error) {
-					*error = context + ": expected a JSON object.";
-				}
-				return false;
-			}
-
-			int intersectionId = 0;
-			bool enabled = true;
-			double greenDuration = 25.0;
-			double yellowDuration = 3.0;
-			double allRedDuration = 1.5;
-			std::string localError;
-			if (!getInt(
-					item,
-					"intersectionId",
-					intersectionId,
-					localError) ||
-				!getBoolOptional(
-					item, "enabled", enabled, localError) ||
-				!getDoubleOptional(
-					item,
-					"greenDuration",
-					greenDuration,
-					localError) ||
-				!getDoubleOptional(
-					item,
-					"yellowDuration",
-					yellowDuration,
-					localError) ||
-				!getDoubleOptional(
-					item,
-					"allRedDuration",
-					allRedDuration,
-					localError)) {
-				if (error) *error = context + ": " + localError;
-				return false;
-			}
-			const std::string signalContext =
-				"Traffic light config for intersection " +
-				std::to_string(intersectionId);
-			if (!configuredIntersections.insert(
-					intersectionId).second) {
-				if (error) {
-					*error = signalContext +
-						": duplicate intersection config.";
-				}
-				return false;
-			}
-
-			Intersection* intersection =
-				graph.getIntersection(intersectionId);
-			if (intersection == nullptr) {
-				if (error) {
-					*error = signalContext +
-						": intersection does not exist.";
-				}
-				return false;
-			}
-			if (!enabled) continue;
-
-			if (!std::isfinite(greenDuration) ||
-				greenDuration <= 0.0 ||
-				!std::isfinite(yellowDuration) ||
-				yellowDuration <= 0.0 ||
-				!std::isfinite(allRedDuration) ||
-				allRedDuration < 0.0) {
-				if (error) {
-					*error = signalContext +
-						": greenDuration and yellowDuration must be "
-						"positive; allRedDuration must be non-negative.";
-				}
-				return false;
-			}
-
-			if (!item.contains("phases")) {
-				// Compact plans cover every incoming road and group opposing
-				// approaches geometrically. This is useful for T-junctions,
-				// roundabouts and other non-four-way conflict points.
-				std::string planError;
-				if (!intersection->configureTrafficSignalsAutomatically(
-						greenDuration,
-						yellowDuration,
-						allRedDuration,
-						&planError)) {
-					if (error) {
-						*error = signalContext + ": " + planError;
-					}
-					return false;
-				}
-				continue;
-			}
-			if (!item.at("phases").is_array() ||
-				item.at("phases").empty()) {
-				if (error) {
-					*error = signalContext +
-						": phases must be a non-empty array.";
-				}
-				return false;
-			}
-
-			std::vector<std::vector<Road*>> phases;
-			const auto& phaseItems = item.at("phases");
-			phases.reserve(phaseItems.size());
-			for (std::size_t phaseIndex = 0;
-				 phaseIndex < phaseItems.size();
-				 ++phaseIndex) {
-				const auto& phaseItem =
-					phaseItems.at(phaseIndex);
-				if (!phaseItem.is_object() ||
-					!phaseItem.contains("incomingRoadIds") ||
-					!phaseItem.at("incomingRoadIds").is_array() ||
-					phaseItem.at("incomingRoadIds").empty()) {
-					if (error) {
-						*error = signalContext + ": phase " +
-							std::to_string(phaseIndex) +
-							" must contain a non-empty "
-							"incomingRoadIds array.";
-					}
-					return false;
-				}
-
-				std::vector<Road*> phase;
-				for (const auto& roadIdItem :
-					 phaseItem.at("incomingRoadIds")) {
-					if (!roadIdItem.is_number_integer()) {
-						if (error) {
-							*error = signalContext + ": phase " +
-								std::to_string(phaseIndex) +
-								" contains a non-integer road id.";
-						}
-						return false;
-					}
-					const int roadId =
-						roadIdItem.get<int>();
-					Road* road = graph.getRoad(roadId);
-					if (road == nullptr ||
-						road->getEnd() != intersection) {
-						if (error) {
-							*error = signalContext + ": road " +
-								std::to_string(roadId) +
-								" is not an incoming road.";
-						}
-						return false;
-					}
-					phase.push_back(road);
-				}
-				phases.push_back(std::move(phase));
-			}
-
-			std::string planError;
-			if (!intersection->configureTrafficSignals(
-					phases,
-					greenDuration,
-					yellowDuration,
-					allRedDuration,
-					&planError)) {
-				if (error) {
-					*error = signalContext + ": " + planError;
-				}
-				return false;
-			}
 		}
 	}
 

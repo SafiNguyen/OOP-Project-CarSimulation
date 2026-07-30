@@ -3,7 +3,6 @@
 #include <functional>
 #include <iostream>
 #include <memory>
-#include <optional>
 #include <string>
 
 #include <imgui-SFML.h>
@@ -14,11 +13,8 @@
 #include "InputHandling.h"
 #include "ui/MapFileDialog.h"
 #include "MapLoading.h"
-#include "Mapload.h"
-#include "algorithm/DijkstraStrategy.h"
 #include "visualization/Rendering.h"
 #include "visualization/SimulatorFactory.h"
-#include "visualization/VehicleSprite.h"
 #include "model/Graph.h"
 #include "simulation/TrafficSimulator.h"
 #include "ui/DebugConsole.h"
@@ -28,52 +24,6 @@
 #include "visualization/VisualizationEngine.h"
 
 namespace {
-
-struct SnapshotOptions {
-    bool enabled = false;
-    std::string outputPath;
-    unsigned int width = 800u;
-    unsigned int height = 600u;
-    double wallSeconds = 0.0;
-    double speedMultiplier = 1.0;
-    bool paused = false;
-};
-
-SnapshotOptions parseSnapshotOptions(
-    int argc,
-    char** argv) {
-    SnapshotOptions options;
-    for (int index = 2; index < argc; ++index) {
-        const std::string argument = argv[index];
-        const auto readValue =
-            [&](const char* option) -> std::optional<std::string> {
-                if (argument != option || index + 1 >= argc) {
-                    return std::nullopt;
-                }
-                return std::string(argv[++index]);
-            };
-        if (const auto value = readValue("--snapshot")) {
-            options.enabled = true;
-            options.outputPath = *value;
-        } else if (const auto value = readValue("--width")) {
-            options.width = static_cast<unsigned int>(
-                std::max(1, std::stoi(*value)));
-        } else if (const auto value = readValue("--height")) {
-            options.height = static_cast<unsigned int>(
-                std::max(1, std::stoi(*value)));
-        } else if (const auto value =
-                       readValue("--wall-seconds")) {
-            options.wallSeconds =
-                std::max(0.0, std::stod(*value));
-        } else if (const auto value = readValue("--speed")) {
-            options.speedMultiplier =
-                std::max(0.01, std::stod(*value));
-        } else if (argument == "--paused") {
-            options.paused = true;
-        }
-    }
-    return options;
-}
 
 std::string resolveInitialMapPath(int argc, char** argv) {
     if (argc > 1) {
@@ -85,104 +35,12 @@ std::string resolveInitialMapPath(int argc, char** argv) {
     return "";
 }
 
-bool loadSnapshotFont(sf::Font& font) {
-    const std::vector<std::string> paths = {
-        "C:/Windows/Fonts/arial.ttf",
-        "C:/Windows/Fonts/segoeui.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-    };
-    for (const std::string& path : paths) {
-        if (std::filesystem::exists(path) &&
-            font.loadFromFile(path)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-int renderSnapshot(const std::string& mapPath,
-                   const SnapshotOptions& options) {
-    if (mapPath.empty() || options.outputPath.empty()) {
-        std::cerr
-            << "Snapshot mode requires a map path and --snapshot output."
-            << std::endl;
-        return 2;
-    }
-
-    Graph graph;
-    std::string loadError;
-    if (!MapLoad::loadGraphFromJsonFile(
-            mapPath, graph, &loadError)) {
-        std::cerr << loadError << std::endl;
-        return 3;
-    }
-
-    VisualizationEngine visualization(
-        {options.width, options.height});
-    sf::Font font;
-    if (loadSnapshotFont(font)) {
-        visualization.setFont(font);
-    }
-    visualization.prepare(graph);
-
-    DijkstraStrategy strategy;
-    auto simulator =
-        createDemoSimulator(graph, &strategy);
-    simulator->setSpeedMultiplier(
-        options.speedMultiplier);
-    if (options.paused) {
-        simulator->pause();
-    }
-    double wallRemaining = options.wallSeconds;
-    while (wallRemaining > 1e-9) {
-        const double step =
-            std::min(0.05, wallRemaining);
-        simulator->update(step);
-        wallRemaining -= step;
-    }
-
-    sf::RenderTexture target;
-    if (!target.create(options.width, options.height)) {
-        std::cerr << "Could not create snapshot render target."
-                  << std::endl;
-        return 4;
-    }
-    target.clear(sf::Color(34, 42, 48));
-    visualization.drawGraph(target, graph);
-    for (Vehicle* vehicle : simulator->getVehicles()) {
-        VehicleSprite sprite(vehicle, &visualization);
-        sprite.draw(target);
-    }
-    target.display();
-    if (!target.getTexture().copyToImage().saveToFile(
-            options.outputPath)) {
-        std::cerr << "Could not save snapshot: "
-                  << options.outputPath << std::endl;
-        return 5;
-    }
-
-    std::cout << "Snapshot " << options.width << "x"
-              << options.height << " saved to "
-              << options.outputPath
-              << " at simulation time "
-              << simulator->getElapsedTime() << " s"
-              << (simulator->isPaused() ? " (paused)" : "")
-              << std::endl;
-    return 0;
-}
-
 } // namespace
 
 int main(int argc, char** argv) {
-    const std::string path = resolveInitialMapPath(argc, argv);
-    const SnapshotOptions snapshotOptions =
-        parseSnapshotOptions(argc, argv);
-    if (snapshotOptions.enabled) {
-        return renderSnapshot(path, snapshotOptions);
-    }
-
     const unsigned int windowW = 1200;
     const unsigned int windowH = 720;
+    const std::string path = resolveInitialMapPath(argc, argv);
 
     sf::RenderWindow window(sf::VideoMode(windowW, windowH), "Urban Traffic Simulator");
     window.setFramerateLimit(60);

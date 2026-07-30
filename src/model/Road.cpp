@@ -8,19 +8,8 @@
 #include <algorithm> 
 
 Road::Road(int id, const std::string& name, Intersection* start, Intersection* end, 
-           double distance, double speedLimit, double congestionLevel,
-           int laneCount, double laneWidthMetres)
-           : id(id),
-             name(name),
-             start(start),
-             end(end),
-             distance(distance),
-             speedLimit(speedLimit),
-             laneCount((laneCount >= 1) ? laneCount : 1),
-             laneWidthMetres(
-                 std::isfinite(laneWidthMetres) && laneWidthMetres > 0.0
-                     ? laneWidthMetres
-                     : 3.5) {
+           double distance, double speedLimit, double congestionLevel, int laneCount) 
+           : id(id), name(name), start(start), end(end), distance(distance), speedLimit(speedLimit), laneCount((laneCount >= 1) ? laneCount : 1) {
     if (congestionLevel < 1.0) {
         this->congestionLevel = 1.0; 
     } else {
@@ -69,11 +58,6 @@ bool Road::hasBlockedLane() const {
     return false;
 }
 int Road::getLaneCount() const { return laneCount; }
-double Road::getLaneWidthMetres() const { return laneWidthMetres; }
-Road* Road::getReverseRoad() const { return reverseRoad; }
-void Road::setReverseRoad(Road* road) {
-    reverseRoad = road != this ? road : nullptr;
-}
 
 int Road::getCurbLaneIndex() const {
     return laneCount - 1;

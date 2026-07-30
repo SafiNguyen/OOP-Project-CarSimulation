@@ -135,22 +135,6 @@ void Graph::addRoad(Road* road) {
         // Add road to the roads map
         roads[id] = road;
 
-        // Pair the two directional objects by topology once when the graph
-        // changes. Geometry/render code can then query the counterpart in
-        // O(1), without relying on road-id signs or scanning every frame.
-        for (const auto& entry : roads) {
-            Road* candidate = entry.second;
-            if (candidate == nullptr || candidate == road) {
-                continue;
-            }
-            if (candidate->getStart() == end &&
-                candidate->getEnd() == start) {
-                road->setReverseRoad(candidate);
-                candidate->setReverseRoad(road);
-                break;
-            }
-        }
-
         // Update the intersections with incoming and outgoing roads using the stored intersection objects
         sit->second->addOutgoingRoad(road);
         eit->second->addIncomingRoad(road);
@@ -171,10 +155,6 @@ void Graph::removeRoad(int id) {
 // Remove road from the intersections
             start->removeOutgoingRoad(road);
             end->removeIncomingRoad(road);
-        }
-        if (road->getReverseRoad() != nullptr) {
-            road->getReverseRoad()->setReverseRoad(nullptr);
-            road->setReverseRoad(nullptr);
         }
         
 // Remove from roads map and delete

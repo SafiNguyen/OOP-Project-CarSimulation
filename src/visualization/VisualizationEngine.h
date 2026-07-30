@@ -39,6 +39,8 @@ public:
     bool isHeatMapEnabled() const;
 
 private:
+    static constexpr float MIN_LANE_WIDTH_PIXELS = 8.0f;
+
     static sf::Color mixColor(const sf::Color& a, const sf::Color& b, float t);
     static float distanceBetween(const sf::Vector2f& a, const sf::Vector2f& b);
 
@@ -85,8 +87,6 @@ private:
     double maxX_;
     double maxY_;
     double scale_;
-    double offsetX_;
-    double offsetY_;
     std::vector<sf::Vector2f> routePoints_;
     const sf::Texture* spriteTexture_;
     sf::IntRect spriteRect_;

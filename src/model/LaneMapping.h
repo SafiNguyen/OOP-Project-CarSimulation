@@ -30,11 +30,6 @@ public:
                            int currentIncomingLane,
                            const Road& outgoing,
                            bool allowUTurn = true);
-    static LaneMapping mapFromCurrentLane(
-        const Road& incoming,
-        int currentIncomingLane,
-        const Road& outgoing,
-        bool allowUTurn = true);
 };
 
 #endif

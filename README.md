@@ -59,11 +59,10 @@ these root defaults (and per-road overrides where noted):
 
 ```json
 {
-  "coordinateUnit": "m",
-  "defaultDistanceUnit": "m",
+  "coordinateUnit": "world",
+  "defaultDistanceUnit": "legacy",
   "defaultSpeedUnit": "km/h",
-  "defaultRadiusUnit": "m",
-  "defaultLaneWidth": 3.5
+  "defaultRadiusUnit": "km"
 }
 ```
 
@@ -74,55 +73,8 @@ these root defaults (and per-road overrides where noted):
 - Coordinates remain map/world coordinates. `RoadGeometry` derives a local
   metres-per-world-unit transform from road distance and endpoint geometry, so
   old maps with non-identical coordinate and distance scales remain compatible.
-- `laneWidth` may override `defaultLaneWidth` per road. Both are metres and
-  must be finite and positive.
-- Lane centres, road surfaces, lane/edge markings, stop lines, junction
-  connectors, vehicle poses and rendering all come from `RoadGeometry`.
-- Opposite directions are paired by reversed endpoints and cached on `Road`;
-  road-id signs are not used to infer physical pairing.
-
-## Traffic signal plans
-
-Signalized intersections use one shared simulation-time controller. A plan is
-declared explicitly and must list every incoming directional road exactly once:
-
-```json
-{
-  "trafficLights": [
-    {
-      "intersectionId": 5,
-      "enabled": true,
-      "greenDuration": 25.0,
-      "yellowDuration": 3.0,
-      "allRedDuration": 1.5,
-      "phases": [
-        { "incomingRoadIds": [105, 108] },
-        { "incomingRoadIds": [117, 120] }
-      ]
-    }
-  ]
-}
-```
-
-The cycle is `GREEN -> YELLOW -> ALL_RED -> next GREEN`. Signal heads expose
-the controller-derived remaining simulation seconds; the renderer does not
-maintain a separate timer. A compact entry may omit `phases`; every incoming
-road is then included automatically and geometrically opposite approaches are
-grouped into the same phase:
-
-```json
-{
-  "intersectionId": 2,
-  "greenDuration": 25.0,
-  "yellowDuration": 3.0,
-  "allRedDuration": 1.5
-}
-```
-
-The bundled maps use compact plans for T-junctions and roundabouts, while
-keeping explicit phase plans at regular four-way intersections. A signalized
-roundabout still applies its circulating-traffic yield and safe-gap checks
-after an entry receives green.
+- Lane width is 3.5 metres. Rendering converts the same model geometry to
+  screen space; roundabout rendering and traversal use the same radius.
 
 ## Build Instructions
 
@@ -151,15 +103,6 @@ After building, the executable `UrbanTrafficSimulator` will be generated in the 
 Alternatively, you can provide a JSON map file as an argument:
 ```bash
 ./bin/UrbanTrafficSimulator ../map.json
-```
-
-For deterministic visual QA without a desktop window, the same executable can
-render a simulation snapshot:
-
-```bash
-./bin/UrbanTrafficSimulator ../map2.json \
-  --snapshot map2.png --width 1600 --height 900 \
-  --wall-seconds 5 --speed 2
 ```
 
 **Controls:**

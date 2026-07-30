@@ -8,8 +8,7 @@
  * traffic roundabout (bùng binh).
  *
  * Key differences from a normal Intersection:
- * - Vehicles yield to traffic already in the circle even when an optional
- *   entry signal is green.
+ * - No traffic lights: vehicles yield to traffic already in the circle.
  * - Vehicles entering the roundabout slow down.
  *
  * OOP: Inheritance (Roundabout IS-A Intersection),
@@ -37,7 +36,8 @@ public:
         return radiusMetres_;
     }
 
-    /// Optional entry signals retain the circulating-traffic gap checks.
+    /// Roundabouts do not use traffic lights — vehicles yield instead.
+    /// Override mustStopForRoad to always return false.
     bool isRoundabout() const override { return true; }
     bool canEnterMovement(
         int vehicleId,
