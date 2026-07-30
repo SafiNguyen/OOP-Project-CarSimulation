@@ -243,9 +243,16 @@ bool TrafficSimulator::tryActivateVehicle(
         }
 
         // Check if there's already a merging vehicle at/near this offset.
-        for (Vehicle* existing : mergingFromPoiVehicles) {
-            if (existing->getIsMergingFromPOI() &&
-                existing->getCurrentRoad() == road) {
+        // Use mergingFromPoiVehicles set for O(log N) instead of O(N) scan.
+        for (auto it = mergingFromPoiVehicles.begin();
+             it != mergingFromPoiVehicles.end(); ) {
+            Vehicle* existing = *it;
+            if (existing == nullptr ||
+                !existing->getIsMergingFromPOI()) {
+                it = mergingFromPoiVehicles.erase(it);
+                continue;
+            }
+            if (existing->getCurrentRoad() == road) {
                 const double dist = std::fabs(
                     existing->getProgressOnRoad() -
                     spawnProgress);
@@ -271,6 +278,7 @@ bool TrafficSimulator::tryActivateVehicle(
                     return false;
                 }
             }
+            ++it;
         }
 
         // Check clearance with vehicles already on the access lane.
