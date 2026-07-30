@@ -801,7 +801,8 @@ void VisualizationEngine::drawIntersectionNode(sf::RenderTarget& target, const I
                 std::max(0.0f, hubRadius - 1.0f));
         }
 
-        // The simulation traverses roundabouts clockwise in world space.
+        // Vehicles enter on their right and circulate counter-clockwise in
+        // world space. Keep the direction arrows aligned with that path.
         // Deriving the screen tangent from two transformed world points also
         // accounts for the inverted screen Y axis.
         constexpr double pi = 3.14159265358979323846;
@@ -834,8 +835,8 @@ void VisualizationEngine::drawIntersectionNode(sf::RenderTarget& target, const I
             const Vec2 forwardProbeWorld =
                 roundaboutCentre +
                 Vec2{
-                    std::cos(angle - arrowStepRadians),
-                    std::sin(angle - arrowStepRadians)
+                    std::cos(angle + arrowStepRadians),
+                    std::sin(angle + arrowStepRadians)
                 } * circulationRadiusWorld;
             const sf::Vector2f marker =
                 worldToScreen(

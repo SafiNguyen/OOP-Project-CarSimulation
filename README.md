@@ -36,7 +36,8 @@ The project follows a modular, object-oriented design:
   distance.
 - `Intersection` caches `JunctionConnector` objects by incoming road/lane and
   outgoing road/lane. Normal intersections use cubic Bézier connectors;
-  `Roundabout` overrides connector construction with entry, clockwise
+  `Roundabout` overrides connector construction with right-side entry,
+  counter-clockwise
   circulating arc, and exit segments.
 - `TurnLanePolicy` classifies movements from model-space dot/cross products.
   Straight movements map relative lane position, right turns use curb lanes,
