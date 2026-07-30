@@ -1,5 +1,5 @@
 #include "Rendering.h"
-
+#include "iostream"
 #include <cmath>
 #include <map>
 #include <vector>
@@ -21,7 +21,10 @@
 #include "visualization/VisualizationEngine.h"
 
 namespace {
-
+sf::Clock g_profileClock;
+sf::Int64 g_drawGraphMicros = 0;
+sf::Int64 g_vehicleDrawMicros = 0;
+int g_profileFrameCount = 0;
 constexpr float kVehicleOutlinePixels = 0.55f;
 
 struct VehicleVisual {
@@ -248,6 +251,9 @@ void drawSelectedVehicleHighlight(sf::RenderWindow& window,
 
 } // namespace
 
+
+
+
 void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
                   std::unique_ptr<TrafficSimulator>& simulator, StatsPanel& statsPanel,
                   VehicleInspector& vehicleInspector, float dt) {
@@ -255,7 +261,37 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
 
     window.setView(ctx.view);
     window.clear(sf::Color(34, 42, 48));
+
+
+       // --- time drawGraph ---
+    g_profileClock.restart();
     ctx.visualization.drawGraph(window, ctx.graph);
+    g_drawGraphMicros += g_profileClock.getElapsedTime().asMicroseconds();
+
+    // --- time vehicle sprite loop ---
+    g_profileClock.restart();
+    for (Vehicle* vehicle : simulator->getVehicles()) {
+        VehicleSprite sprite(vehicle, &ctx.visualization);
+        sprite.draw(window);
+    }
+    g_vehicleDrawMicros += g_profileClock.getElapsedTime().asMicroseconds();
+
+    // --- log every 60 frames ---
+    ++g_profileFrameCount;
+    if (g_profileFrameCount >= 60) {
+        const double avgGraphMs =
+            static_cast<double>(g_drawGraphMicros) / g_profileFrameCount / 1000.0;
+        const double avgVehicleMs =
+            static_cast<double>(g_vehicleDrawMicros) / g_profileFrameCount / 1000.0;
+        std::cout << "[Profile] drawGraph avg: " << avgGraphMs
+                  << " ms | vehicleDraw avg: " << avgVehicleMs
+                  << " ms | activeVehicles: "
+                  << simulator->getVehicles().size() << std::endl;
+        g_drawGraphMicros = 0;
+        g_vehicleDrawMicros = 0;
+        g_profileFrameCount = 0;
+    }
+
 
     if (simulator) {
         drawActiveVehicles(

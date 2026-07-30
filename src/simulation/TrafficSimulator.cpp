@@ -76,12 +76,13 @@ bool TrafficSimulator::tryActivateVehicle(
         int curbLane = road->getCurbLaneIndex();
         
         // Check if there's already a merging vehicle at/near this offset
-        for (Vehicle* existing : vehicles) {
-            if (existing->getIsMergingFromPOI() &&
-                existing->getCurrentRoad() == road) {
+        pruneMergingIndex(road);   // drop any vehicles that finished merging
+        auto mergingIt = mergingFromPOIByRoad_.find(road);
+        if (mergingIt != mergingFromPOIByRoad_.end()) {
+            for (Vehicle* existing : mergingIt->second) {
                 double dist = std::fabs(existing->getProgressOnRoad() - spawnProgress);
                 if (dist < vehicle->getLength() + existing->getLength()) {
-                    return false; // Another vehicle is already merging near this spot
+                    return false;
                 }
             }
         }
@@ -100,6 +101,7 @@ bool TrafficSimulator::tryActivateVehicle(
         
         selectedLane = curbLane;
         vehicle->setMergingFromPOI(true, spawnProgress, selectedLane);
+        mergingFromPOIByRoad_[road].push_back(vehicle);
     } else {
         double bestClearance = -std::numeric_limits<double>::infinity();
         for (int laneIndex = 0; laneIndex < road->getLaneCount(); ++laneIndex) {
@@ -150,14 +152,48 @@ bool TrafficSimulator::tryActivateVehicle(
     return true;
 }
 
+void TrafficSimulator::pruneMergingIndex(Road* road) {
+    auto it = mergingFromPOIByRoad_.find(road);
+    if (it == mergingFromPOIByRoad_.end()) return;
+    auto& list = it->second;
+    list.erase(
+        std::remove_if(list.begin(), list.end(),
+            [](Vehicle* v) { return !v->getIsMergingFromPOI(); }),
+        list.end());
+    if (list.empty()) {
+        mergingFromPOIByRoad_.erase(it);
+    }
+}
+
 void TrafficSimulator::activatePendingVehicles() {
     if (vehicles.size() >= maximumActiveVehicles_) {
         return;
     }
+    if (pendingVehicles.empty()) {
+        return;
+    }
+    // Skip the full scan on frames where no spawn-gate could plausibly
+    // have opened up since the last check.
+    if (elapsedTime + 1e-9 < nextPendingCheckTime_) {
+        return;
+    }
+
+    double soonestGateTime = std::numeric_limits<double>::infinity();
     for (auto it = pendingVehicles.begin();
          it != pendingVehicles.end();) {
-        if (tryActivateVehicle(
-                it->vehicle, it->route)) {
+        Road* frontRoad =
+            it->route.empty() ? nullptr : it->route.front();
+        if (frontRoad != nullptr) {
+            const auto gateIt = nextSpawnTimeByRoad_.find(frontRoad);
+            if (gateIt != nextSpawnTimeByRoad_.end() &&
+                elapsedTime + 1e-9 < gateIt->second) {
+                soonestGateTime =
+                    std::min(soonestGateTime, gateIt->second);
+                ++it;
+                continue;
+            }
+        }
+        if (tryActivateVehicle(it->vehicle, it->route)) {
             it = pendingVehicles.erase(it);
         } else {
             ++it;
@@ -166,6 +202,8 @@ void TrafficSimulator::activatePendingVehicles() {
             break;
         }
     }
+    nextPendingCheckTime_ =
+        std::isfinite(soonestGateTime) ? soonestGateTime : elapsedTime + 0.05;
 }
 
 bool TrafficSimulator::addVehicle(Vehicle* vehicle) {
@@ -240,8 +278,12 @@ void TrafficSimulator::removeFinishedVehicles() {
                 this->statisticsManager->markVehicleCompleted(v->getId());
             }
             failedRecalcIds.erase(v->getId());
+            if (v->getIsMergingFromPOI()) {
+                v->setMergingFromPOI(false);
+            }
+
             v->setRouteAt(std::vector<Road*>{}, -1, 0.0);
-            finishedVehicles.push_back(v); // Keep vehicle instead of deleting
+            finishedVehicles.push_back(v);
             return true;
         }
         return false;

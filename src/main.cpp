@@ -310,10 +310,23 @@ int main(int argc, char** argv) {
 
         ImGui::SFML::Update(window, sf::seconds(dt));
 
-        if (simulator) {
-            simulator->update(dt);
-        }
+        sf::Clock updateClock;
+static sf::Int64 g_updateMicros = 0;
+static int g_updateFrames = 0;
 
+        if (simulator) {
+            updateClock.restart();
+            simulator->update(dt);
+            g_updateMicros += updateClock.getElapsedTime().asMicroseconds();
+            ++g_updateFrames;
+            if (g_updateFrames >= 60) {
+                std::cout << "[Profile] simulator update avg: "
+                        << (static_cast<double>(g_updateMicros) / g_updateFrames / 1000.0)
+                        << " ms" << std::endl;
+                g_updateMicros = 0;
+                g_updateFrames = 0;
+            }
+        }
         renderFrame(ctx, debugConsole, simulator, statsPanel, vehicleInspector, dt);
     }
 

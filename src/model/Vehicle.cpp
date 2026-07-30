@@ -678,6 +678,9 @@ double Vehicle::advanceJunction(double availableTime) {
     return consumedTime;
 }
 
+
+
+
 bool Vehicle::tryRequiredLaneChange(int requiredLaneIndex) {
     if (currentRoad == nullptr ||
         !canChangeLanes() ||

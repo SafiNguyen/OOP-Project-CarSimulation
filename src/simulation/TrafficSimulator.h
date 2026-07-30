@@ -67,6 +67,8 @@ public:
     const std::set<int>& getFailedRecalcIds() const;
 
 private:
+    std::unordered_map<Road*, std::vector<Vehicle*>> mergingFromPOIByRoad_;
+    double nextPendingCheckTime_ = 0.0;
     struct PendingVehicle {
         Vehicle* vehicle = nullptr;
         std::vector<Road*> route;
@@ -84,8 +86,8 @@ private:
     bool tryActivateVehicle(
         Vehicle* vehicle,
         const std::vector<Road*>& route);
+    void pruneMergingIndex(Road *road);
     void activatePendingVehicles();
-
 
     Graph* graph;                                   
     PathFindingStrategy* pathFindingStrategy;  
