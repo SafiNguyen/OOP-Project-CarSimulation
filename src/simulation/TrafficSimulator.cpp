@@ -242,8 +242,8 @@ bool TrafficSimulator::tryActivateVehicle(
             return false;
         }
 
-        // Check if there's already a merging vehicle at/near this offset
-        for (Vehicle* existing : vehicles) {
+        // Check if there's already a merging vehicle at/near this offset.
+        for (Vehicle* existing : mergingFromPoiVehicles) {
             if (existing->getIsMergingFromPOI() &&
                 existing->getCurrentRoad() == road) {
                 const double dist = std::fabs(
@@ -302,6 +302,7 @@ bool TrafficSimulator::tryActivateVehicle(
                 true,
                 spawnProgress,
                 selectedLane);
+            mergingFromPoiVehicles.insert(vehicle);
         }
     } else {
         double bestClearance = -std::numeric_limits<double>::infinity();
@@ -332,6 +333,7 @@ bool TrafficSimulator::tryActivateVehicle(
     if (selectedLane < 0 || !vehicle->setRouteAt(route, selectedLane, spawnProgress)) {
         if (accessSource != nullptr) {
             vehicle->setMergingFromPOI(false); // Revert state if activation failed
+            mergingFromPoiVehicles.erase(vehicle);
         }
         vehicle->setSpawnLifecycleState(
             SpawnLifecycleState::WaitingForRoadGap);
@@ -720,6 +722,7 @@ void TrafficSimulator::removeFinishedVehicles() {
                 this->statisticsManager->markVehicleCompleted(v->getId());
             }
             failedRecalcIds.erase(v->getId());
+            mergingFromPoiVehicles.erase(v);  // Clean up if it was merging from POI
             v->setRouteAt(std::vector<Road*>{}, -1, 0.0);
             finishedVehicles.push_back(v); // Keep vehicle instead of deleting
             return true;

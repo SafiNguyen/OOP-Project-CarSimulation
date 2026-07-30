@@ -1,6 +1,9 @@
 #ifndef ROUNDABOUT_H
 #define ROUNDABOUT_H
 
+#include <map>
+#include <tuple>
+
 #include "Intersection.h"
 
 /**
@@ -19,6 +22,10 @@ class Roundabout : public Intersection {
 private:
     double radiusMetres_;
     double roadWidthMetres_;
+
+    mutable std::map<std::tuple<int, int, int, int>,
+                      std::shared_ptr<const JunctionConnector>>
+        connectorCache_;
 
 protected:
     std::shared_ptr<const JunctionConnector> createConnector(

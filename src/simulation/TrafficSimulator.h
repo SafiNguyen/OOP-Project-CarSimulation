@@ -7,6 +7,7 @@
 #include <set>
 #include <limits>
 #include <unordered_map>
+#include <unordered_set>
 
 class Graph;
 class Road;
@@ -153,6 +154,7 @@ private:
     Graph* graph;                                   
     PathFindingStrategy* pathFindingStrategy;  
     std::vector<Vehicle*> vehicles;
+    std::set<Vehicle*> mergingFromPoiVehicles;  // Fast O(log N) lookup vs O(N) scan
     std::deque<PendingVehicle> pendingVehicles;
     std::vector<Vehicle*> finishedVehicles;      
     std::vector<std::unique_ptr<Pedestrian>>

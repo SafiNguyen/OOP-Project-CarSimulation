@@ -37,6 +37,14 @@ std::shared_ptr<const JunctionConnector> Roundabout::createConnector(
     int incomingLane,
     const Road& outgoing,
     int outgoingLane) const {
+    const auto cacheKey = std::make_tuple(
+        incoming.getId(), incomingLane,
+        outgoing.getId(), outgoingLane);
+    auto cached = connectorCache_.find(cacheKey);
+    if (cached != connectorCache_.end()) {
+        return cached->second;
+    }
+
     const Vec2 centre{getX(), getY()};
     const Vec2 entry =
         RoadGeometry::laneEndpoint(incoming, incomingLane, false);
@@ -65,7 +73,7 @@ std::shared_ptr<const JunctionConnector> Roundabout::createConnector(
         incoming.getId(), incomingLane,
         outgoing.getId(), outgoingLane
     };
-    return std::make_shared<JunctionConnector>(
+    auto connector = std::make_shared<JunctionConnector>(
         key,
         &incoming,
         &outgoing,
@@ -74,6 +82,8 @@ std::shared_ptr<const JunctionConnector> Roundabout::createConnector(
         outgoingTangent,
         RoadGeometry::metresPerWorldUnit(outgoing),
         std::move(path));
+    connectorCache_.emplace(cacheKey, connector);
+    return connector;
 }
 
 bool Roundabout::canEnterMovement(
