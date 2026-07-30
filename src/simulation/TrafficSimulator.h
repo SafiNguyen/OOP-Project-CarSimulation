@@ -130,7 +130,7 @@ private:
         DEFAULT_PENDING_TIMEOUT_SECONDS = 600.0;
     static constexpr int MAX_ROUTE_ATTEMPTS = 8;
 
-
+    void pruneMergingIndex(Road* road);
     void recalculateAllVehicleRoutes();
     void removeFinishedVehicles();
     bool addVehicleWithDelay(
@@ -154,7 +154,7 @@ private:
     Graph* graph;                                   
     PathFindingStrategy* pathFindingStrategy;  
     std::vector<Vehicle*> vehicles;
-    std::set<Vehicle*> mergingFromPoiVehicles;  // Fast O(log N) lookup vs O(N) scan
+    std::unordered_map<Road*, std::vector<Vehicle*>> mergingFromPOIByRoad_;
     std::deque<PendingVehicle> pendingVehicles;
     std::vector<Vehicle*> finishedVehicles;      
     std::vector<std::unique_ptr<Pedestrian>>

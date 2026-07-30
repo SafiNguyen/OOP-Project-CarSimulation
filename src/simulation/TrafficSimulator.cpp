@@ -48,6 +48,29 @@ TrafficSimulator::~TrafficSimulator() {
     finishedVehicles.clear();
 }
 
+void TrafficSimulator::pruneMergingIndex(Road* road)
+{
+    auto it = mergingFromPOIByRoad_.find(road);
+    if (it == mergingFromPOIByRoad_.end())
+        return;
+
+    auto& vehicles = it->second;
+
+    vehicles.erase(
+        std::remove_if(
+            vehicles.begin(),
+            vehicles.end(),
+            [](Vehicle* v)
+            {
+                return v == nullptr ||
+                       !v->getIsMergingFromPOI();
+            }),
+        vehicles.end());
+
+    if (vehicles.empty())
+        mergingFromPOIByRoad_.erase(it);
+}
+
 bool TrafficSimulator::addPedestrian(
     std::unique_ptr<Pedestrian> pedestrian) {
     if (pedestrian == nullptr ||
@@ -244,41 +267,39 @@ bool TrafficSimulator::tryActivateVehicle(
 
         // Check if there's already a merging vehicle at/near this offset.
         // Use mergingFromPoiVehicles set for O(log N) instead of O(N) scan.
-        for (auto it = mergingFromPoiVehicles.begin();
-             it != mergingFromPoiVehicles.end(); ) {
-            Vehicle* existing = *it;
-            if (existing == nullptr ||
-                !existing->getIsMergingFromPOI()) {
-                it = mergingFromPoiVehicles.erase(it);
-                continue;
-            }
-            if (existing->getCurrentRoad() == road) {
-                const double dist = std::fabs(
-                    existing->getProgressOnRoad() -
-                    spawnProgress);
+        pruneMergingIndex(road);
+
+        auto mergeIt = mergingFromPOIByRoad_.find(road);
+
+        if (mergeIt != mergingFromPOIByRoad_.end()) {
+            for (Vehicle* existing : mergeIt->second) {
+
+                const double dist =
+                    std::fabs(existing->getProgressOnRoad() -
+                            spawnProgress);
+
                 const double halfLengths =
                     (existing->getLength() +
-                     vehicle->getLength()) *
-                    0.5;
+                    vehicle->getLength()) * 0.5;
+
                 const double requiredGap =
-                    std::max(
-                        existing->getMinGap(),
-                        vehicle->getMinGap());
+                    std::max(existing->getMinGap(),
+                            vehicle->getMinGap());
+
                 const double mergeApproachBuffer =
                     road->getSpeedLimit() *
-                    vehicle->
-                        getPoiAnimationDuration();
+                    vehicle->getPoiAnimationDuration();
+
                 if (dist <
                     halfLengths +
-                        requiredGap +
-                        mergeApproachBuffer) {
+                    requiredGap +
+                    mergeApproachBuffer)
+                {
                     vehicle->setSpawnLifecycleState(
-                        SpawnLifecycleState::
-                            WaitingForRoadGap);
+                        SpawnLifecycleState::WaitingForRoadGap);
                     return false;
                 }
             }
-            ++it;
         }
 
         // Check clearance with vehicles already on the access lane.
@@ -310,7 +331,8 @@ bool TrafficSimulator::tryActivateVehicle(
                 true,
                 spawnProgress,
                 selectedLane);
-            mergingFromPoiVehicles.insert(vehicle);
+
+            mergingFromPOIByRoad_[road].push_back(vehicle);
         }
     } else {
         double bestClearance = -std::numeric_limits<double>::infinity();
@@ -340,8 +362,8 @@ bool TrafficSimulator::tryActivateVehicle(
 
     if (selectedLane < 0 || !vehicle->setRouteAt(route, selectedLane, spawnProgress)) {
         if (accessSource != nullptr) {
-            vehicle->setMergingFromPOI(false); // Revert state if activation failed
-            mergingFromPoiVehicles.erase(vehicle);
+           vehicle->setMergingFromPOI(false);
+            pruneMergingIndex(road);
         }
         vehicle->setSpawnLifecycleState(
             SpawnLifecycleState::WaitingForRoadGap);
@@ -730,7 +752,16 @@ void TrafficSimulator::removeFinishedVehicles() {
                 this->statisticsManager->markVehicleCompleted(v->getId());
             }
             failedRecalcIds.erase(v->getId());
-            mergingFromPoiVehicles.erase(v);  // Clean up if it was merging from POI
+
+            if (v->getIsMergingFromPOI()) {
+                Road* road = v->getCurrentRoad();
+
+                v->setMergingFromPOI(false);
+
+                if (road != nullptr)
+                    pruneMergingIndex(road);
+            }
+
             v->setRouteAt(std::vector<Road*>{}, -1, 0.0);
             finishedVehicles.push_back(v); // Keep vehicle instead of deleting
             return true;
