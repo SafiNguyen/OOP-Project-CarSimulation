@@ -95,6 +95,7 @@ declared explicitly and must list every incoming directional road exactly once:
       "greenDuration": 25.0,
       "yellowDuration": 3.0,
       "allRedDuration": 1.5,
+      "allowRightTurnOnRed": true,
       "phases": [
         { "incomingRoadIds": [105, 108] },
         { "incomingRoadIds": [117, 120] }
@@ -123,6 +124,17 @@ The bundled maps use compact plans for T-junctions and roundabouts, while
 keeping explicit phase plans at regular four-way intersections. A signalized
 roundabout still applies its circulating-traffic yield and safe-gap checks
 after an entry receives green.
+
+`allowRightTurnOnRed` is optional and defaults to `true`. A right-turning
+vehicle first stops at the stop line for at least 0.5 simulation seconds, then
+yields to active pedestrian phases, green-priority approaches, junction
+reservations and unavailable outgoing space. Setting it to `false` retains the
+ordinary red-light stop rule.
+
+Vehicles expose a model-owned left/right turn signal. Junction signals are
+derived from `TurnLanePolicy`; lane changes signal for at least one simulation
+second before committing. The renderer draws deterministic amber rear lamps
+in vehicle-local coordinates, independently of emergency red/blue lighting.
 
 ## Pedestrians and signalized crosswalks
 

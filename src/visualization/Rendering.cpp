@@ -1,6 +1,7 @@
 #include "Rendering.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <map>
 #include <vector>
@@ -18,6 +19,7 @@
 #include "ui/DebugConsole.h"
 #include "ui/StatsPanel.h"
 #include "ui/VehicleInspector.h"
+#include "visualization/VehicleAssets.h"
 #include "visualization/VehicleRenderGeometry.h"
 #include "visualization/VehicleSprite.h"
 #include "visualization/VisualizationEngine.h"
@@ -27,6 +29,10 @@ namespace {
 constexpr float kVehicleOutlinePixels = 0.55f;
 constexpr float kMapCacheRefreshSeconds = 0.5f;
 constexpr int kPedestrianDiscSegments = 10;
+constexpr float kTurnSignalRadiusPixels = 1.8f;
+constexpr float kTurnSignalHaloPixels = 0.6f;
+const sf::Color kTurnSignalAmber(255, 165, 0);
+const sf::Color kTurnSignalHalo(55, 30, 5);
 
 struct VehicleVisual {
     float halfLength;
@@ -39,7 +45,8 @@ VehicleVisual getVehicleVisual(
     const VisualizationEngine& visualization,
     double simulationTime) {
     const VehicleScreenSize size =
-        getVehicleScreenSize(vehicle, visualization);
+        getVehicleVisualScreenSize(
+            vehicle, visualization);
     const float halfLength = size.lengthPixels * 0.5f;
     const float halfWidth = size.widthPixels * 0.5f;
     switch (vehicle.getVehicleKind()) {
@@ -88,6 +95,56 @@ void appendVehicleQuad(std::vector<sf::Vertex>& vertices,
     vertices.emplace_back(center + longitudinal - lateral, color);
     vertices.emplace_back(center + longitudinal + lateral, color);
     vertices.emplace_back(center - longitudinal + lateral, color);
+}
+
+std::size_t vehicleTextureIndex(VehicleKind kind) {
+    switch (kind) {
+        case VehicleKind::Bus:
+            return 1u;
+        case VehicleKind::Motorbike:
+            return 2u;
+        case VehicleKind::Emergency:
+            return 3u;
+        case VehicleKind::Car:
+        default:
+            return 0u;
+    }
+}
+
+void appendTexturedVehicleQuad(
+    std::vector<sf::Vertex>& vertices,
+    const sf::Vector2f& center,
+    const sf::Vector2f& forward,
+    const sf::Vector2f& side,
+    float halfLength,
+    float halfWidth,
+    const sf::Vector2u& textureSize) {
+    const sf::Vector2f longitudinal =
+        forward * halfLength;
+    const sf::Vector2f lateral = side * halfWidth;
+    const float textureWidth =
+        static_cast<float>(textureSize.x);
+    const float textureHeight =
+        static_cast<float>(textureSize.y);
+
+    // Every source image faces upward. Map its top edge to the vehicle's
+    // forward edge and its horizontal axis to the vehicle's lateral axis.
+    vertices.emplace_back(
+        center + longitudinal - lateral,
+        sf::Color::White,
+        sf::Vector2f(0.0f, 0.0f));
+    vertices.emplace_back(
+        center + longitudinal + lateral,
+        sf::Color::White,
+        sf::Vector2f(textureWidth, 0.0f));
+    vertices.emplace_back(
+        center - longitudinal + lateral,
+        sf::Color::White,
+        sf::Vector2f(textureWidth, textureHeight));
+    vertices.emplace_back(
+        center - longitudinal - lateral,
+        sf::Color::White,
+        sf::Vector2f(0.0f, textureHeight));
 }
 
 void appendDisc(std::vector<sf::Vertex>& vertices,
@@ -170,15 +227,41 @@ void drawActiveVehicles(sf::RenderWindow& window,
                         const VisualizationEngine& visualization,
                         TrafficSimulator& simulator,
                         const sf::View& view) {
-    // Reuse the allocation between frames. Every vehicle contributes an
-    // outline quad and a body quad, but the whole fleet is submitted in one
-    // draw call instead of one SFML Shape draw per vehicle.
-    static std::vector<sf::Vertex> vehicleVertices;
-    vehicleVertices.clear();
+    // Reuse allocations between frames and batch by texture. The four
+    // vehicle types cost at most four textured draw calls even for a large
+    // fleet; missing assets continue through the old rectangle fallback.
+    static std::vector<sf::Vertex> fallbackVehicleVertices;
+    static std::array<std::vector<sf::Vertex>, 4>
+        texturedVehicleVertices;
+    static std::vector<sf::Vertex> turnSignalVertices;
+    static std::vector<sf::Vertex> emergencyLightVertices;
+    fallbackVehicleVertices.clear();
+    for (auto& vertices : texturedVehicleVertices) {
+        vertices.clear();
+    }
+    turnSignalVertices.clear();
+    emergencyLightVertices.clear();
     const std::size_t requiredVertices =
         simulator.getVehicles().size() * 8u;
-    if (vehicleVertices.capacity() < requiredVertices) {
-        vehicleVertices.reserve(requiredVertices);
+    if (fallbackVehicleVertices.capacity() <
+        requiredVertices) {
+        fallbackVehicleVertices.reserve(requiredVertices);
+    }
+    for (auto& vertices : texturedVehicleVertices) {
+        const std::size_t perTypeReserve =
+            simulator.getVehicles().size() * 4u;
+        if (vertices.capacity() < perTypeReserve) {
+            vertices.reserve(perTypeReserve);
+        }
+    }
+    const std::size_t requiredSignalVertices =
+        simulator.getVehicles().size() *
+        static_cast<std::size_t>(
+            kPedestrianDiscSegments * 6);
+    if (turnSignalVertices.capacity() <
+        requiredSignalVertices) {
+        turnSignalVertices.reserve(
+            requiredSignalVertices);
     }
 
     const sf::Vector2f viewCenter = view.getCenter();
@@ -189,6 +272,16 @@ void drawActiveVehicles(sf::RenderWindow& window,
     const float minY = viewCenter.y - viewSize.y * 0.5f - margin;
     const float maxY = viewCenter.y + viewSize.y * 0.5f + margin;
     const double simulationTime = simulator.getElapsedTime();
+    const sf::Vector2u windowSize = window.getSize();
+    const float viewUnitsPerPixel = std::max(
+        windowSize.x > 0u
+            ? viewSize.x /
+                  static_cast<float>(windowSize.x)
+            : 1.0f,
+        windowSize.y > 0u
+            ? viewSize.y /
+                  static_cast<float>(windowSize.y)
+            : 1.0f);
 
     for (Vehicle* vehicle : simulator.getVehicles()) {
         if (vehicle == nullptr || vehicle->getCurrentRoad() == nullptr) {
@@ -214,29 +307,133 @@ void drawActiveVehicles(sf::RenderWindow& window,
         const VehicleVisual visual =
             getVehicleVisual(
                 *vehicle, visualization, simulationTime);
-        appendVehicleQuad(
-            vehicleVertices,
-            position,
-            forward,
-            side,
-            visual.halfLength + kVehicleOutlinePixels,
-            visual.halfWidth + kVehicleOutlinePixels,
-            sf::Color::Black);
-        appendVehicleQuad(
-            vehicleVertices,
-            position,
-            forward,
-            side,
-            visual.halfLength,
-            visual.halfWidth,
-            visual.color);
+        const sf::Texture* texture =
+            VehicleAssets::instance().textureFor(
+                vehicle->getVehicleKind());
+        if (texture != nullptr) {
+            appendTexturedVehicleQuad(
+                texturedVehicleVertices[
+                    vehicleTextureIndex(
+                        vehicle->getVehicleKind())],
+                position,
+                forward,
+                side,
+                visual.halfLength,
+                visual.halfWidth,
+                texture->getSize());
+        } else {
+            appendVehicleQuad(
+                fallbackVehicleVertices,
+                position,
+                forward,
+                side,
+                visual.halfLength +
+                    kVehicleOutlinePixels,
+                visual.halfWidth +
+                    kVehicleOutlinePixels,
+                sf::Color::Black);
+            appendVehicleQuad(
+                fallbackVehicleVertices,
+                position,
+                forward,
+                side,
+                visual.halfLength,
+                visual.halfWidth,
+                visual.color);
+        }
+
+        if (vehicle->getVehicleKind() ==
+            VehicleKind::Emergency) {
+            const float lightRadius =
+                1.35f * viewUnitsPerPixel;
+            const sf::Vector2f lightPosition =
+                position +
+                forward * (visual.halfLength * 0.22f);
+            appendDisc(
+                emergencyLightVertices,
+                lightPosition,
+                lightRadius,
+                visual.color);
+        }
+
+        if (vehicle->getTurnSignal() !=
+                TurnSignal::Off &&
+            vehicle->isTurnSignalBlinkOn()) {
+            const float radius =
+                kTurnSignalRadiusPixels *
+                viewUnitsPerPixel;
+            const float haloRadius =
+                (kTurnSignalRadiusPixels +
+                 kTurnSignalHaloPixels) *
+                viewUnitsPerPixel;
+            const float sideSign =
+                vehicle->getTurnSignal() ==
+                        TurnSignal::Right
+                    ? 1.0f
+                    : -1.0f;
+            const sf::Vector2f lampPosition =
+                position -
+                forward *
+                    (visual.halfLength +
+                     radius * 0.15f) +
+                side * sideSign *
+                    (visual.halfWidth +
+                     radius * 0.10f);
+            appendDisc(
+                turnSignalVertices,
+                lampPosition,
+                haloRadius,
+                kTurnSignalHalo);
+            appendDisc(
+                turnSignalVertices,
+                lampPosition,
+                radius,
+                kTurnSignalAmber);
+        }
     }
 
-    if (!vehicleVertices.empty()) {
+    if (!fallbackVehicleVertices.empty()) {
         window.draw(
-            vehicleVertices.data(),
-            vehicleVertices.size(),
+            fallbackVehicleVertices.data(),
+            fallbackVehicleVertices.size(),
             sf::Quads);
+    }
+    const VehicleKind textureKinds[4] = {
+        VehicleKind::Car,
+        VehicleKind::Bus,
+        VehicleKind::Motorbike,
+        VehicleKind::Emergency
+    };
+    for (std::size_t index = 0u;
+         index < texturedVehicleVertices.size();
+         ++index) {
+        const auto& vertices =
+            texturedVehicleVertices[index];
+        const sf::Texture* texture =
+            VehicleAssets::instance().textureFor(
+                textureKinds[index]);
+        if (texture == nullptr || vertices.empty()) {
+            continue;
+        }
+        sf::RenderStates states;
+        states.texture = texture;
+        window.draw(
+            vertices.data(),
+            vertices.size(),
+            sf::Quads,
+            states);
+    }
+    if (!emergencyLightVertices.empty()) {
+        window.draw(
+            emergencyLightVertices.data(),
+            emergencyLightVertices.size(),
+            sf::Triangles);
+    }
+    if (!turnSignalVertices.empty()) {
+        window.draw(
+            turnSignalVertices.data(),
+            turnSignalVertices.size(),
+            sf::Triangles);
     }
 }
 

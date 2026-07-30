@@ -79,6 +79,8 @@ private:
     sf::Color lightColor(LightState state) const;
     sf::Vector2f roadNormal(const sf::Vector2f& a, const sf::Vector2f& b) const;
 
+    void drawPOIDriveways(sf::RenderTarget& target,
+                          const Graph& graph) const;
     void drawPOIs(sf::RenderTarget& target, const Graph& graph) const;
     void drawRoadNames(sf::RenderTarget& target, const std::vector<Road*>& roads) const;
     float getIntersectionBoxHalfExtent(const Intersection* intersection) const;

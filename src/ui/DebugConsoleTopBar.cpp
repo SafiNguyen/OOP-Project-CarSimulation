@@ -10,6 +10,7 @@
 #include "simulation/StatisticsManager.h"
 #include "simulation/TrafficSimulator.h"
 #include "UiTheme.h"
+#include "visualization/Camera.h"
 #include "visualization/VisualizationEngine.h"
 
 namespace {
@@ -151,11 +152,10 @@ void DebugConsole::drawTopHud(sf::RenderWindow& window,
                         narrow);
 
             ImGui::TableNextColumn();
-            metricBlock("VEHICLES",
+            metricBlock(narrow ? "ACTIVE" : "ACTIVE VEHICLES",
                         std::to_string(
                             simulator
-                                ? simulator->getVehicles().size() +
-                                      simulator->getPendingVehicleCount()
+                                ? simulator->getVehicles().size()
                                 : 0u),
                         narrow);
 
@@ -283,8 +283,13 @@ void DebugConsole::drawBottomDock(sf::RenderWindow& window,
         next();
 
         if (ImGui::Button(narrow ? "View" : "Reset View", buttonSize)) {
-            zoomFactor = 1.0f;
+            zoomFactor = DEFAULT_MAP_ZOOM_FACTOR;
             view = window.getDefaultView();
+            view.setSize(
+                static_cast<float>(windowSize.x) *
+                    zoomFactor,
+                static_cast<float>(windowSize.y) *
+                    zoomFactor);
             clampViewToMap_();
             setNotice(NoticeTone::INFO, "Camera reset to the map bounds.");
         }

@@ -18,6 +18,7 @@
 class Roundabout : public Intersection {
 private:
     double radiusMetres_;
+    double roadWidthMetres_;
 
 protected:
     std::shared_ptr<const JunctionConnector> createConnector(
@@ -30,11 +31,16 @@ public:
     Roundabout(int id,
                double x = 0.0,
                double y = 0.0,
-               double radiusMetres = 20.0);
+               double radiusMetres = 20.0,
+               double roadWidthMetres = 7.0);
 
     double getRadius() const { return radiusMetres_; }
+    double getRoadWidthMetres() const { return roadWidthMetres_; }
     double getTraversalRadiusMetres() const override {
         return radiusMetres_;
+    }
+    double getTraversalWidthMetres() const override {
+        return roadWidthMetres_;
     }
 
     /// Optional entry signals retain the circulating-traffic gap checks.

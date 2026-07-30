@@ -43,6 +43,12 @@ enum class SignalStage {
     PEDESTRIAN_CLEARANCE
 };
 
+enum class JunctionDecision {
+    Proceed,
+    Yield,
+    Stop
+};
+
 // attributes
 class Intersection {
 protected:
@@ -75,6 +81,7 @@ private:
     double allRedDurationSeconds_ = 2.0;
     bool explicitSignalPlan_ = false;
     bool pedestrianPhasePending_ = false;
+    bool allowRightTurnOnRed_ = true;
 
     void rebuildPhaseGroups();
     void resetSignalCycle();
@@ -142,6 +149,7 @@ public:
 
     virtual bool isRoundabout() const { return false; }
     virtual double getTraversalRadiusMetres() const { return 0.0; }
+    virtual double getTraversalWidthMetres() const { return 0.0; }
 
     //methods
     void addIncomingRoad(Road* road);
@@ -173,6 +181,16 @@ public:
     // Goi moi tick tu TrafficSimulator::update(dt)
     void updateTrafficLights(double dt);
     bool mustStopForRoad(const Road* road) const;
+    JunctionDecision getMovementDecision(
+        const Road* incomingRoad,
+        const Road* outgoingRoad,
+        MovementType movement) const;
+    void setAllowRightTurnOnRed(bool allow) {
+        allowRightTurnOnRed_ = allow;
+    }
+    bool allowsRightTurnOnRed() const {
+        return allowRightTurnOnRed_;
+    }
     std::shared_ptr<const JunctionConnector> getConnector(
         const Road* incoming,
         int incomingLane,
@@ -217,6 +235,12 @@ public:
         double requiredGapMetres,
         double vehicleLengthMetres = 4.5,
         double vehicleWidthMetres = 1.8) const;
+    bool canEnterYieldingMovement(
+        int vehicleId,
+        const std::shared_ptr<const JunctionConnector>& connector,
+        double requiredGapMetres,
+        double vehicleLengthMetres = 4.5,
+        double vehicleWidthMetres = 1.8) const;
 
     // --- Intersection-box reservation ---
     // Attempts to claim one of the `capacity_` slots for `vehicleId`. Returns
@@ -226,6 +250,12 @@ public:
     // stop line.
     virtual bool tryEnter(int vehicleId, const Road* fromRoad);
     virtual bool tryEnterMovement(
+        int vehicleId,
+        const std::shared_ptr<const JunctionConnector>& connector,
+        double requiredGapMetres,
+        double vehicleLengthMetres = 4.5,
+        double vehicleWidthMetres = 1.8);
+    bool tryEnterYieldingMovement(
         int vehicleId,
         const std::shared_ptr<const JunctionConnector>& connector,
         double requiredGapMetres,

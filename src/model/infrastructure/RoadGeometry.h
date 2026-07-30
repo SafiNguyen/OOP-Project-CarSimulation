@@ -8,6 +8,13 @@ class Road;
 
 namespace RoadGeometry {
 
+struct RoadAccessPath {
+    Vec2 source;
+    Vec2 corner;
+    Vec2 curb;
+    Pose2D lanePose;
+};
+
 constexpr double LANE_WIDTH_METRES = 3.5;
 constexpr double MEDIAN_GAP_METRES = 0.5;
 constexpr double STOP_LINE_SETBACK_METRES = 1.5;
@@ -43,6 +50,14 @@ Vec2 sampleRoadSurface(const Road& road, double progressMetres);
 Pose2D sampleLane(const Road& road,
                   int laneIndex,
                   double progressMetres);
+RoadAccessPath makeRoadAccessPath(
+    const Road& road,
+    int laneIndex,
+    double progressMetres,
+    Vec2 source);
+Pose2D sampleRoadAccessPath(
+    const RoadAccessPath& path,
+    double normalizedProgress);
 double stopLineProgressMetres(const Road& incomingRoad);
 Vec2 stopLineCentre(const Road& incomingRoad);
 

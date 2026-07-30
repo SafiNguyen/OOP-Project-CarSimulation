@@ -229,7 +229,26 @@ PauseReason Vehicle::getIntersectionControlReason() const {
         return PauseReason::PedestrianCrossing;
     }
 
-    if (mustStopForTrafficLight(nextIntersection)) {
+    const LaneMapping movementMapping =
+        getJunctionEntryLaneMapping();
+    const bool prioritizedMovement =
+        nextIntersection->isPrioritizedEmergencyVehicle(
+            getId(), currentRoad);
+    const JunctionDecision movementDecision =
+        prioritizedMovement
+            ? JunctionDecision::Proceed
+            : movementMapping.valid && getNextRoad() != nullptr
+            ? nextIntersection->getMovementDecision(
+                  currentRoad,
+                  getNextRoad(),
+                  movementMapping.movement)
+            : (nextIntersection->mustStopForRoad(currentRoad)
+                   ? JunctionDecision::Stop
+                   : JunctionDecision::Proceed);
+    if (movementDecision == JunctionDecision::Stop ||
+        (movementDecision == JunctionDecision::Yield &&
+         rightOnRedStoppedSeconds_ + 1e-9 <
+             RIGHT_ON_RED_MIN_STOP_SECONDS)) {
         return PauseReason::TrafficLight;
     }
 
@@ -261,12 +280,21 @@ PauseReason Vehicle::getIntersectionControlReason() const {
                 mapping.outgoingLane);
             const double requiredGap =
                 getMinGap() + currentSpeed * getTimeHeadway();
-            if (!nextIntersection->canEnterMovement(
-                    getId(),
-                    connector,
-                    requiredGap,
-                    getLength(),
-                    getWidth())) {
+            const bool canEnter =
+                movementDecision == JunctionDecision::Yield
+                    ? nextIntersection->canEnterYieldingMovement(
+                          getId(),
+                          connector,
+                          requiredGap,
+                          getLength(),
+                          getWidth())
+                    : nextIntersection->canEnterMovement(
+                          getId(),
+                          connector,
+                          requiredGap,
+                          getLength(),
+                          getWidth());
+            if (!canEnter) {
                 return PauseReason::Intersection;
             }
         } else if (!nextIntersection->canEnter(
@@ -392,6 +420,9 @@ bool Vehicle::setRouteAt(const std::vector<Road*>& route,
     junctionOutgoingRoad_ = nullptr;
     junctionProgressMetres_ = 0.0;
     movementState_ = MovementState::OnRoad;
+    clearLaneChangeIntent();
+    junctionTurnSignal_ = TurnSignal::Off;
+    rightOnRedStoppedSeconds_ = 0.0;
     routeAssigned = true;
 
     if (!currentRoute.empty()) {
@@ -422,6 +453,7 @@ bool Vehicle::setRouteAt(const std::vector<Road*>& route,
     }
 
     onRoadChanged();
+    refreshTurnSignal();
     return currentRoute.empty() || currentRoad != nullptr;
 }
 
@@ -455,7 +487,11 @@ bool Vehicle::advanceToNextRoad() {
     }
     currentRoad = nullptr;
     progressOnCurrentRoad = 0.0;
+    clearLaneChangeIntent();
+    junctionTurnSignal_ = TurnSignal::Off;
+    rightOnRedStoppedSeconds_ = 0.0;
     onRoadChanged();
+    refreshTurnSignal();
     return false;
 }
 
@@ -479,55 +515,49 @@ Pose2D Vehicle::getPose() const {
     Pose2D roadPose = RoadGeometry::sampleLane(
         *currentRoad, currentLaneIndex, progressOnCurrentRoad);
 
-    if (isMergingFromPOI && spawnPOI != nullptr) {
-        // Clamp ratio to 1.0 so that when timer <= 0, it waits at the edge of the road
+    const PointOfInterest* mergeSource =
+        mergeSourcePOI_ != nullptr
+            ? mergeSourcePOI_
+            : spawnPOI;
+    if (isMergingFromPOI && mergeSource != nullptr) {
         double linearRatio = 1.0;
         if (poiAnimationDuration > 0) {
             linearRatio = std::clamp(1.0 - (poiAnimationTimer / poiAnimationDuration), 0.0, 1.0);
         }
-        // Accelerate when exiting POI (Ease-in quadratic)
+        // Accelerate while leaving the source, but sample the same
+        // right-angle access path that is rendered beneath the vehicle.
+        // The final sample is the exact centre of the configured lane.
         double ratio = linearRatio * linearRatio;
-        double dx = roadPose.position.x - spawnPOI->getX();
-        double dy = roadPose.position.y - spawnPOI->getY();
-        
-        // Calculate right normal vector for right-hand traffic offset
-        double len = std::sqrt(dx*dx + dy*dy);
-        double nx = 0, ny = 0;
-        if (len > 0) {
-            nx = -dy / len;
-            ny = dx / len;
-        }
-        double offset = 1.5; // 1.5 meters offset to the right
-        
-        Pose2D interpPose;
-        interpPose.position.x = spawnPOI->getX() + dx * ratio + nx * offset;
-        interpPose.position.y = spawnPOI->getY() + dy * ratio + ny * offset;
-        interpPose.headingRadians = std::atan2(dy, dx);
-        return interpPose;
+        const RoadGeometry::RoadAccessPath accessPath =
+            RoadGeometry::makeRoadAccessPath(
+                *currentRoad,
+                currentLaneIndex,
+                progressOnCurrentRoad,
+                {mergeSource->getX(),
+                 mergeSource->getY()});
+        return RoadGeometry::sampleRoadAccessPath(
+            accessPath, ratio);
     }
     
     if (isEnteringPOI && targetPOI != nullptr) {
         if (poiAnimationTimer > 0) {
             double linearRatio = 1.0 - (poiAnimationTimer / poiAnimationDuration);
-            // Decelerate when entering POI (Ease-out quadratic)
+            // Decelerate into the destination along the same driveway used
+            // for departures, sampled in reverse.
             double ratio = linearRatio * (2.0 - linearRatio);
-            double dx = targetPOI->getX() - roadPose.position.x;
-            double dy = targetPOI->getY() - roadPose.position.y;
-            
-            // Calculate right normal vector for right-hand traffic offset
-            double len = std::sqrt(dx*dx + dy*dy);
-            double nx = 0, ny = 0;
-            if (len > 0) {
-                nx = -dy / len;
-                ny = dx / len;
-            }
-            double offset = 1.5; // 1.5 meters offset to the right
-            
-            Pose2D interpPose;
-            interpPose.position.x = roadPose.position.x + dx * ratio + nx * offset;
-            interpPose.position.y = roadPose.position.y + dy * ratio + ny * offset;
-            interpPose.headingRadians = std::atan2(dy, dx);
-            return interpPose;
+            const RoadGeometry::RoadAccessPath accessPath =
+                RoadGeometry::makeRoadAccessPath(
+                    *currentRoad,
+                    currentLaneIndex,
+                    progressOnCurrentRoad,
+                    {targetPOI->getX(),
+                     targetPOI->getY()});
+            Pose2D pose =
+                RoadGeometry::sampleRoadAccessPath(
+                    accessPath, 1.0 - ratio);
+            pose.headingRadians +=
+                3.14159265358979323846;
+            return pose;
         }
     }
 
@@ -596,12 +626,29 @@ bool Vehicle::beginJunctionTraversal(
 
     const double requiredGap =
         getMinGap() + currentSpeed * getTimeHeadway();
-    if (!intersection->tryEnterMovement(
-            getId(),
-            connector,
-            requiredGap,
-            getLength(),
-            getWidth())) {
+    const JunctionDecision decision =
+        intersection->isPrioritizedEmergencyVehicle(
+            getId(), currentRoad)
+            ? JunctionDecision::Proceed
+            : intersection->getMovementDecision(
+                  currentRoad,
+                  outgoing,
+                  mapping.movement);
+    const bool entered =
+        decision == JunctionDecision::Yield
+            ? intersection->tryEnterYieldingMovement(
+                  getId(),
+                  connector,
+                  requiredGap,
+                  getLength(),
+                  getWidth())
+            : intersection->tryEnterMovement(
+                  getId(),
+                  connector,
+                  requiredGap,
+                  getLength(),
+                  getWidth());
+    if (!entered) {
         return false;
     }
 
@@ -616,6 +663,15 @@ bool Vehicle::beginJunctionTraversal(
     paused = false;
     pauseReason = PauseReason::None;
     movementState_ = MovementState::TraversingJunction;
+    junctionTurnSignal_ =
+        mapping.movement == MovementType::Right
+            ? TurnSignal::Right
+            : (mapping.movement == MovementType::Left ||
+               mapping.movement == MovementType::UTurn
+                   ? TurnSignal::Left
+                   : TurnSignal::Off);
+    clearLaneChangeIntent();
+    refreshTurnSignal();
     return true;
 }
 
@@ -641,6 +697,9 @@ void Vehicle::completeJunctionTraversal(
     movementState_ = MovementState::OnRoad;
     paused = false;
     pauseReason = PauseReason::None;
+    junctionTurnSignal_ = TurnSignal::Off;
+    rightOnRedStoppedSeconds_ = 0.0;
+    clearLaneChangeIntent();
 
     if (currentRoad != nullptr) {
         progressOnCurrentRoad = std::min(
@@ -648,6 +707,7 @@ void Vehicle::completeJunctionTraversal(
         currentRoad->getLane(currentLaneIndex).addVehicle(this);
     }
     onRoadChanged();
+    refreshTurnSignal();
 }
 
 double Vehicle::advanceJunction(double availableTime) {
@@ -736,15 +796,133 @@ double Vehicle::advanceJunction(double availableTime) {
     return consumedTime;
 }
 
-bool Vehicle::tryRequiredLaneChange(int requiredLaneIndex) {
+bool Vehicle::requestLaneChange(
+    int targetLaneIndex,
+    TurnSignalReason reason) {
+    if (currentRoad == nullptr ||
+        targetLaneIndex < 0 ||
+        targetLaneIndex >= currentRoad->getLaneCount() ||
+        targetLaneIndex == currentLaneIndex) {
+        return false;
+    }
+    if (laneChangeState_ == LaneChangeState::Idle ||
+        laneChangeTargetLane_ != targetLaneIndex ||
+        laneChangeReason_ != reason) {
+        laneChangeTargetLane_ = targetLaneIndex;
+        laneChangeReason_ = reason;
+        laneChangeSignalElapsedSeconds_ = 0.0;
+        laneChangeState_ = LaneChangeState::Signaling;
+        refreshTurnSignal();
+    }
+    return true;
+}
+
+void Vehicle::clearLaneChangeIntent() {
+    laneChangeState_ = LaneChangeState::Idle;
+    laneChangeTargetLane_ = -1;
+    laneChangeReason_ = TurnSignalReason::None;
+    laneChangeSignalElapsedSeconds_ = 0.0;
+}
+
+TurnSignal Vehicle::deriveUpcomingJunctionSignal() const {
+    const LaneMapping mapping = getUpcomingLaneMapping();
+    if (!mapping.valid) {
+        return TurnSignal::Off;
+    }
+    switch (mapping.movement) {
+        case MovementType::Right:
+            return TurnSignal::Right;
+        case MovementType::Left:
+        case MovementType::UTurn:
+            return TurnSignal::Left;
+        case MovementType::Straight:
+        default:
+            return TurnSignal::Off;
+    }
+}
+
+void Vehicle::refreshTurnSignal() {
+    if (laneChangeState_ != LaneChangeState::Idle &&
+        currentRoad != nullptr &&
+        laneChangeTargetLane_ != currentLaneIndex) {
+        turnSignal_ = laneChangeTargetLane_ > currentLaneIndex
+            ? TurnSignal::Right
+            : TurnSignal::Left;
+        turnSignalReason_ = laneChangeReason_;
+        return;
+    }
+    if (movementState_ == MovementState::TraversingJunction) {
+        turnSignal_ = junctionTurnSignal_;
+        turnSignalReason_ =
+            turnSignal_ == TurnSignal::Off
+                ? TurnSignalReason::None
+                : TurnSignalReason::Junction;
+        return;
+    }
+    if (currentRoad != nullptr &&
+        currentRoad->getDistance() - progressOnCurrentRoad <=
+            getJunctionLanePreparationDistance()) {
+        turnSignal_ = deriveUpcomingJunctionSignal();
+        turnSignalReason_ =
+            turnSignal_ == TurnSignal::Off
+                ? TurnSignalReason::None
+                : TurnSignalReason::Junction;
+        return;
+    }
+    turnSignal_ = TurnSignal::Off;
+    turnSignalReason_ = TurnSignalReason::None;
+}
+
+bool Vehicle::isTurnSignalBlinkOn() const {
+    if (turnSignal_ == TurnSignal::Off) {
+        return false;
+    }
+    const double phase = std::fmod(
+        std::max(0.0, simulationTimeSeconds_),
+        TURN_SIGNAL_BLINK_PERIOD_SECONDS);
+    return phase < TURN_SIGNAL_BLINK_PERIOD_SECONDS * 0.5;
+}
+
+bool Vehicle::isRightTurnOnRedYield() const {
+    if (currentRoad == nullptr ||
+        movementState_ == MovementState::TraversingJunction) {
+        return false;
+    }
+    Road* outgoing = getNextRoad();
+    Intersection* intersection = currentRoad->getEnd();
+    const LaneMapping mapping = getJunctionEntryLaneMapping();
+    return outgoing != nullptr &&
+           intersection != nullptr &&
+           mapping.valid &&
+           intersection->getMovementDecision(
+               currentRoad,
+               outgoing,
+               mapping.movement) ==
+               JunctionDecision::Yield;
+}
+
+bool Vehicle::tryRequiredLaneChange(
+    int requiredLaneIndex,
+    TurnSignalReason reason) {
     if (currentRoad == nullptr ||
         !canChangeLanes() ||
         requiredLaneIndex < 0 ||
         requiredLaneIndex >= currentRoad->getLaneCount() ||
         requiredLaneIndex == currentLaneIndex) {
+        if (requiredLaneIndex == currentLaneIndex) {
+            clearLaneChangeIntent();
+            refreshTurnSignal();
+        }
         return false;
     }
 
+    requestLaneChange(requiredLaneIndex, reason);
+    if (laneChangeSignalElapsedSeconds_ + 1e-9 <
+        MIN_SIGNAL_LEAD_TIME_SECONDS) {
+        laneChangeState_ = LaneChangeState::Signaling;
+        return false;
+    }
+    laneChangeState_ = LaneChangeState::WaitingForGap;
     const int adjacentLane = currentLaneIndex +
         (requiredLaneIndex > currentLaneIndex ? 1 : -1);
     const LaneChangeCandidate candidate = assessLaneChange(
@@ -754,14 +932,20 @@ bool Vehicle::tryRequiredLaneChange(int requiredLaneIndex) {
         LANE_CHANGE_REAR_SAFETY_TIME,
         LANE_CHANGE_MIN_TTC);
     if (!candidate.safe) {
-        laneChangeCooldownTimer = 0.25;
         return false;
     }
 
     currentRoad->getLane(currentLaneIndex).removeVehicle(this);
     currentLaneIndex = adjacentLane;
     currentRoad->getLane(currentLaneIndex).addVehicle(this);
-    laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN;
+    if (currentLaneIndex == requiredLaneIndex) {
+        clearLaneChangeIntent();
+        laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN;
+    } else {
+        laneChangeSignalElapsedSeconds_ = 0.0;
+        laneChangeState_ = LaneChangeState::Signaling;
+    }
+    refreshTurnSignal();
     return true;
 }
 
@@ -785,6 +969,11 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
     const bool isCurrentLaneBlocked = currentRoad->getLane(currentLaneIndex).isBlocked();
 
     if (!isCurrentLaneBlocked && currentGapAhead >= desiredGap) {
+        if (laneChangeReason_ ==
+            TurnSignalReason::LaneChange) {
+            clearLaneChangeIntent();
+            refreshTurnSignal();
+        }
         return; // khong bi can tro dang ke, khong can doi lane
     }
 
@@ -828,9 +1017,20 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
     }
 
     if (bestCandidate.safe) {
+        requestLaneChange(
+            bestCandidate.laneIndex,
+            TurnSignalReason::LaneChange);
+        if (laneChangeSignalElapsedSeconds_ + 1e-9 <
+            MIN_SIGNAL_LEAD_TIME_SECONDS) {
+            laneChangeState_ = LaneChangeState::Signaling;
+            return;
+        }
+        laneChangeState_ = LaneChangeState::WaitingForGap;
         currentRoad->getLane(currentLaneIndex).removeVehicle(this);
         currentLaneIndex = bestCandidate.laneIndex;
         currentRoad->getLane(currentLaneIndex).addVehicle(this);
+        clearLaneChangeIntent();
+        refreshTurnSignal();
         laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN;
     } else {
         laneChangeCooldownTimer = 0.5; // Short cooldown when lane change is skipped/fails
@@ -855,9 +1055,20 @@ void Vehicle::tryYieldLaneChange() {
     }
 
     if (bestCandidate.safe) {
+        requestLaneChange(
+            bestCandidate.laneIndex,
+            TurnSignalReason::LaneChange);
+        if (laneChangeSignalElapsedSeconds_ + 1e-9 <
+            MIN_SIGNAL_LEAD_TIME_SECONDS) {
+            laneChangeState_ = LaneChangeState::Signaling;
+            return;
+        }
+        laneChangeState_ = LaneChangeState::WaitingForGap;
         currentRoad->getLane(currentLaneIndex).removeVehicle(this);
         currentLaneIndex = bestCandidate.laneIndex;
         currentRoad->getLane(currentLaneIndex).addVehicle(this);
+        clearLaneChangeIntent();
+        refreshTurnSignal();
         laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN * 0.5;
     } else {
         laneChangeCooldownTimer = 0.25; // Short cooldown when yield lane change fails
@@ -868,7 +1079,16 @@ bool Vehicle::mustStopForTrafficLight(Intersection* nextIntersection) const {
     if (nextIntersection == nullptr || currentRoad == nullptr) {
         return false;
     }
-    return nextIntersection->mustStopForRoad(currentRoad);
+    Road* outgoing = getNextRoad();
+    const LaneMapping mapping = getJunctionEntryLaneMapping();
+    if (outgoing == nullptr || !mapping.valid) {
+        return nextIntersection->mustStopForRoad(currentRoad);
+    }
+    return nextIntersection->getMovementDecision(
+               currentRoad,
+               outgoing,
+               mapping.movement) !=
+           JunctionDecision::Proceed;
 }
 
 Road* Vehicle::getNextRoad() const {
@@ -880,8 +1100,21 @@ Road* Vehicle::getNextRoad() const {
 
 void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
     if (hasReachedDestination() || currentRoad == nullptr) {
+        clearLaneChangeIntent();
+        junctionTurnSignal_ = TurnSignal::Off;
+        refreshTurnSignal();
         return;
     }
+
+    const double nonNegativeDt = std::max(0.0, dt);
+    simulationTimeSeconds_ += nonNegativeDt;
+    if (laneChangeState_ != LaneChangeState::Idle) {
+        laneChangeSignalElapsedSeconds_ += nonNegativeDt;
+    }
+    if (!isRightTurnOnRedYield()) {
+        rightOnRedStoppedSeconds_ = 0.0;
+    }
+    refreshTurnSignal();
 
     if (isMergingFromPOI) {
         if (poiAnimationTimer > 0) {
@@ -1031,6 +1264,22 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
             }
             clearPause();
         } else {
+            if (isRightTurnOnRedYield() &&
+                rightOnRedStoppedSeconds_ + 1e-9 <
+                    RIGHT_ON_RED_MIN_STOP_SECONDS) {
+                const double needed =
+                    RIGHT_ON_RED_MIN_STOP_SECONDS -
+                    rightOnRedStoppedSeconds_;
+                const double consumed =
+                    std::min(remainingTime, needed);
+                rightOnRedStoppedSeconds_ += consumed;
+                remainingTime -= consumed;
+                if (rightOnRedStoppedSeconds_ + 1e-9 <
+                        RIGHT_ON_RED_MIN_STOP_SECONDS ||
+                    remainingTime <= 0.0) {
+                    return;
+                }
+            }
             const PauseReason currentControlReason =
                 getIntersectionControlReason();
             if (currentControlReason != PauseReason::None) {
@@ -1133,10 +1382,31 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
         if (laneChangeCooldownTimer <= 0.0) {
             if (hasRequiredLane) {
                 if (requiredLaneIndex != currentLaneIndex) {
-                    tryRequiredLaneChange(requiredLaneIndex);
+                    tryRequiredLaneChange(
+                        requiredLaneIndex,
+                        stopOrServiceLane >= 0
+                            ? TurnSignalReason::BusStop
+                            : TurnSignalReason::Junction);
+                } else if (
+                    laneChangeState_ != LaneChangeState::Idle) {
+                    clearLaneChangeIntent();
+                    refreshTurnSignal();
                 }
             } else {
-                tryLaneChange(freeFlowSpeed);
+                if (laneChangeState_ != LaneChangeState::Idle &&
+                    (laneChangeReason_ ==
+                         TurnSignalReason::BusStop ||
+                     laneChangeReason_ ==
+                         TurnSignalReason::Junction)) {
+                    clearLaneChangeIntent();
+                    refreshTurnSignal();
+                }
+                if (!(yielding &&
+                      emergencyLaneToAvoid >= 0 &&
+                      currentLaneIndex ==
+                          emergencyLaneToAvoid)) {
+                    tryLaneChange(freeFlowSpeed);
+                }
             }
         }
         const LaneMapping entryMapping =

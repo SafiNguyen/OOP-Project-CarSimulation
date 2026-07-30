@@ -33,8 +33,9 @@ void clampViewToMap(AppContext& ctx) {
 }
 
 void refreshViewBounds(AppContext& ctx) {
-    const auto intersections = ctx.graph.getAllIntersections();
-    if (intersections.empty()) {
+    const auto& routePoints =
+        ctx.visualization.getRoutePoints();
+    if (routePoints.empty()) {
         ctx.mapMinX = 0.0f;
         ctx.mapMinY = 0.0f;
         ctx.mapMaxX = 100.0f;
@@ -43,16 +44,16 @@ void refreshViewBounds(AppContext& ctx) {
         return;
     }
 
-    ctx.mapMinX = static_cast<float>(intersections.front()->getX());
-    ctx.mapMinY = static_cast<float>(intersections.front()->getY());
-    ctx.mapMaxX = static_cast<float>(intersections.front()->getX());
-    ctx.mapMaxY = static_cast<float>(intersections.front()->getY());
+    ctx.mapMinX = routePoints.front().x;
+    ctx.mapMinY = routePoints.front().y;
+    ctx.mapMaxX = routePoints.front().x;
+    ctx.mapMaxY = routePoints.front().y;
 
-    for (const auto* intersection : intersections) {
-        ctx.mapMinX = std::min(ctx.mapMinX, static_cast<float>(intersection->getX()));
-        ctx.mapMinY = std::min(ctx.mapMinY, static_cast<float>(intersection->getY()));
-        ctx.mapMaxX = std::max(ctx.mapMaxX, static_cast<float>(intersection->getX()));
-        ctx.mapMaxY = std::max(ctx.mapMaxY, static_cast<float>(intersection->getY()));
+    for (const sf::Vector2f& point : routePoints) {
+        ctx.mapMinX = std::min(ctx.mapMinX, point.x);
+        ctx.mapMinY = std::min(ctx.mapMinY, point.y);
+        ctx.mapMaxX = std::max(ctx.mapMaxX, point.x);
+        ctx.mapMaxY = std::max(ctx.mapMaxY, point.y);
     }
 
     const float cameraPadding = 160.0f;
@@ -64,8 +65,13 @@ void refreshViewBounds(AppContext& ctx) {
 }
 
 void resetView(AppContext& ctx) {
-    ctx.zoomFactor = 1.0f;
+    ctx.zoomFactor = DEFAULT_MAP_ZOOM_FACTOR;
     ctx.view = ctx.window.getDefaultView();
+    ctx.view.setSize(
+        static_cast<float>(ctx.windowW) *
+            ctx.zoomFactor,
+        static_cast<float>(ctx.windowH) *
+            ctx.zoomFactor);
     clampViewToMap(ctx);
 }
 

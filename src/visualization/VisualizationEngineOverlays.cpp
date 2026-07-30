@@ -2,6 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <iostream>
+#include <unordered_set>
+#include <vector>
 
 #include "Graph.h"
 #include "BusStop.h"
@@ -15,6 +19,106 @@ namespace {
 
 constexpr unsigned int kMinimumRoadLabelSize = 9u;
 constexpr unsigned int kMaximumRoadLabelSize = 13u;
+constexpr float kRoundaboutCenterCropRadiusFraction = 0.245f;
+constexpr int kRoundaboutCenterSegments = 64;
+
+struct RoundaboutCenterAsset {
+    sf::Texture texture;
+    bool loaded = false;
+
+    RoundaboutCenterAsset() {
+        std::filesystem::path directory =
+            std::filesystem::current_path();
+        for (int depth = 0; depth < 6; ++depth) {
+            const std::filesystem::path candidate =
+                directory / "assets" / "roundabout.png";
+            std::error_code error;
+            if (std::filesystem::is_regular_file(
+                    candidate, error) &&
+                texture.loadFromFile(candidate.string())) {
+                texture.setSmooth(true);
+                texture.generateMipmap();
+                loaded = true;
+                return;
+            }
+            const std::filesystem::path parent =
+                directory.parent_path();
+            if (parent.empty() || parent == directory) {
+                break;
+            }
+            directory = parent;
+        }
+        std::cerr
+            << "Warning: assets/roundabout.png was not found; "
+               "roundabout centres remain empty."
+            << std::endl;
+    }
+};
+
+const sf::Texture* roundaboutCenterTexture() {
+    static RoundaboutCenterAsset asset;
+    return asset.loaded ? &asset.texture : nullptr;
+}
+
+void drawRoundaboutCenterImage(
+    sf::RenderTarget& target,
+    const sf::Texture& texture,
+    const sf::Vector2f& center,
+    float radius) {
+    if (radius <= 1.0f) {
+        return;
+    }
+
+    const sf::Vector2u textureSize =
+        texture.getSize();
+    if (textureSize.x == 0u || textureSize.y == 0u) {
+        return;
+    }
+
+    const sf::Vector2f textureCenter{
+        static_cast<float>(textureSize.x) * 0.5f,
+        static_cast<float>(textureSize.y) * 0.5f
+    };
+    const float textureRadius =
+        static_cast<float>(
+            std::min(textureSize.x, textureSize.y)) *
+        kRoundaboutCenterCropRadiusFraction;
+    std::vector<sf::Vertex> vertices;
+    vertices.reserve(
+        static_cast<std::size_t>(
+            kRoundaboutCenterSegments + 2));
+    vertices.emplace_back(
+        center,
+        sf::Color::White,
+        textureCenter);
+
+    constexpr float tau = 6.28318530718f;
+    for (int segment = 0;
+         segment <= kRoundaboutCenterSegments;
+         ++segment) {
+        const float angle =
+            tau * static_cast<float>(segment) /
+            static_cast<float>(
+                kRoundaboutCenterSegments);
+        const sf::Vector2f radial{
+            std::cos(angle),
+            std::sin(angle)
+        };
+        vertices.emplace_back(
+            center + radial * radius,
+            sf::Color::White,
+            textureCenter +
+                radial * textureRadius);
+    }
+
+    sf::RenderStates states;
+    states.texture = &texture;
+    target.draw(
+        vertices.data(),
+        vertices.size(),
+        sf::TriangleFan,
+        states);
+}
 
 void drawSevenSegmentNumber(
     sf::RenderTarget& target,
@@ -427,21 +531,14 @@ void VisualizationEngine::drawBusStations(
 
         const Road* departureRoad =
             station->getDepartureRoad();
-        const double markerProgress = std::min(
-            8.0,
-            departureRoad->getDistance() * 0.1);
-        const Vec2 markerWorld =
-            RoadGeometry::sampleSidewalk(
-                *departureRoad,
-                true,
-                markerProgress);
         const sf::Vector2f marker =
             worldToScreen(
-                markerWorld.x,
-                markerWorld.y);
+                station->getX(),
+                station->getY());
 
-        sf::CircleShape terminal(9.0f);
-        terminal.setOrigin(9.0f, 9.0f);
+        sf::RectangleShape terminal(
+            {22.0f, 16.0f});
+        terminal.setOrigin(11.0f, 8.0f);
         terminal.setPosition(marker);
         terminal.setFillColor(
             sf::Color(35, 185, 105));
@@ -460,8 +557,12 @@ void VisualizationEngine::drawBusStations(
             const Vec2 laneWorld =
                 RoadGeometry::sampleLane(
                     *departureRoad,
-                    departureRoad->getCurbLaneIndex(),
-                    markerProgress).position;
+                    station->getAccessLaneIndex() >= 0
+                        ? station->getAccessLaneIndex()
+                        : departureRoad->
+                              getCurbLaneIndex(),
+                    station->
+                        getProgressOffset()).position;
             const sf::Vector2f lanePosition =
                 worldToScreen(
                     laneWorld.x,
@@ -479,9 +580,7 @@ void VisualizationEngine::drawBusStations(
             }
             sf::Text label;
             label.setFont(*font_);
-            label.setString(
-                station->getCode() + " " +
-                station->getName());
+            label.setString(station->getCode());
             label.setCharacterSize(10);
             label.setStyle(sf::Text::Bold);
             label.setFillColor(
@@ -505,21 +604,308 @@ void VisualizationEngine::drawIntersectionNode(sf::RenderTarget& target, const I
     if (intersection->isRoundabout()) {
         const float metricScale = static_cast<float>(
             RoadGeometry::metresPerWorldUnit(*intersection));
-        const float laneWidth = static_cast<float>(
-            RoadGeometry::LANE_WIDTH_METRES /
+        const float roadWidth = static_cast<float>(
+            std::max(
+                RoadGeometry::LANE_WIDTH_METRES,
+                intersection->getTraversalWidthMetres()) /
             std::max(1e-6f, metricScale) * scale_);
         const float circulationRadius = static_cast<float>(
             intersection->getTraversalRadiusMetres() /
             std::max(1e-6f, metricScale) * scale_);
+        const float outerRadius =
+            circulationRadius + roadWidth * 0.5f;
+        const sf::Color roundaboutRoadColor =
+            getIntersectionBoxColor(intersection);
+
+        // Transition each physical road from its rectangular carriageway
+        // into a wider mouth on the outer circle. The short flare starts
+        // before the circle, avoiding the "rectangle touching a circle at
+        // one point" silhouette.
+        const Vec2 roundaboutCentre{
+            intersection->getX(),
+            intersection->getY()
+        };
+        const double outerRadiusWorld =
+            static_cast<double>(outerRadius) /
+            std::max(1e-6, scale_);
+        const double roundaboutWidthWorld =
+            intersection->getTraversalWidthMetres() /
+            std::max(
+                1e-6,
+                RoadGeometry::metresPerWorldUnit(
+                    *intersection));
+        std::unordered_set<const Road*> connectedRoadsDrawn;
+        const auto drawApproachConnector =
+            [this,
+             &target,
+             intersection,
+             &roundaboutCentre,
+             outerRadiusWorld,
+             roundaboutWidthWorld,
+             &connectedRoadsDrawn,
+             roundaboutRoadColor](const Road* road) {
+                if (road == nullptr ||
+                    connectedRoadsDrawn.count(road) != 0) {
+                    return;
+                }
+                const auto touchesRoundabout =
+                    [intersection](const Road* candidate) {
+                        return candidate != nullptr &&
+                            (candidate->getStart() == intersection ||
+                             candidate->getEnd() == intersection);
+                    };
+                if (!touchesRoundabout(road)) {
+                    return;
+                }
+
+                std::vector<const Road*> carriageways{road};
+                const Road* reverse = road->getReverseRoad();
+                if (touchesRoundabout(reverse)) {
+                    carriageways.push_back(reverse);
+                }
+                for (const Road* carriageway : carriageways) {
+                    connectedRoadsDrawn.insert(carriageway);
+                }
+
+                const bool referenceAtStart =
+                    road->getStart() == intersection;
+                const Vec2 outward = referenceAtStart
+                    ? RoadGeometry::roadDirection(*road)
+                    : -1.0 * RoadGeometry::roadDirection(*road);
+                const Vec2 lateral = rightNormal(outward);
+                double minimumLateral = 0.0;
+                double maximumLateral = 0.0;
+                bool hasEdge = false;
+                for (const Road* carriageway : carriageways) {
+                    const bool atStart =
+                        carriageway->getStart() == intersection;
+                    for (bool rightEdge : {false, true}) {
+                        const Vec2 edge =
+                            RoadGeometry::roadEdgeEndpoint(
+                                *carriageway,
+                                rightEdge,
+                                atStart);
+                        const double edgeOffset =
+                            dot(
+                                edge - roundaboutCentre,
+                                lateral);
+                        if (!hasEdge) {
+                            minimumLateral = edgeOffset;
+                            maximumLateral = edgeOffset;
+                            hasEdge = true;
+                        } else {
+                            minimumLateral =
+                                std::min(
+                                    minimumLateral,
+                                    edgeOffset);
+                            maximumLateral =
+                                std::max(
+                                    maximumLateral,
+                                    edgeOffset);
+                        }
+                    }
+                }
+                if (!hasEdge) {
+                    return;
+                }
+
+                const double physicalRoadWidth =
+                    maximumLateral - minimumLateral;
+                const double transitionLength =
+                    std::max(
+                        roundaboutWidthWorld,
+                        physicalRoadWidth * 0.55);
+                const double mouthExpansion =
+                    roundaboutWidthWorld * 0.35;
+                const double maximumMouthOffset =
+                    outerRadiusWorld * 0.82;
+                const double mouthMinimum =
+                    std::clamp(
+                        minimumLateral - mouthExpansion,
+                        -maximumMouthOffset,
+                        maximumMouthOffset);
+                const double mouthMaximum =
+                    std::clamp(
+                        maximumLateral + mouthExpansion,
+                        -maximumMouthOffset,
+                        maximumMouthOffset);
+                const auto pointOnOuterCircle =
+                    [&roundaboutCentre,
+                     &outward,
+                     &lateral,
+                     outerRadiusWorld](double lateralOffset) {
+                        const double radialOffset =
+                            std::sqrt(std::max(
+                                0.0,
+                                outerRadiusWorld *
+                                    outerRadiusWorld -
+                                lateralOffset *
+                                    lateralOffset));
+                        return roundaboutCentre +
+                            outward * radialOffset +
+                            lateral * lateralOffset;
+                    };
+                const Vec2 transitionBase =
+                    roundaboutCentre +
+                    outward *
+                        (outerRadiusWorld +
+                         transitionLength);
+                const Vec2 startA =
+                    transitionBase +
+                    lateral * minimumLateral;
+                const Vec2 startB =
+                    transitionBase +
+                    lateral * maximumLateral;
+                const Vec2 mouthA =
+                    pointOnOuterCircle(mouthMinimum);
+                const Vec2 mouthB =
+                    pointOnOuterCircle(mouthMaximum);
+                sf::ConvexShape connector(4);
+                connector.setPoint(
+                    0, worldToScreen(startA.x, startA.y));
+                connector.setPoint(
+                    1, worldToScreen(startB.x, startB.y));
+                connector.setPoint(
+                    2, worldToScreen(mouthB.x, mouthB.y));
+                connector.setPoint(
+                    3, worldToScreen(mouthA.x, mouthA.y));
+                connector.setFillColor(roundaboutRoadColor);
+                target.draw(connector);
+            };
+        for (const Road* road :
+             intersection->getIncomingRoads()) {
+            drawApproachConnector(road);
+        }
+        for (const Road* road :
+             intersection->getOutgoingRoads()) {
+            drawApproachConnector(road);
+        }
+
         const float hubRadius =
-            std::max(2.0f, circulationRadius - laneWidth * 0.5f);
+            std::max(2.0f, circulationRadius - roadWidth * 0.5f);
         sf::CircleShape hub(hubRadius);
         hub.setOrigin(hubRadius, hubRadius);
         hub.setPosition(point);
-        hub.setFillColor(sf::Color(100, 150, 100));
-        hub.setOutlineThickness(laneWidth);
-        hub.setOutlineColor(sf::Color(110, 110, 110));
+        // Keep the island empty. A texture or sprite can later be placed at
+        // the roundabout centre without being tinted by a built-in fill.
+        hub.setFillColor(sf::Color::Transparent);
+        hub.setOutlineThickness(roadWidth);
+        hub.setOutlineColor(roundaboutRoadColor);
         target.draw(hub);
+        if (const sf::Texture* centerTexture =
+                roundaboutCenterTexture()) {
+            drawRoundaboutCenterImage(
+                target,
+                *centerTexture,
+                point,
+                std::max(0.0f, hubRadius - 1.0f));
+        }
+
+        // The simulation traverses roundabouts clockwise in world space.
+        // Deriving the screen tangent from two transformed world points also
+        // accounts for the inverted screen Y axis.
+        constexpr double pi = 3.14159265358979323846;
+        constexpr double arrowStepRadians = 0.04;
+        constexpr int arrowCount = 4;
+        const double circulationRadiusWorld =
+            intersection->getTraversalRadiusMetres() /
+            std::max(
+                1e-6,
+                RoadGeometry::metresPerWorldUnit(
+                    *intersection));
+        const float arrowLength =
+            std::clamp(roadWidth * 0.90f, 7.0f, 14.0f);
+        const float arrowHalfWidth =
+            std::clamp(roadWidth * 0.30f, 2.2f, 4.5f);
+        const float shaftHalfWidth =
+            arrowHalfWidth * 0.38f;
+        for (int arrowIndex = 0;
+             arrowIndex < arrowCount;
+             ++arrowIndex) {
+            const double angle =
+                pi * 0.25 +
+                static_cast<double>(arrowIndex) *
+                    (2.0 * pi /
+                     static_cast<double>(arrowCount));
+            const Vec2 markerWorld =
+                roundaboutCentre +
+                Vec2{std::cos(angle), std::sin(angle)} *
+                    circulationRadiusWorld;
+            const Vec2 forwardProbeWorld =
+                roundaboutCentre +
+                Vec2{
+                    std::cos(angle - arrowStepRadians),
+                    std::sin(angle - arrowStepRadians)
+                } * circulationRadiusWorld;
+            const sf::Vector2f marker =
+                worldToScreen(
+                    markerWorld.x,
+                    markerWorld.y);
+            sf::Vector2f forward =
+                worldToScreen(
+                    forwardProbeWorld.x,
+                    forwardProbeWorld.y) -
+                marker;
+            const float forwardLength =
+                std::sqrt(
+                    forward.x * forward.x +
+                    forward.y * forward.y);
+            if (forwardLength <= 0.001f) {
+                continue;
+            }
+            forward /= forwardLength;
+            const sf::Vector2f side{
+                -forward.y,
+                forward.x
+            };
+            const float tipOffset =
+                arrowLength * 0.5f;
+            const float headBaseOffset =
+                arrowLength * 0.02f;
+            const float tailOffset =
+                -arrowLength * 0.5f;
+
+            sf::ConvexShape arrow(7);
+            arrow.setPoint(
+                0,
+                marker + forward * tipOffset);
+            arrow.setPoint(
+                1,
+                marker +
+                    forward * headBaseOffset +
+                    side * arrowHalfWidth);
+            arrow.setPoint(
+                2,
+                marker +
+                    forward * headBaseOffset +
+                    side * shaftHalfWidth);
+            arrow.setPoint(
+                3,
+                marker +
+                    forward * tailOffset +
+                    side * shaftHalfWidth);
+            arrow.setPoint(
+                4,
+                marker +
+                    forward * tailOffset -
+                    side * shaftHalfWidth);
+            arrow.setPoint(
+                5,
+                marker +
+                    forward * headBaseOffset -
+                    side * shaftHalfWidth);
+            arrow.setPoint(
+                6,
+                marker +
+                    forward * headBaseOffset -
+                    side * arrowHalfWidth);
+            arrow.setFillColor(
+                sf::Color(250, 250, 245, 225));
+            arrow.setOutlineColor(
+                sf::Color(30, 36, 38, 170));
+            arrow.setOutlineThickness(0.5f);
+            target.draw(arrow);
+        }
     } else {
         const float halfExtent = getIntersectionBoxHalfExtent(intersection);
 
@@ -653,6 +1039,88 @@ sf::Color VisualizationEngine::lightColor(LightState state) const {
     return sf::Color(120, 120, 120);
 }
 
+void VisualizationEngine::drawPOIDriveways(
+    sf::RenderTarget& target,
+    const Graph& graph) const {
+    const auto drawDriveway =
+        [&](const PointOfInterest* poi) {
+        if (!poi) return;
+        const Road* road = poi->getConnectedRoad();
+        if (road == nullptr) {
+            return;
+        }
+
+        const sf::Vector2f poiPosition =
+            worldToScreen(poi->getX(), poi->getY());
+        const int accessLane =
+            poi->getAccessLaneIndex() >= 0
+                ? poi->getAccessLaneIndex()
+                : road->getCurbLaneIndex();
+        const RoadGeometry::RoadAccessPath accessPath =
+            RoadGeometry::makeRoadAccessPath(
+                *road,
+                accessLane,
+                poi->getProgressOffset(),
+                {poi->getX(), poi->getY()});
+        const sf::Vector2f curbPosition =
+            worldToScreen(
+                accessPath.curb.x,
+                accessPath.curb.y);
+        const sf::Vector2f corner =
+            worldToScreen(
+                accessPath.corner.x,
+                accessPath.corner.y);
+        const float drivewayWidth = std::max(
+            2.0f,
+            metresToScreenPixels(4.0, road));
+        const float borderWidth = drivewayWidth + 2.0f;
+        const sf::Color borderColor(58, 62, 64);
+        const sf::Color surfaceColor(100, 100, 100);
+        const auto drawSegment =
+            [&](const sf::Vector2f& from,
+                const sf::Vector2f& to,
+                const sf::Color& color,
+                float width) {
+                if (distanceBetween(from, to) > 0.5f) {
+                    drawRoadStrip(
+                        target, from, to, color, width);
+                }
+            };
+
+        drawSegment(
+            poiPosition, corner,
+            borderColor, borderWidth);
+        drawSegment(
+            corner, curbPosition,
+            borderColor, borderWidth);
+        drawSegment(
+            poiPosition, corner,
+            surfaceColor, drivewayWidth);
+        drawSegment(
+            corner, curbPosition,
+            surfaceColor, drivewayWidth);
+
+        // Fill the inside of the 90-degree corner so two rectangular strips
+        // read as one continuous driveway instead of leaving a pinhole gap.
+        sf::CircleShape cornerFill(drivewayWidth * 0.5f);
+        cornerFill.setOrigin(
+            drivewayWidth * 0.5f,
+            drivewayWidth * 0.5f);
+        cornerFill.setPosition(corner);
+        cornerFill.setFillColor(surfaceColor);
+        target.draw(cornerFill);
+    };
+
+    for (const PointOfInterest* poi :
+         graph.getAllPOIs()) {
+        drawDriveway(poi);
+    }
+    for (const BusStation* station :
+         graph.getAllBusStations()) {
+        drawDriveway(station);
+    }
+}
+
 void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph) const {
     const auto& pois = graph.getAllPOIs();
     for (const auto* poi : pois) {
@@ -666,42 +1134,7 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
         else if (poi->getType() == POIType::RESIDENTIAL_AREA) poiColor = sf::Color(90, 190, 220);
         else if (poi->getType() == POIType::SUPERMARKET) poiColor = sf::Color(200, 200, 50);
 
-        // 1. Draw driveway if POI is connected to a road
-        if (poi->getConnectedRoad() != nullptr) {
-            // Get position of the merging point on the road
-            const int accessLane =
-                poi->getAccessLaneIndex() >= 0
-                    ? poi->getAccessLaneIndex()
-                    : poi->getConnectedRoad()->
-                          getCurbLaneIndex();
-            Vec2 roadPoint = RoadGeometry::sampleLane(
-                *poi->getConnectedRoad(),
-                accessLane,
-                poi->getProgressOffset()).position;
-            sf::Vector2f screenRoadPoint = worldToScreen(roadPoint.x, roadPoint.y);
-            
-            // Draw a line (thin rectangle) from building to the road
-            sf::Vector2f dir = screenRoadPoint - pos;
-            float length = std::sqrt(dir.x * dir.x + dir.y * dir.y);
-            if (length > 0) {
-                float drivewayWidth = 4.0f * static_cast<float>(scale_); // 4 meters wide
-                sf::RectangleShape driveway(sf::Vector2f(length, drivewayWidth));
-                driveway.setOrigin(0.0f, drivewayWidth * 0.5f);
-                driveway.setPosition(pos);
-                driveway.setRotation(std::atan2(dir.y, dir.x) * 180.0f / 3.14159265f);
-                driveway.setFillColor(sf::Color(100, 100, 100)); // Dark gray road
-                target.draw(driveway);
-                
-                sf::RectangleShape centerLine(sf::Vector2f(length, 0.5f)); // Center dividing line
-                centerLine.setOrigin(0.0f, 0.25f);
-                centerLine.setPosition(pos);
-                centerLine.setRotation(std::atan2(dir.y, dir.x) * 180.0f / 3.14159265f);
-                centerLine.setFillColor(sf::Color(255, 200, 0, 150)); // Yellow line
-                target.draw(centerLine);
-            }
-        }
-
-        // 2. Draw building
+        // Draw building
         sf::RectangleShape building(sf::Vector2f(10.0f, 10.0f));
         building.setOrigin(5.0f, 5.0f);
         building.setPosition(pos);
@@ -713,7 +1146,11 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
         if (font_) {
             sf::Text text;
             text.setFont(*font_);
-            text.setString(poi->getName());
+            text.setString(
+                poi->getType() ==
+                        POIType::RESIDENTIAL_AREA
+                    ? "Residence"
+                    : poi->getName());
             text.setCharacterSize(10);
             text.setFillColor(sf::Color::White);
             text.setOutlineColor(sf::Color::Black);

@@ -5,6 +5,7 @@
 #include "LaneMapping.h"
 #include "MotionPath.h"
 #include "RoadGeometry.h"
+#include "Vehicle.h"
 #include <algorithm>
 #include <cmath>
 
@@ -23,6 +24,8 @@ constexpr double PI = 3.14159265358979323846;
 // and stays GREEN/YELLOW forever - it can never turn RED, so vehicles on
 // either approach never get stopped at all.
 constexpr double OPPOSITE_TOLERANCE_RAD = PI / 9.0; // 20 degrees
+constexpr double RIGHT_ON_RED_PRIORITY_LOOKAHEAD_METRES = 45.0;
+constexpr double RIGHT_ON_RED_PRIORITY_TIME_SECONDS = 4.0;
 
 struct OrientedVehicleBounds {
     Vec2 centreMetres;
@@ -974,6 +977,73 @@ bool Intersection::mustStopForRoad(const Road *road) const{
     return (light != nullptr) && light->mustStop();
 }
 
+JunctionDecision Intersection::getMovementDecision(
+    const Road* incomingRoad,
+    const Road* outgoingRoad,
+    MovementType movement) const {
+    if (incomingRoad == nullptr || outgoingRoad == nullptr ||
+        incomingRoad->getEnd() != this ||
+        outgoingRoad->getStart() != this) {
+        return JunctionDecision::Stop;
+    }
+    if (!mustStopForRoad(incomingRoad)) {
+        return JunctionDecision::Proceed;
+    }
+    if (!allowRightTurnOnRed_ ||
+        movement != MovementType::Right ||
+        signalStage_ == SignalStage::PEDESTRIAN_WALK ||
+        signalStage_ == SignalStage::PEDESTRIAN_CLEARANCE ||
+        std::any_of(
+            crosswalks_.begin(),
+            crosswalks_.end(),
+            [](const Crosswalk* crosswalk) {
+                return crosswalk != nullptr &&
+                       crosswalk->getSignalState() !=
+                           PedestrianSignalState::DontWalk;
+            })) {
+        return JunctionDecision::Stop;
+    }
+    return JunctionDecision::Yield;
+}
+
+namespace {
+
+bool hasPriorityVehicleApproaching(
+    const Intersection& intersection,
+    const Road* yieldingRoad) {
+    for (const Road* road : intersection.getIncomingRoads()) {
+        if (road == nullptr || road == yieldingRoad ||
+            intersection.mustStopForRoad(road)) {
+            continue;
+        }
+        for (const Lane& lane : road->getLanes()) {
+            for (const Vehicle* vehicle : lane.getVehicles()) {
+                if (vehicle == nullptr ||
+                    vehicle->getCurrentRoad() != road) {
+                    continue;
+                }
+                const double distanceToStop =
+                    std::max(
+                        0.0,
+                        RoadGeometry::stopLineProgressMetres(*road) -
+                            vehicle->getProgressOnRoad());
+                const double speed =
+                    std::max(0.0, vehicle->getCurrentSpeed());
+                if (distanceToStop <=
+                        RIGHT_ON_RED_PRIORITY_LOOKAHEAD_METRES &&
+                    (speed <= 1e-6 ||
+                     distanceToStop / speed <=
+                         RIGHT_ON_RED_PRIORITY_TIME_SECONDS)) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+} // namespace
+
 std::shared_ptr<const JunctionConnector> Intersection::createConnector(
     const Road& incoming,
     int incomingLane,
@@ -1156,6 +1226,30 @@ bool Intersection::canEnterMovement(
     return true;
 }
 
+bool Intersection::canEnterYieldingMovement(
+    int vehicleId,
+    const std::shared_ptr<const JunctionConnector>& connector,
+    double requiredGapMetres,
+    double vehicleLengthMetres,
+    double vehicleWidthMetres) const {
+    if (connector == nullptr ||
+        getMovementDecision(
+            connector->getIncomingRoad(),
+            connector->getOutgoingRoad(),
+            connector->getMovementType()) !=
+            JunctionDecision::Yield ||
+        hasPriorityVehicleApproaching(
+            *this, connector->getIncomingRoad())) {
+        return false;
+    }
+    return canEnterMovement(
+        vehicleId,
+        connector,
+        requiredGapMetres,
+        vehicleLengthMetres,
+        vehicleWidthMetres);
+}
+
 bool Intersection::tryEnter(int vehicleId, const Road* fromRoad) {
     if (occupants_.count(vehicleId) > 0) {
         return true; // already holding a slot, nothing to do
@@ -1187,6 +1281,40 @@ bool Intersection::tryEnterMovement(
         return true;
     }
     if (!canEnterMovement(
+            vehicleId,
+            connector,
+            requiredGapMetres,
+            vehicleLengthMetres,
+            vehicleWidthMetres)) {
+        return false;
+    }
+    occupants_.emplace(
+        vehicleId,
+        Reservation{
+            connector->getIncomingRoad(),
+            connector,
+            0.0,
+            std::max(0.1, vehicleLengthMetres),
+            std::max(0.1, vehicleWidthMetres)
+        });
+    return true;
+}
+
+bool Intersection::tryEnterYieldingMovement(
+    int vehicleId,
+    const std::shared_ptr<const JunctionConnector>& connector,
+    double requiredGapMetres,
+    double vehicleLengthMetres,
+    double vehicleWidthMetres) {
+    if (occupants_.count(vehicleId) > 0) {
+        return tryEnterMovement(
+            vehicleId,
+            connector,
+            requiredGapMetres,
+            vehicleLengthMetres,
+            vehicleWidthMetres);
+    }
+    if (!canEnterYieldingMovement(
             vehicleId,
             connector,
             requiredGapMetres,

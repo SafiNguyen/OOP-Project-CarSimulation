@@ -16,12 +16,17 @@ constexpr double PI = 3.14159265358979323846;
 Roundabout::Roundabout(int id,
                        double x,
                        double y,
-                       double radiusMetres)
+                       double radiusMetres,
+                       double roadWidthMetres)
     : Intersection(id, x, y),
       radiusMetres_(
           std::isfinite(radiusMetres) && radiusMetres > 0.0
               ? radiusMetres
-              : 20.0) {
+              : 20.0),
+      roadWidthMetres_(
+          std::isfinite(roadWidthMetres) && roadWidthMetres > 0.0
+              ? roadWidthMetres
+              : 7.0) {
     const int practicalCapacity = static_cast<int>(std::floor(
         2.0 * PI * radiusMetres_ / 10.0));
     setCapacity(std::clamp(practicalCapacity, 2, 12));

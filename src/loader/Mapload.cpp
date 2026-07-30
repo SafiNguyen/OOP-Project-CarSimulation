@@ -272,15 +272,23 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 
 		if (intersectionType == "roundabout") {
 			double radius = 0.02;
+			double roadWidth = 7.0;
 			std::string radiusUnit = defaultRadiusUnit;
+			std::string roadWidthUnit = defaultRadiusUnit;
 			if (!getDoubleOptional(item, "radius", radius, localError) ||
-				!getStringOptional(item, "radiusUnit", radiusUnit, localError)) {
+				!getStringOptional(item, "radiusUnit", radiusUnit, localError) ||
+				!getDoubleOptional(item, "roadWidth", roadWidth, localError) ||
+				!getStringOptional(
+					item, "roadWidthUnit", roadWidthUnit, localError)) {
 				if (error) *error = localError;
 				return false;
 			}
 			double radiusFactor = 1.0;
+			double roadWidthFactor = 1.0;
 			if (!distanceUnitToMetresFactor(
 					radiusUnit, radiusFactor, localError) ||
+				!distanceUnitToMetresFactor(
+					roadWidthUnit, roadWidthFactor, localError) ||
 				!std::isfinite(radius) || radius <= 0.0) {
 				if (error) {
 					*error = !localError.empty()
@@ -289,8 +297,19 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 				}
 				return false;
 			}
+			if (!std::isfinite(roadWidth) || roadWidth <= 0.0) {
+				if (error) {
+					*error =
+						"Roundabout roadWidth must be finite and positive.";
+				}
+				return false;
+			}
 			graph.addIntersection(new Roundabout(
-				id, x, y, radius * radiusFactor));
+				id,
+				x,
+				y,
+				radius * radiusFactor,
+				roadWidth * roadWidthFactor));
 		} else {
 			graph.addIntersection(new Intersection(id, x, y));
 		}
@@ -534,6 +553,7 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 
 			int intersectionId = 0;
 			bool enabled = true;
+			bool allowRightTurnOnRed = true;
 			double greenDuration = 25.0;
 			double yellowDuration = 3.0;
 			double allRedDuration = 1.5;
@@ -545,6 +565,11 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 					localError) ||
 				!getBoolOptional(
 					item, "enabled", enabled, localError) ||
+				!getBoolOptional(
+					item,
+					"allowRightTurnOnRed",
+					allowRightTurnOnRed,
+					localError) ||
 				!getDoubleOptional(
 					item,
 					"greenDuration",
@@ -584,6 +609,8 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 				}
 				return false;
 			}
+			intersection->setAllowRightTurnOnRed(
+				allowRightTurnOnRed);
 			if (!enabled) continue;
 
 			if (!std::isfinite(greenDuration) ||
@@ -1062,6 +1089,10 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 			int departureRoadId = 0;
 			int arrivalRoadId = 0;
 			int capacity = 0;
+			int accessLane = -1;
+			double stationX = 0.0;
+			double stationY = 0.0;
+			double accessProgress = 0.0;
 			std::string code;
 			std::string name;
 			std::string localError;
@@ -1078,6 +1109,10 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 					item, "code", code, localError) ||
 				!getStringOptional(
 					item, "name", name, localError) ||
+				!getDoubleOptional(
+					item, "x", stationX, localError) ||
+				!getDoubleOptional(
+					item, "y", stationY, localError) ||
 				!getInt(
 					item,
 					"accessIntersectionId",
@@ -1092,6 +1127,16 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 					item,
 					"arrivalRoadId",
 					arrivalRoadId,
+					localError) ||
+				!getDoubleOptional(
+					item,
+					"accessProgress",
+					accessProgress,
+					localError) ||
+				!getIntOptional(
+					item,
+					"accessLane",
+					accessLane,
 					localError) ||
 				!getInt(
 					item, "capacity", capacity, localError)) {
@@ -1111,6 +1156,13 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 				if (error) {
 					*error = stationContext +
 						": capacity must be positive.";
+				}
+				return false;
+			}
+			if (item.contains("x") != item.contains("y")) {
+				if (error) {
+					*error = stationContext +
+						": x and y must be configured together.";
 				}
 				return false;
 			}
@@ -1165,17 +1217,39 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 				}
 				return false;
 			}
+			if (!item.contains("x")) {
+				stationX = access->getX();
+				stationY = access->getY();
+			}
+			if (!std::isfinite(stationX) ||
+				!std::isfinite(stationY) ||
+				!std::isfinite(accessProgress) ||
+				accessProgress < 0.0 ||
+				accessProgress >
+					departureRoad->getDistance() ||
+				accessLane < -1 ||
+				accessLane >=
+					departureRoad->getLaneCount()) {
+				if (error) {
+					*error = stationContext +
+						": invalid coordinates, accessProgress, "
+						"or accessLane.";
+				}
+				return false;
+			}
 
 			auto station = std::make_unique<BusStation>(
 				stationId,
 				code,
 				name,
-				access->getX(),
-				access->getY(),
+				stationX,
+				stationY,
 				access,
 				departureRoad,
 				arrivalRoad,
-				capacity);
+				capacity,
+				accessProgress,
+				accessLane);
 			if (!graph.addBusStation(std::move(station))) {
 				if (error) {
 					*error = stationContext +

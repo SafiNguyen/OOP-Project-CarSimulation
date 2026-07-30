@@ -9,6 +9,7 @@
 #include "Road.h"
 #include "RoadGeometry.h"
 #include "PointOfInterest.h"
+#include "SpawnPoint.h"
 
 VisualizationEngine::VisualizationEngine(sf::Vector2u windowSize, float margin)
     : windowSize_(windowSize),
@@ -88,6 +89,13 @@ void VisualizationEngine::prepare(const Graph& graph) {
                 {intersection->getX() + radius,
                  intersection->getY() + radius});
         }
+        for (const BusStation* station :
+             graph.getAllBusStations()) {
+            if (station != nullptr) {
+                includePoint(
+                    {station->getX(), station->getY()});
+            }
+        }
 
     } else {
         minX_ = 0.0;
@@ -143,6 +151,9 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
     });
 
     drawSidewalks(target, graph);
+    // Driveways sit above the sidewalk but below the carriageway. Drawing
+    // them here lets the road surface cleanly mask their curb connection.
+    drawPOIDriveways(target, graph);
 
     constexpr unsigned int kBorderMaskCellSize = 2; // 2x2 px cells
     const sf::Vector2u targetSize = target.getSize();

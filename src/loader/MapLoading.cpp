@@ -50,23 +50,20 @@ void loadAndRefresh(AppContext& ctx, const std::string& requestedPath) {
         loadGraphFromPath(ctx, requestedPath);
         ctx.visualization.prepare(ctx.graph);
         refreshViewBounds(ctx);
-        ctx.view = ctx.window.getDefaultView();
-        clampViewToMap(ctx);
+        resetView(ctx);
     } catch (const std::exception& ex) {
         populateDemoGraph(ctx.graph);
         ctx.usingDemoMap = true;
         ctx.loadError = std::string("Exception while loading map: ") + ex.what();
         ctx.visualization.prepare(ctx.graph);
         refreshViewBounds(ctx);
-        ctx.view = ctx.window.getDefaultView();
-        clampViewToMap(ctx);
+        resetView(ctx);
     } catch (...) {
         populateDemoGraph(ctx.graph);
         ctx.usingDemoMap = true;
         ctx.loadError = "Unknown exception while loading map";
         ctx.visualization.prepare(ctx.graph);
         refreshViewBounds(ctx);
-        ctx.view = ctx.window.getDefaultView();
-        clampViewToMap(ctx);
+        resetView(ctx);
     }
 }

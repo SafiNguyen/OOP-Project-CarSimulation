@@ -183,15 +183,21 @@ bool TrafficSimulator::tryActivateVehicle(
         transitBus->getOriginStation() != nullptr &&
         transitBus->getOriginStation()->
                 getDepartureRoad() == road;
+    const PointOfInterest* accessSource =
+        isPOI
+            ? vehicle->getSpawnPOI()
+            : (isTransitStation
+                   ? transitBus->getOriginStation()
+                   : nullptr);
     const double halfVehicleLength =
         vehicle->getLength() * 0.5;
     double spawnProgress = halfVehicleLength;
     int selectedLane = -1;
 
     if (isPOI || isTransitStation) {
-        if (isPOI) {
+        if (accessSource != nullptr) {
             spawnProgress =
-                vehicle->getSpawnPOI()->
+                accessSource->
                     getProgressOffset();
         }
         spawnProgress = std::clamp(
@@ -200,8 +206,8 @@ bool TrafficSimulator::tryActivateVehicle(
             road->getDistance() -
                 halfVehicleLength);
         const int configuredLane =
-            isPOI
-                ? vehicle->getSpawnPOI()->
+            accessSource != nullptr
+                ? accessSource->
                       getAccessLaneIndex()
                 : -1;
         const int accessLane =
@@ -289,7 +295,9 @@ bool TrafficSimulator::tryActivateVehicle(
         }
 
         selectedLane = accessLane;
-        if (isPOI) {
+        if (accessSource != nullptr) {
+            vehicle->setMergeSourcePOI(
+                accessSource);
             vehicle->setMergingFromPOI(
                 true,
                 spawnProgress,
@@ -322,7 +330,7 @@ bool TrafficSimulator::tryActivateVehicle(
     }
 
     if (selectedLane < 0 || !vehicle->setRouteAt(route, selectedLane, spawnProgress)) {
-        if (isPOI) {
+        if (accessSource != nullptr) {
             vehicle->setMergingFromPOI(false); // Revert state if activation failed
         }
         vehicle->setSpawnLifecycleState(
@@ -539,7 +547,7 @@ void TrafficSimulator::activatePendingVehicles() {
                 pending.nextAttemptTime ||
             (pending.phasedAdmission &&
              phasedActivations >=
-                 MAX_PHASED_ACTIVATIONS_PER_UPDATE)) {
+                 MAX_PHASED_ACTIVATIONS_PER_ADMISSION_PASS)) {
             pendingVehicles.push_back(
                 std::move(pending));
             continue;
@@ -826,8 +834,6 @@ void TrafficSimulator::triggerEvent(std::unique_ptr<TrafficEvent> event) {
 void TrafficSimulator::update(double dt) {
     if (paused) return;
 
-    activatePendingVehicles();
-
     double safeDt = std::clamp(dt, 0.0, MAX_RAW_DT);     
     double remaining = leftoverDt + safeDt * speedMultiplier;
     leftoverDt = 0.0;
@@ -836,6 +842,10 @@ void TrafficSimulator::update(double dt) {
         double step = std::min(remaining, MAX_SUBSTEP);
 
         elapsedTime += step;
+        // Admission follows simulation time rather than render-frame time.
+        // This keeps scheduled traffic dense and deterministic even when a
+        // high speed multiplier produces many simulation substeps per frame.
+        activatePendingVehicles();
 
         if (statisticsManager) {
             statisticsManager->recordTick(step);

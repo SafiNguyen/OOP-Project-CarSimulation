@@ -31,6 +31,9 @@ public:
     static constexpr double YIELD_ESCAPE_SPEED_FACTOR = 1.25;
     static constexpr double EMERGENCY_JUNCTION_CAUTION_DISTANCE = 45.0;
     static constexpr double EMERGENCY_JUNCTION_YIELD_SPEED_FACTOR = 0.25;
+    static constexpr double MIN_SIGNAL_LEAD_TIME_SECONDS = 1.0;
+    static constexpr double RIGHT_ON_RED_MIN_STOP_SECONDS = 0.5;
+    static constexpr double TURN_SIGNAL_BLINK_PERIOD_SECONDS = 1.0;
 
 protected:
     int id;
@@ -45,6 +48,7 @@ protected:
     // POI Mid-road merging state
     bool isMergingFromPOI = false;
     bool isEnteringPOI = false;
+    const PointOfInterest* mergeSourcePOI_ = nullptr;
     double mergeProgressOffset = -1.0;
     int mergeLaneIndex = -1;
     Intersection* destination;
@@ -77,6 +81,15 @@ protected:
     double stuckTimer = 0.0;
     double patienceThreshold = 5.0;
     double uTurnCooldownTimer = 0.0;
+    TurnSignal turnSignal_ = TurnSignal::Off;
+    TurnSignalReason turnSignalReason_ = TurnSignalReason::None;
+    TurnSignal junctionTurnSignal_ = TurnSignal::Off;
+    LaneChangeState laneChangeState_ = LaneChangeState::Idle;
+    int laneChangeTargetLane_ = -1;
+    TurnSignalReason laneChangeReason_ = TurnSignalReason::None;
+    double laneChangeSignalElapsedSeconds_ = 0.0;
+    double rightOnRedStoppedSeconds_ = 0.0;
+    double simulationTimeSeconds_ = 0.0;
     
     double recalculateTimer = 5.0;
     
@@ -108,6 +121,17 @@ public:
     double getJunctionProgress() const { return junctionProgressMetres_; }
     int getIncomingLaneIndex() const { return incomingLaneIndex_; }
     int getOutgoingLaneIndex() const { return outgoingLaneIndex_; }
+    TurnSignal getTurnSignal() const { return turnSignal_; }
+    TurnSignalReason getTurnSignalReason() const {
+        return turnSignalReason_;
+    }
+    LaneChangeState getLaneChangeState() const {
+        return laneChangeState_;
+    }
+    bool isTurnSignalBlinkOn() const;
+    double getSimulationTimeSeconds() const {
+        return simulationTimeSeconds_;
+    }
 
     virtual bool shouldPauseAt(double currentPos,
                                 double projectedPos,
@@ -159,6 +183,9 @@ public:
 
     bool getIsMergingFromPOI() const { return isMergingFromPOI; }
     void setIsMergingFromPOI(bool merging) { isMergingFromPOI = merging; }
+    void setMergeSourcePOI(const PointOfInterest* poi) {
+        mergeSourcePOI_ = poi;
+    }
     
     double getPoiAnimationTimer() const { return poiAnimationTimer; }
     double getPoiAnimationDuration() const { return poiAnimationDuration; }
@@ -219,7 +246,16 @@ private:
         Intersection* intersection);
     void completeJunctionTraversal(double overshootMetres);
     double advanceJunction(double availableTime);
-    bool tryRequiredLaneChange(int requiredLaneIndex);
+    bool tryRequiredLaneChange(
+        int requiredLaneIndex,
+        TurnSignalReason reason);
+    bool requestLaneChange(
+        int targetLaneIndex,
+        TurnSignalReason reason);
+    void clearLaneChangeIntent();
+    void refreshTurnSignal();
+    TurnSignal deriveUpcomingJunctionSignal() const;
+    bool isRightTurnOnRedYield() const;
     void tryLaneChange(double freeFlowSpeedHint);
     void tryYieldLaneChange(); 
 };

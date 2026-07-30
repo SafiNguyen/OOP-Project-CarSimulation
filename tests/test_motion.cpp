@@ -721,6 +721,11 @@ void testRoundaboutGeometryAndCapacity() {
     for (int sample = 0; sample < 200; ++sample) {
         simulator->update(0.1);
     }
+    const std::size_t activeAfterWarmStart =
+        simulator->getVehicles().size();
+    check(activeAfterWarmStart >= 80u,
+          "map4 warm start sustains at least 80 active vehicles after 40 simulated seconds (active=" +
+              std::to_string(activeAfterWarmStart) + ")");
     int bridgeVehicles = 0;
     for (const Vehicle* vehicle : simulator->getVehicles()) {
         if (vehicle->getCurrentRoad() != nullptr &&

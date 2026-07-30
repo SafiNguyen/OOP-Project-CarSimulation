@@ -86,10 +86,13 @@ double metresPerWorldUnit(const Intersection& intersection) {
 
 double junctionBoundaryRadiusMetres(const Intersection& intersection) {
     if (intersection.isRoundabout()) {
+        const double traversalWidth = std::max(
+            LANE_WIDTH_METRES,
+            intersection.getTraversalWidthMetres());
         return std::max(
             LANE_WIDTH_METRES,
             intersection.getTraversalRadiusMetres() +
-                LANE_WIDTH_METRES * 0.5);
+                traversalWidth * 0.5);
     }
 
     double maximumPhysicalHalfWidth = 0.0;
@@ -249,6 +252,87 @@ Pose2D sampleLane(const Road& road,
         std::atan2(tangent.y, tangent.x),
         0.0
     };
+}
+
+RoadAccessPath makeRoadAccessPath(
+    const Road& road,
+    int laneIndex,
+    double progressMetres,
+    Vec2 source) {
+    const Vec2 direction = roadDirection(road);
+    const Vec2 curb = sampleRoadEdge(
+        road, true, progressMetres);
+    const double alongRoad =
+        dot(curb - source, direction);
+    const Pose2D lanePose =
+        sampleLane(road, laneIndex, progressMetres);
+    return {
+        source,
+        source + direction * alongRoad,
+        curb,
+        lanePose
+    };
+}
+
+Pose2D sampleRoadAccessPath(
+    const RoadAccessPath& path,
+    double normalizedProgress) {
+    const double ratio =
+        std::clamp(normalizedProgress, 0.0, 1.0);
+    const double firstLength =
+        distance(path.source, path.corner);
+    const double secondLength =
+        distance(path.corner, path.lanePose.position);
+    const double totalLength =
+        firstLength + secondLength;
+    if (totalLength <= MIN_GEOMETRY_LENGTH) {
+        return path.lanePose;
+    }
+
+    const double travelled = ratio * totalLength;
+    if (firstLength > MIN_GEOMETRY_LENGTH &&
+        travelled < firstLength) {
+        const Vec2 direction = normalized(
+            path.corner - path.source,
+            {std::cos(path.lanePose.headingRadians),
+             std::sin(path.lanePose.headingRadians)});
+        return {
+            lerp(
+                path.source,
+                path.corner,
+                travelled / firstLength),
+            std::atan2(direction.y, direction.x),
+            0.0
+        };
+    }
+
+    if (secondLength <= MIN_GEOMETRY_LENGTH) {
+        return path.lanePose;
+    }
+    const double secondTravelled =
+        std::max(0.0, travelled - firstLength);
+    const double secondRatio =
+        std::clamp(
+            secondTravelled / secondLength,
+            0.0,
+            1.0);
+    const Vec2 direction = normalized(
+        path.lanePose.position - path.corner,
+        {std::cos(path.lanePose.headingRadians),
+         std::sin(path.lanePose.headingRadians)});
+    Pose2D pose{
+        lerp(
+            path.corner,
+            path.lanePose.position,
+            secondRatio),
+        std::atan2(direction.y, direction.x),
+        0.0
+    };
+    if (secondRatio >= 1.0 - 1e-9) {
+        pose.headingRadians =
+            path.lanePose.headingRadians;
+    }
+    return pose;
 }
 
 double stopLineProgressMetres(const Road& incomingRoad) {

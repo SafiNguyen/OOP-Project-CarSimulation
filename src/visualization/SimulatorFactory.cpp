@@ -32,11 +32,11 @@ constexpr int DEMO_VEHICLE_COUNT = 1000;
 constexpr double FIRST_BUS_DEPARTURE_SECONDS = 5.0;
 constexpr double NETWORK_BUS_DEPARTURE_INTERVAL_SECONDS = 4.0;
 constexpr double FIRST_GENERAL_VEHICLE_DEPARTURE_SECONDS = 1.0;
-constexpr double GENERAL_VEHICLE_DEPARTURE_INTERVAL_SECONDS = 0.35;
+constexpr double GENERAL_VEHICLE_DEPARTURE_INTERVAL_SECONDS = 0.18;
 constexpr double GENERAL_DEPARTURE_JITTER_SECONDS = 0.06;
-constexpr int INITIAL_CIVILIAN_WARM_START_COUNT = 72;
-constexpr double FIRST_CIVILIAN_WARM_START_SECONDS = 0.15;
-constexpr double CIVILIAN_WARM_START_INTERVAL_SECONDS = 0.08;
+constexpr int INITIAL_CIVILIAN_WARM_START_COUNT = 144;
+constexpr double FIRST_CIVILIAN_WARM_START_SECONDS = 0.05;
+constexpr double CIVILIAN_WARM_START_INTERVAL_SECONDS = 0.035;
 constexpr std::size_t MINIMUM_STOPS_PER_BUS = 2u;
 constexpr std::size_t MAXIMUM_STOPS_PER_BUS = 4u;
 
@@ -53,12 +53,12 @@ std::size_t recommendedActiveVehicleLimit(
 
     // The demo still owns all 1000 requested trips, but releases only a
     // readable amount of simultaneous traffic for the map's lane count.
-    // Roughly two active vehicles per directional lane keeps traffic visible
-    // without turning every road into a permanent jam at startup.
+    // Permit a denser steady state while keeping the cap proportional to the
+    // amount of road space available on each map.
     return std::clamp<std::size_t>(
-        directionalLaneCount * 2u,
-        24u,
-        320u);
+        directionalLaneCount * 3u,
+        36u,
+        400u);
 }
 
 } // namespace
@@ -269,34 +269,62 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingS
             kind == VehicleKind::Car ||
             kind == VehicleKind::Motorbike;
         const double jitter = departureJitter(rng);
-        double spawnDelay =
-            FIRST_GENERAL_VEHICLE_DEPARTURE_SECONDS +
-            static_cast<double>(genericIndex) *
-                GENERAL_VEHICLE_DEPARTURE_INTERVAL_SECONDS +
-            jitter;
-        if (isCivilian &&
-            civilianScheduleIndex <
-                INITIAL_CIVILIAN_WARM_START_COUNT) {
-            // Front-load a bounded civilian cohort so the map looks alive
-            // immediately. Source cooldown and safe road admission remain
-            // authoritative, so this increases early demand without placing
-            // overlapping vehicles directly onto the road.
-            spawnDelay =
-                FIRST_CIVILIAN_WARM_START_SECONDS +
-                static_cast<double>(
-                    civilianScheduleIndex) *
-                    CIVILIAN_WARM_START_INTERVAL_SECONDS +
-                jitter;
-        }
         if (isCivilian) {
+            // Keep the post-warm-start schedule continuous. Basing it on the
+            // generic vehicle index would otherwise create a long empty gap
+            // after the initial cohort.
+            const int civilianIndex =
+                civilianScheduleIndex;
+            double spawnDelay =
+                FIRST_CIVILIAN_WARM_START_SECONDS;
+            if (civilianIndex <
+                    INITIAL_CIVILIAN_WARM_START_COUNT) {
+                spawnDelay +=
+                    static_cast<double>(civilianIndex) *
+                    CIVILIAN_WARM_START_INTERVAL_SECONDS;
+            } else {
+                spawnDelay +=
+                    static_cast<double>(
+                        INITIAL_CIVILIAN_WARM_START_COUNT) *
+                    CIVILIAN_WARM_START_INTERVAL_SECONDS +
+                    static_cast<double>(
+                        civilianIndex -
+                        INITIAL_CIVILIAN_WARM_START_COUNT) *
+                    GENERAL_VEHICLE_DEPARTURE_INTERVAL_SECONDS;
+            }
+            spawnDelay += jitter;
             ++civilianScheduleIndex;
+            spawnDelay =
+                std::max(
+                    FIRST_CIVILIAN_WARM_START_SECONDS,
+                    spawnDelay);
+            if (startPOI != nullptr) {
+                double& nextDeparture =
+                    nextDepartureByOrigin[startPOI];
+                spawnDelay =
+                    std::max(
+                        spawnDelay,
+                        nextDeparture);
+                nextDeparture =
+                    spawnDelay +
+                    startPOI->getSpawnCooldownSeconds();
+            }
+            if (!simulator->scheduleVehicleSpawn(
+                    v, spawnDelay)) {
+                throw std::runtime_error(
+                    "Failed to schedule demo vehicle " +
+                    std::to_string(i) + ".");
+            }
+            continue;
         }
-        spawnDelay =
+
+        double spawnDelay =
             std::max(
-                isCivilian
-                    ? FIRST_CIVILIAN_WARM_START_SECONDS
-                    : FIRST_GENERAL_VEHICLE_DEPARTURE_SECONDS,
-                spawnDelay);
+                FIRST_GENERAL_VEHICLE_DEPARTURE_SECONDS,
+                FIRST_GENERAL_VEHICLE_DEPARTURE_SECONDS +
+                    static_cast<double>(genericIndex) *
+                        GENERAL_VEHICLE_DEPARTURE_INTERVAL_SECONDS +
+                    jitter);
         if (startPOI != nullptr) {
             double& nextDeparture =
                 nextDepartureByOrigin[startPOI];

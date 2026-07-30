@@ -121,7 +121,8 @@ private:
     static constexpr double MIN_SPAWN_HEADWAY_SECONDS = 0.9;
     static constexpr double TRANSIT_NETWORK_HEADWAY_SECONDS = 4.0;
     static constexpr double TRANSIT_DEPARTURE_HEADWAY_SECONDS = 15.0;
-    static constexpr int MAX_PHASED_ACTIVATIONS_PER_UPDATE = 3;
+    static constexpr int
+        MAX_PHASED_ACTIVATIONS_PER_ADMISSION_PASS = 6;
     static constexpr std::size_t
         MAX_PENDING_INSPECTIONS_PER_UPDATE = 64u;
     static constexpr double

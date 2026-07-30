@@ -83,7 +83,9 @@ public:
                Intersection* accessIntersection,
                Road* departureRoad,
                Road* arrivalRoad,
-               int capacity)
+               int capacity,
+               double accessProgressMetres = 0.0,
+               int accessLaneIndex = -1)
         : SpawnPoint(
               id,
               name,
@@ -95,7 +97,10 @@ public:
           code_(std::move(code)),
           departureRoad_(departureRoad),
           arrivalRoad_(arrivalRoad) {
-        configureRoadAccess(departureRoad, 0.0);
+        configureRoadAccess(
+            departureRoad,
+            accessProgressMetres,
+            accessLaneIndex);
     }
 
     bool isDestination() const override { return true; }
