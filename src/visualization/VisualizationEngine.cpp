@@ -569,7 +569,6 @@ void VisualizationEngine::setHeatMapEnabled(bool enabled) {
         return;
     }
     heatMapEnabled_ = enabled;
-    ++revision_;
 }
 
 bool VisualizationEngine::isHeatMapEnabled() const {
