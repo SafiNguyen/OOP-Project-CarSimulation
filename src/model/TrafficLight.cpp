@@ -1,35 +1,41 @@
 #include "TrafficLight.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace {
 
-double clampPositive(double value, double fallback) {
-    return value > 0.0 ? value : fallback;
+double positiveOr(double value, double fallback) {
+    return std::isfinite(value) && value > 0.0
+        ? value
+        : fallback;
 }
 
 const char* stateLabel(LightState state) {
     switch (state) {
-        case LightState::GREEN:  return "GREEN";
+        case LightState::GREEN: return "GREEN";
         case LightState::YELLOW: return "YELLOW";
-        case LightState::RED:    return "RED";
+        case LightState::RED: return "RED";
     }
     return "UNKNOWN";
 }
 
 } // namespace
 
-TrafficLight::TrafficLight(int RoadId,
-                           double greenDuration,
-                           double yellowDuration,
-                           double redDuration,
+TrafficLight::TrafficLight(int roadId,
+                           double green,
+                           double yellow,
+                           double red,
                            LightState initialState)
-    : controlledRoadId(RoadId),
+    : controlledRoadId(roadId),
       currentState(initialState),
       elapsedTime(0.0),
-      greenDuration(clampPositive(greenDuration, 30.0)),
-      yellowDuration(clampPositive(yellowDuration, 3.0)),
-      redDuration(clampPositive(redDuration, 25.0)) {}
+      remainingSeconds(0.0),
+      greenDuration(positiveOr(green, 30.0)),
+      yellowDuration(positiveOr(yellow, 3.0)),
+      redDuration(positiveOr(red, 25.0)) {
+    remainingSeconds = durationForState(currentState);
+}
 
 int TrafficLight::getControlledRoadId() const {
     return controlledRoadId;
@@ -55,37 +61,39 @@ double TrafficLight::getRedDuration() const {
     return redDuration;
 }
 
+double TrafficLight::getRemainingSeconds() const {
+    return std::max(0.0, remainingSeconds);
+}
+
 double TrafficLight::durationForState(LightState state) const {
     switch (state) {
-        case LightState::GREEN:  return greenDuration;
+        case LightState::GREEN: return greenDuration;
         case LightState::YELLOW: return yellowDuration;
-        case LightState::RED:    return redDuration;
+        case LightState::RED: return redDuration;
     }
     return redDuration;
 }
 
 LightState TrafficLight::nextState(LightState state) const {
     switch (state) {
-        case LightState::GREEN:  return LightState::YELLOW;
+        case LightState::GREEN: return LightState::YELLOW;
         case LightState::YELLOW: return LightState::RED;
-        case LightState::RED:    return LightState::GREEN;
+        case LightState::RED: return LightState::GREEN;
     }
     return LightState::RED;
 }
 
 void TrafficLight::update(double dt) {
-    if (dt <= 0.0) {
-        return;
-    }
+    if (!std::isfinite(dt) || dt <= 0.0) return;
 
     elapsedTime += dt;
-
-    double currentDuration = durationForState(currentState);
-    while (elapsedTime >= currentDuration) {
-        elapsedTime -= currentDuration;
+    double duration = durationForState(currentState);
+    while (elapsedTime >= duration) {
+        elapsedTime -= duration;
         currentState = nextState(currentState);
-        currentDuration = durationForState(currentState);
+        duration = durationForState(currentState);
     }
+    remainingSeconds = std::max(0.0, duration - elapsedTime);
 }
 
 bool TrafficLight::canProceed() const {
@@ -93,25 +101,39 @@ bool TrafficLight::canProceed() const {
 }
 
 bool TrafficLight::mustStop() const {
-    return currentState == LightState::RED
-        || currentState == LightState::YELLOW;
+    return currentState != LightState::GREEN;
 }
 
-void TrafficLight::setDurations(double green, double yellow, double red) {
-    greenDuration = clampPositive(green, greenDuration);
-    yellowDuration = clampPositive(yellow, yellowDuration);
-    redDuration = clampPositive(red, redDuration);
+void TrafficLight::setDurations(double green,
+                                double yellow,
+                                double red) {
+    greenDuration = positiveOr(green, greenDuration);
+    yellowDuration = positiveOr(yellow, yellowDuration);
+    redDuration = positiveOr(red, redDuration);
+    const double duration = durationForState(currentState);
+    elapsedTime = std::clamp(elapsedTime, 0.0, duration);
+    remainingSeconds = duration - elapsedTime;
 }
 
 void TrafficLight::forceState(LightState state) {
+    synchronize(state, durationForState(state));
+}
+
+void TrafficLight::synchronize(LightState state, double remaining) {
     currentState = state;
-    elapsedTime = 0.0;
+    const double duration = durationForState(state);
+    remainingSeconds = std::max(
+        0.0,
+        std::isfinite(remaining) ? remaining : 0.0);
+    elapsedTime = std::max(0.0, duration - remainingSeconds);
 }
 
 std::string TrafficLight::toString() const {
-    return "TrafficLight[RoadId: " + std::to_string(controlledRoadId) +
+    return "TrafficLight[RoadId: " +
+           std::to_string(controlledRoadId) +
            ", State: " + stateLabel(currentState) +
-           ", Elapsed: " + std::to_string(elapsedTime) + "s]";
+           ", Remaining: " +
+           std::to_string(getRemainingSeconds()) + "s]";
 }
 
 TrafficLight::~TrafficLight() = default;

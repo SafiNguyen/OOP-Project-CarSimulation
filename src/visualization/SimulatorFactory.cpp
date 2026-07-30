@@ -1,6 +1,7 @@
 #include "SimulatorFactory.h"
 
 #include <algorithm>
+#include <iostream>
 #include <random>
 
 #include "model/Bus.h"
@@ -59,35 +60,58 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingS
 
     std::mt19937 rng(42);
     const auto& pois = graph.getAllPOIs();
-    if (pois.size() < 2) {
-        std::cerr << "Not enough POIs to spawn vehicles!" << std::endl;
-        return simulator;
-    }
-
-    std::uniform_int_distribution<size_t> dist(0, pois.size() - 1);
+    const bool usePois = pois.size() >= 2;
+    std::uniform_int_distribution<std::size_t> poiDistribution(
+        0,
+        usePois ? pois.size() - 1 : 0);
+    std::uniform_int_distribution<std::size_t> intersectionDistribution(
+        0,
+        intersections.size() - 1);
     std::discrete_distribution<int> vehicleTypeDist({
         CAR_WEIGHT, MOTORBIKE_WEIGHT, BUS_WEIGHT, EMERGENCY_WEIGHT
     });
 
     for (int i = 0; i < DEMO_VEHICLE_COUNT; ++i) {
-        PointOfInterest* startPOI = pois[dist(rng)];
-        PointOfInterest* endPOI = pois[dist(rng)];
-        while (startPOI == endPOI) {
-            endPOI = pois[dist(rng)];
+        PointOfInterest* startPOI = nullptr;
+        PointOfInterest* endPOI = nullptr;
+        Intersection* startIntersection = nullptr;
+        Intersection* endIntersection = nullptr;
+        if (usePois) {
+            startPOI = pois[poiDistribution(rng)];
+            endPOI = pois[poiDistribution(rng)];
+            while (startPOI == endPOI) {
+                endPOI = pois[poiDistribution(rng)];
+            }
+        } else {
+            startIntersection =
+                intersections[intersectionDistribution(rng)];
+            endIntersection =
+                intersections[intersectionDistribution(rng)];
+            while (startIntersection == endIntersection) {
+                endIntersection =
+                    intersections[intersectionDistribution(rng)];
+            }
         }
+
         Vehicle* v = nullptr;
         const int type = vehicleTypeDist(rng);
         if (type == 0) {
-            v = new Car(i, 20.0, nullptr, nullptr);
+            v = new Car(
+                i, 20.0, startIntersection, endIntersection);
         } else if (type == 1) {
-            v = new Motorbike(i, 30.0, nullptr, nullptr);
+            v = new Motorbike(
+                i, 30.0, startIntersection, endIntersection);
         } else if (type == 2) {
-            v = new Bus(i, 15.0, nullptr, nullptr);
+            v = new Bus(
+                i, 15.0, startIntersection, endIntersection);
         } else {
-            v = new EmergencyVehicle(i, 35.0, nullptr, nullptr);
+            v = new EmergencyVehicle(
+                i, 35.0, startIntersection, endIntersection);
         }
-        v->setSpawnPOI(startPOI);
-        v->setTargetPOI(endPOI);
+        if (usePois) {
+            v->setSpawnPOI(startPOI);
+            v->setTargetPOI(endPOI);
+        }
         simulator->addVehicle(v);
     }
     return simulator;

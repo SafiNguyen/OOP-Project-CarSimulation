@@ -1,8 +1,9 @@
 {
-  "coordinateUnit": "world",
-  "defaultDistanceUnit": "legacy",
+  "coordinateUnit": "m",
+  "defaultDistanceUnit": "m",
   "defaultSpeedUnit": "km/h",
-  "defaultRadiusUnit": "km",
+  "defaultRadiusUnit": "m",
+  "defaultLaneWidth": 3.5,
   "intersections": [
     { "id": 1, "x": 0.0, "y": 0.0 },
     { "id": 2, "x": 100.0, "y": 0.0 },
@@ -11,12 +12,26 @@
     { "id": 5, "x": 50.0, "y": 150.0 }
   ],
   "roads": [
-    { "id": 101, "start": 1, "end": 2, "distance": 100.0, "speedLimit": 50.0 },
-    { "id": 102, "start": 2, "end": 3, "distance": 100.0, "speedLimit": 50.0, "congestionLevel": 1.2 },
-    { "id": 103, "start": 3, "end": 4, "distance": 100.0, "speedLimit": 50.0 },
-    { "id": 104, "start": 4, "end": 1, "distance": 100.0, "speedLimit": 50.0 },
-    { "id": 105, "start": 2, "end": 5, "distance": 111.8, "speedLimit": 40.0, "congestionLevel": 1.5 },
-    { "id": 106, "start": 5, "end": 3, "distance": 111.8, "speedLimit": 40.0, "blocked": true }
+    { "id": 101, "name": "South Road", "start": 1, "end": 2, "distance": 100.0, "speedLimit": 50.0, "lanes": 1, "twoWay": true },
+    { "id": 102, "name": "East Road", "start": 2, "end": 3, "distance": 100.0, "speedLimit": 50.0, "congestionLevel": 1.2, "lanes": 1, "twoWay": true },
+    { "id": 103, "name": "North Road", "start": 3, "end": 4, "distance": 100.0, "speedLimit": 50.0, "lanes": 1, "twoWay": true },
+    { "id": 104, "name": "West Road", "start": 4, "end": 1, "distance": 100.0, "speedLimit": 50.0, "lanes": 1, "twoWay": true },
+    { "id": 105, "name": "Northeast Link", "start": 2, "end": 5, "distance": 111.8, "speedLimit": 40.0, "congestionLevel": 1.5, "lanes": 1, "twoWay": true },
+    { "id": 106, "name": "Northwest Link", "start": 5, "end": 3, "distance": 111.8, "speedLimit": 40.0, "lanes": 1, "twoWay": true, "blocked": true }
+  ],
+  "trafficLights": [
+    {
+      "intersectionId": 2,
+      "greenDuration": 25.0,
+      "yellowDuration": 3.0,
+      "allRedDuration": 1.5
+    },
+    {
+      "intersectionId": 3,
+      "greenDuration": 25.0,
+      "yellowDuration": 3.0,
+      "allRedDuration": 1.5
+    }
   ],
   "pois": [
     { "id": 201, "name": "House A", "x": 50.0, "y": 10.0, "type": "hospital" },

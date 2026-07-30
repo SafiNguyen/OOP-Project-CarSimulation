@@ -1,8 +1,6 @@
 #ifndef VEHICLE_RENDER_GEOMETRY_H
 #define VEHICLE_RENDER_GEOMETRY_H
 
-#include <algorithm>
-
 #include "model/Vehicle.h"
 #include "visualization/VisualizationEngine.h"
 
@@ -21,16 +19,10 @@ inline VehicleScreenSize getVehicleScreenSize(
         return {6.0f, 3.0f};
     }
     return {
-        std::clamp(
-            visualization.metresToScreenPixels(
-                vehicle.getLength(), road),
-            3.0f,
-            24.0f),
-        std::clamp(
-            visualization.metresToScreenPixels(
-                vehicle.getWidth(), road),
-            1.5f,
-            12.0f)
+        visualization.metresToScreenPixels(
+            vehicle.getLength(), road),
+        visualization.metresToScreenPixels(
+            vehicle.getWidth(), road)
     };
 }
 

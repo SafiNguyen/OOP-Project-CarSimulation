@@ -19,6 +19,12 @@ enum class IntersectionType {
     COMPLEX       // 5+ incoming roads
 };
 
+enum class SignalStage {
+    GREEN,
+    YELLOW,
+    ALL_RED
+};
+
 // attributes
 class Intersection {
 protected:
@@ -42,10 +48,21 @@ private:
 
     
     std::vector<std::vector<Road*>> phaseGroups;
-    std::size_t activePhaseGroup;
-    double phaseElapsedTime;
+    std::size_t activePhaseGroup = 0;
+    SignalStage signalStage_ = SignalStage::GREEN;
+    double stageRemainingSeconds_ = 30.0;
+    double greenDurationSeconds_ = 30.0;
+    double yellowDurationSeconds_ = 3.0;
+    double allRedDurationSeconds_ = 2.0;
+    bool explicitSignalPlan_ = false;
 
     void rebuildPhaseGroups();
+    void resetSignalCycle();
+    void synchronizeSignalHeads();
+    std::size_t phaseIndexForRoad(const Road* road) const;
+    std::size_t nextScheduledPhase() const;
+    bool hasConflictingReservationForPhase(
+        std::size_t phaseIndex) const;
 
     // --- Intersection-box reservation (prevents multiple vehicles from
     // different roads overlapping inside the junction at the same time,
@@ -62,7 +79,7 @@ private:
         ConnectorKeyHash> connectorCache_;
 
     const Road* preemptedRoad_ = nullptr;
-    double preemptionTimer_ = 0.0; // time remaining for preemption to be active    
+    double preemptionHoldSeconds_ = 0.0;
 
 protected:
     virtual std::shared_ptr<const JunctionConnector> createConnector(
@@ -88,6 +105,7 @@ public:
     // approaches (nga ba / nga tu / etc).
     IntersectionType getIntersectionType() const;
     std::string getIntersectionTypeLabel() const;
+    std::size_t getApproachCount() const;
 
     virtual bool isRoundabout() const { return false; }
     virtual double getTraversalRadiusMetres() const { return 0.0; }
@@ -99,6 +117,17 @@ public:
     void removeOutgoingRoad(Road* road);
     // Traffic light management 
     void registerIncomingLight(Road* road);
+    bool configureTrafficSignals(
+        const std::vector<std::vector<Road*>>& phases,
+        double greenDuration,
+        double yellowDuration,
+        double allRedDuration,
+        std::string* error = nullptr);
+    bool configureTrafficSignalsAutomatically(
+        double greenDuration,
+        double yellowDuration,
+        double allRedDuration,
+        std::string* error = nullptr);
     void unregisterIncomingLight(Road* road);
     bool hasTrafficLights() const;
     TrafficLight* getLightForIncomingRoad(int roadId) const;
@@ -120,6 +149,11 @@ public:
     // through (e.g. 2 for a typical nga tu with opposing through-roads
     // paired up, 1 if there is nothing to arbitrate).
     std::size_t getPhaseGroupCount() const { return phaseGroups.size(); }
+    std::size_t getActivePhaseIndex() const { return activePhaseGroup; }
+    SignalStage getSignalStage() const { return signalStage_; }
+    double getSignalStageRemainingSeconds() const {
+        return stageRemainingSeconds_;
+    }
     // True if `a` and `b` are allowed to move at the same time (either
     // they are the same phase group, or one/both have no light at all).
     bool areRoadsInSamePhase(const Road* a, const Road* b) const;

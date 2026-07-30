@@ -81,7 +81,6 @@ file(GLOB CORE_SOURCE_FILES CONFIGURE_DEPENDS
     "src/Mapload.cpp"
     "src/*.cpp"
     "src/ui/*.cpp"
-    "src/model/*.cpp"
 )
 
 add_library(urban_core STATIC ${CORE_SOURCE_FILES})

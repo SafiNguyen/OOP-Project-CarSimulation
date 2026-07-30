@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_set>
 
 #include "model/Graph.h"
 #include "model/Intersection.h"
@@ -17,6 +18,8 @@ VisualizationEngine::VisualizationEngine(sf::Vector2u windowSize, float margin)
       maxX_(100.0),
       maxY_(100.0),
       scale_(1.0),
+      offsetX_(margin),
+      offsetY_(margin),
       spriteTexture_(nullptr),
       spriteRect_(),
       spriteSize_(24.0f, 24.0f),
@@ -87,6 +90,26 @@ void VisualizationEngine::prepare(const Graph& graph) {
     const double scaleX = (windowSize_.x > 2 * margin_) ? (windowSize_.x - 2 * margin_) / rangeX : 1.0;
     const double scaleY = (windowSize_.y > 2 * margin_) ? (windowSize_.y - 2 * margin_) / rangeY : 1.0;
     scale_ = std::min(scaleX, scaleY);
+    const double availableWidth =
+        std::max(
+            0.0,
+            static_cast<double>(windowSize_.x) -
+                2.0 * margin_);
+    const double availableHeight =
+        std::max(
+            0.0,
+            static_cast<double>(windowSize_.y) -
+                2.0 * margin_);
+    offsetX_ =
+        margin_ +
+        std::max(
+            0.0,
+            (availableWidth - rangeX * scale_) * 0.5);
+    offsetY_ =
+        margin_ +
+        std::max(
+            0.0,
+            (availableHeight - rangeY * scale_) * 0.5);
 
     routePoints_.clear();
     routePoints_.reserve(intersections.size());
@@ -116,11 +139,9 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
 
     // Pre-compute per-road geometry so the two passes don't recompute it.
     struct RoadDraw {
+        Road* road;
         sf::Vector2f offsetA;
         sf::Vector2f offsetB;
-        sf::Vector2f norm;
-        sf::Vector2f dirUnit;
-        float length;
         float laneWidth;
         float totalWidth;
         int laneCount;
@@ -141,32 +162,27 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
             continue;
         }
 
-        const sf::Vector2f a = worldToScreen(start->getX(), start->getY());
-        const sf::Vector2f b = worldToScreen(end->getX(), end->getY());
         const float laneWidth = getLaneWidthPixels(road);
         const int laneCount = road->getLaneCount();
         const float totalWidth = static_cast<float>(laneCount) * laneWidth;
-        sf::Vector2f dir = b - a;
+        const sf::Vector2f offsetA =
+            getRoadEntryPoint(road, start);
+        const sf::Vector2f offsetB =
+            getRoadEntryPoint(road, end);
+        const sf::Vector2f dir = offsetB - offsetA;
         const float length = std::sqrt(dir.x * dir.x + dir.y * dir.y);
         if (length <= 0.01f) {
             continue;
         }
-        const sf::Vector2f norm = roadNormal(a, b);
-        const sf::Vector2f offsetA = getRoadEntryPoint(road, start);
-        const sf::Vector2f offsetB = getRoadEntryPoint(road, end);
         RoadDraw rd;
+        rd.road = road;
         rd.offsetA = offsetA;
         rd.offsetB = offsetB;
-        rd.norm = norm;
-        rd.length = length;
         rd.laneWidth = laneWidth;
         rd.totalWidth = totalWidth;
         rd.laneCount = laneCount;
         rd.isBridge = road->isBridge();
         rd.isTunnel = road->isTunnel();
-        rd.dirUnit = {dir.x / length, dir.y / length};
-
-
         // brigde sprite
         if (rd.isBridge) {
             rd.bodyColor = sf::Color(100, 149, 237);
@@ -193,21 +209,28 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
     }
 
     // Pass 1: bodies + lane markers + mask population.
-    int roadIndex = 0;
     for (const RoadDraw& rd : drawList) {
-        drawRoadStrip(target, rd.offsetA, rd.offsetB, rd.bodyColor, rd.totalWidth - 1.0f);
-        rasterizeBodyToMask(rd.offsetA, rd.offsetB, rd.totalWidth - 1.0f,
+        drawRoadStrip(
+            target,
+            rd.offsetA,
+            rd.offsetB,
+            rd.bodyColor,
+            rd.totalWidth);
+        rasterizeBodyToMask(rd.offsetA, rd.offsetB, rd.totalWidth,
                             bodyMask, gridW, gridH, kBorderMaskCellSize);
 
         // Draw individual blocked lanes
-        Road* roadObj = roads[roadIndex++];
+        Road* roadObj = rd.road;
         for (int i = 0; i < rd.laneCount; ++i) {
             if (roadObj->getLane(i).isBlocked() && !roadObj->isBlocked() && heatMapEnabled_) {
-                const float laneBoundaryOffset =
-                    -rd.totalWidth * 0.5f +
-                    (static_cast<float>(i) + 0.5f) * rd.laneWidth;
-                const sf::Vector2f laneCenterA = rd.offsetA + rd.norm * laneBoundaryOffset;
-                const sf::Vector2f laneCenterB = rd.offsetB + rd.norm * laneBoundaryOffset;
+                const Vec2 laneStart =
+                    RoadGeometry::laneEndpoint(*roadObj, i, true);
+                const Vec2 laneEnd =
+                    RoadGeometry::laneEndpoint(*roadObj, i, false);
+                const sf::Vector2f laneCenterA =
+                    worldToScreen(laneStart.x, laneStart.y);
+                const sf::Vector2f laneCenterB =
+                    worldToScreen(laneEnd.x, laneEnd.y);
                 drawRoadStrip(
                     target,
                     laneCenterA,
@@ -220,25 +243,141 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
         // Lane divider lines for multi-lane roads.
         if (rd.laneCount > 1) {
             for (int i = 1; i < rd.laneCount; ++i) {
-                const float laneBoundaryOffset =
-                    -rd.totalWidth * 0.5f +
-                    static_cast<float>(i) * rd.laneWidth;
-                const sf::Vector2f laneLineA = rd.offsetA + rd.norm * laneBoundaryOffset;
-                const sf::Vector2f laneLineB = rd.offsetB + rd.norm * laneBoundaryOffset;
+                const Vec2 boundaryStart =
+                    RoadGeometry::laneBoundaryEndpoint(
+                        *roadObj, i, true);
+                Vec2 boundaryEnd =
+                    RoadGeometry::laneBoundaryEndpoint(
+                        *roadObj, i, false);
+                if (roadObj->getEnd() != nullptr &&
+                    roadObj->getEnd()->getLightForIncomingRoad(
+                        roadObj) != nullptr) {
+                    boundaryEnd = lerp(
+                        boundaryStart,
+                        boundaryEnd,
+                        RoadGeometry::stopLineProgressMetres(
+                            *roadObj) /
+                            roadObj->getDistance());
+                }
+                const sf::Vector2f laneLineA =
+                    worldToScreen(boundaryStart.x, boundaryStart.y);
+                const sf::Vector2f laneLineB =
+                    worldToScreen(boundaryEnd.x, boundaryEnd.y);
+                const sf::Vector2f laneDirection =
+                    laneLineB - laneLineA;
+                const float laneLineLength =
+                    distanceBetween(laneLineA, laneLineB);
+                if (laneLineLength <= 0.01f) continue;
+                const sf::Vector2f laneDirectionUnit =
+                    laneDirection / laneLineLength;
 
-                const float dashLength = 6.0f;
-                const float gapLength = 4.0f;
+                const float dashLength =
+                    metresToScreenPixels(3.0, roadObj);
+                const float gapLength =
+                    metresToScreenPixels(6.0, roadObj);
                 const float segmentLength = dashLength + gapLength;
                 float traveled = 0.0f;
-                while (traveled < rd.length) {
-                    const float dashEnd = std::min(traveled + dashLength, rd.length);
-                    const sf::Vector2f dashA = laneLineA + rd.dirUnit * traveled;
-                    const sf::Vector2f dashB = laneLineA + rd.dirUnit * dashEnd;
-                    drawRoadStrip(target, dashA, dashB, sf::Color(255, 255, 255, 100), 0.8f);
+                while (traveled < laneLineLength) {
+                    const float dashEnd =
+                        std::min(
+                            traveled + dashLength,
+                            laneLineLength);
+                    const sf::Vector2f dashA =
+                        laneLineA +
+                        laneDirectionUnit * traveled;
+                    const sf::Vector2f dashB =
+                        laneLineA +
+                        laneDirectionUnit * dashEnd;
+                    drawRoadStrip(
+                        target,
+                        dashA,
+                        dashB,
+                        sf::Color(245, 245, 245, 190),
+                        std::max(
+                            0.8f,
+                            metresToScreenPixels(
+                                0.12, roadObj)));
                     traveled += segmentLength;
                 }
             }
         }
+
+        // Solid white carriageway edges use the same model-space boundary
+        // endpoints as lane centres and road surfaces.
+        for (bool rightEdge : {false, true}) {
+            const Vec2 edgeStart =
+                RoadGeometry::roadEdgeEndpoint(
+                    *roadObj, rightEdge, true);
+            const Vec2 edgeEnd =
+                RoadGeometry::roadEdgeEndpoint(
+                    *roadObj, rightEdge, false);
+            drawRoadStrip(
+                target,
+                worldToScreen(edgeStart.x, edgeStart.y),
+                worldToScreen(edgeEnd.x, edgeEnd.y),
+                sf::Color(245, 245, 245, 205),
+                std::max(
+                    0.8f,
+                    metresToScreenPixels(0.12, roadObj)));
+        }
+    }
+
+    // One continuous yellow centreline per topology-paired physical road.
+    // The pair is selected by identity only for de-duplicating the draw;
+    // pairing itself is cached by Graph from reversed endpoints.
+    std::unordered_set<const Road*> centrelineDrawn;
+    for (const RoadDraw& rd : drawList) {
+        const Road* reverse = rd.road->getReverseRoad();
+        if (reverse == nullptr ||
+            centrelineDrawn.count(rd.road) != 0 ||
+            centrelineDrawn.count(reverse) != 0) {
+            continue;
+        }
+        centrelineDrawn.insert(rd.road);
+        centrelineDrawn.insert(reverse);
+
+        const Vec2 originalCentreStart =
+            RoadGeometry::roadReferenceEndpoint(
+                *rd.road, true);
+        const Vec2 originalCentreEnd =
+            RoadGeometry::roadReferenceEndpoint(
+                *rd.road, false);
+        Vec2 centreStart = originalCentreStart;
+        Vec2 centreEnd = originalCentreEnd;
+        if (reverse->getEnd() != nullptr &&
+            reverse->getEnd()->getLightForIncomingRoad(
+                reverse) != nullptr) {
+            const double reverseRatio =
+                RoadGeometry::stopLineProgressMetres(
+                    *reverse) /
+                reverse->getDistance();
+            centreStart =
+                lerp(
+                    originalCentreStart,
+                    originalCentreEnd,
+                    1.0 - reverseRatio);
+        }
+        if (rd.road->getEnd() != nullptr &&
+            rd.road->getEnd()->getLightForIncomingRoad(
+                rd.road) != nullptr) {
+            const double forwardRatio =
+                RoadGeometry::stopLineProgressMetres(
+                    *rd.road) /
+                rd.road->getDistance();
+            centreEnd =
+                lerp(
+                    originalCentreStart,
+                    originalCentreEnd,
+                    forwardRatio);
+        }
+        drawRoadStrip(
+            target,
+            worldToScreen(centreStart.x, centreStart.y),
+            worldToScreen(centreEnd.x, centreEnd.y),
+            sf::Color(245, 195, 45),
+            std::max(
+                1.0f,
+                metresToScreenPixels(0.15, rd.road)));
     }
 
     // Pass 2: borders, skipping any chunk that lands on another road's body.

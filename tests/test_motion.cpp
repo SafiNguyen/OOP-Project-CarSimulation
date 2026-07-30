@@ -355,6 +355,108 @@ void testConnectorCacheAndVehicleLifecycle() {
     }
 }
 
+void testSignalizedMultiLaneQueueDischarge() {
+    {
+        Graph graph;
+        graph.addIntersection(new Intersection(1, -100.0, 0.0));
+        graph.addIntersection(new Intersection(2, 0.0, 0.0));
+        graph.addIntersection(new Intersection(3, 0.0, -100.0));
+        graph.addIntersection(new Intersection(4, 0.0, 100.0));
+        graph.addRoad(new Road(
+            20, "west-in", graph.getIntersection(1),
+            graph.getIntersection(2), 100.0, 15.0, 1.0, 2));
+        graph.addRoad(new Road(
+            21, "south-out", graph.getIntersection(2),
+            graph.getIntersection(3), 100.0, 15.0, 1.0, 2));
+        graph.addRoad(new Road(
+            22, "north-in", graph.getIntersection(4),
+            graph.getIntersection(2), 100.0, 15.0));
+
+        Road* westIn = graph.getRoad(20);
+        Road* southOut = graph.getRoad(21);
+        Road* northIn = graph.getRoad(22);
+        Intersection* centre = graph.getIntersection(2);
+        std::string signalError;
+        check(centre->configureTrafficSignals(
+                  {{northIn}, {westIn}},
+                  1.0, 0.1, 0.1, &signalError),
+              "Two-phase queue-discharge signal config is valid");
+
+        MotionTestCar inner(
+            301, 15.0, graph.getIntersection(1),
+            graph.getIntersection(3));
+        inner.setRoute({westIn, southOut});
+        inner.place(
+            RoadGeometry::stopLineProgressMetres(*westIn) -
+                inner.getLength() * 0.5,
+            0.0,
+            0);
+        inner.update(0.1);
+        check(inner.getMovementState() ==
+                  MovementState::WaitingAtIntersection,
+              "Inner-lane right turn waits while its approach is red");
+
+        centre->updateTrafficLights(1.25);
+        bool enteredFromInnerLane = false;
+        for (int tick = 0; tick < 60; ++tick) {
+            inner.update(0.1);
+            enteredFromInnerLane =
+                enteredFromInnerLane ||
+                inner.getMovementState() ==
+                    MovementState::TraversingJunction ||
+                inner.getCurrentRoad() == southOut;
+            if (enteredFromInnerLane) break;
+        }
+        check(enteredFromInnerLane,
+              "Inner-lane queue can discharge after red without a forced lane-change deadlock");
+    }
+
+    {
+        Graph graph;
+        graph.addIntersection(new Intersection(1, -100.0, 0.0));
+        graph.addIntersection(new Intersection(2, 0.0, 0.0));
+        graph.addIntersection(new Intersection(3, 100.0, 0.0));
+        graph.addRoad(new Road(
+            30, "west-in", graph.getIntersection(1),
+            graph.getIntersection(2), 100.0, 15.0, 1.0, 2));
+        graph.addRoad(new Road(
+            31, "east-out", graph.getIntersection(2),
+            graph.getIntersection(3), 100.0, 15.0, 1.0, 2));
+
+        Road* westIn = graph.getRoad(30);
+        Road* eastOut = graph.getRoad(31);
+        Intersection* centre = graph.getIntersection(2);
+        MotionTestCar inner(
+            302, 15.0, graph.getIntersection(1),
+            graph.getIntersection(3));
+        MotionTestCar outer(
+            303, 15.0, graph.getIntersection(1),
+            graph.getIntersection(3));
+        inner.setRoute({westIn, eastOut});
+        outer.setRoute({westIn, eastOut});
+        const double stopProgress =
+            RoadGeometry::stopLineProgressMetres(*westIn) -
+            inner.getLength() * 0.5;
+        inner.place(stopProgress, 0.0, 0);
+        outer.place(stopProgress, 0.0, 1);
+
+        bool traversingTogether = false;
+        for (int tick = 0; tick < 60; ++tick) {
+            outer.update(0.1);
+            inner.update(0.1);
+            if (inner.getMovementState() ==
+                    MovementState::TraversingJunction &&
+                outer.getMovementState() ==
+                    MovementState::TraversingJunction) {
+                traversingTogether = true;
+                break;
+            }
+        }
+        check(centre->getCapacity() == 2 && traversingTogether,
+              "Two non-conflicting lanes receive independent intersection capacity");
+    }
+}
+
 double runFrameRateScenario(double dt) {
     JunctionFixture fixture;
     MotionTestCar vehicle(
@@ -606,6 +708,7 @@ int main() {
     testBezierGeometry();
     testLaneMapping();
     testConnectorCacheAndVehicleLifecycle();
+    testSignalizedMultiLaneQueueDischarge();
     testFrameRateIndependence();
     testRoundaboutGeometryAndCapacity();
 

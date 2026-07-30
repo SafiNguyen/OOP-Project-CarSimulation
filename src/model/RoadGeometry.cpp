@@ -22,21 +22,22 @@ Vec2 pointOf(const Intersection* intersection) {
 double lateralOffsetWorld(const Road& road, int laneIndex) {
     laneIndex = std::clamp(laneIndex, 0, road.getLaneCount() - 1);
     const double scale = metresPerWorldUnit(road);
+    const double laneWidth = road.getLaneWidthMetres();
     if (hasReverseDirection(road)) {
         return (MEDIAN_GAP_METRES * 0.5 +
                 (static_cast<double>(laneIndex) + 0.5) *
-                    LANE_WIDTH_METRES) / scale;
+                    laneWidth) / scale;
     }
     return ((static_cast<double>(laneIndex) + 0.5) -
             static_cast<double>(road.getLaneCount()) * 0.5) *
-           LANE_WIDTH_METRES / scale;
+           laneWidth / scale;
 }
 
 double surfaceOffsetWorld(const Road& road) {
     if (!hasReverseDirection(road)) return 0.0;
     return (MEDIAN_GAP_METRES * 0.5 +
             static_cast<double>(road.getLaneCount()) *
-                LANE_WIDTH_METRES * 0.5) /
+                road.getLaneWidthMetres() * 0.5) /
            metresPerWorldUnit(road);
 }
 
@@ -90,12 +91,19 @@ double junctionBoundaryRadiusMetres(const Intersection& intersection) {
                 LANE_WIDTH_METRES * 0.5);
     }
 
-    int maxLaneCount = 0;
+    double maximumPhysicalHalfWidth = 0.0;
     double shortestRoad = std::numeric_limits<double>::infinity();
     const auto inspect = [&](const std::vector<Road*>& roads) {
         for (const Road* road : roads) {
             if (road == nullptr) continue;
-            maxLaneCount = std::max(maxLaneCount, road->getLaneCount());
+            const double carriagewayWidth =
+                carriagewayWidthMetres(*road);
+            maximumPhysicalHalfWidth = std::max(
+                maximumPhysicalHalfWidth,
+                hasReverseDirection(*road)
+                    ? carriagewayWidth +
+                          MEDIAN_GAP_METRES * 0.5
+                    : carriagewayWidth * 0.5);
             if (road->getDistance() > 0.0) {
                 shortestRoad =
                     std::min(shortestRoad, road->getDistance());
@@ -107,13 +115,11 @@ double junctionBoundaryRadiusMetres(const Intersection& intersection) {
 
     // Unregistered stack-allocated test roads deliberately retain a zero-size
     // pass-through node, preserving their historical centre-to-centre length.
-    if (maxLaneCount == 0) return 0.0;
+    if (maximumPhysicalHalfWidth <= 0.0) return 0.0;
 
     double radius = std::max(
         8.0,
-        static_cast<double>(maxLaneCount) *
-                LANE_WIDTH_METRES * 0.5 +
-            4.0);
+        maximumPhysicalHalfWidth + 3.0);
     if (std::isfinite(shortestRoad)) {
         radius = std::min(radius, shortestRoad * 0.35);
     }
@@ -126,16 +132,12 @@ double junctionBoundaryRadiusWorld(const Intersection& intersection) {
 }
 
 bool hasReverseDirection(const Road& road) {
-    if (road.getStart() == nullptr || road.getEnd() == nullptr) {
-        return false;
-    }
-    for (const Road* candidate : road.getEnd()->getOutgoingRoads()) {
-        if (candidate != nullptr &&
-            candidate->getEnd() == road.getStart()) {
-            return true;
-        }
-    }
-    return false;
+    return road.getReverseRoad() != nullptr;
+}
+
+double carriagewayWidthMetres(const Road& road) {
+    return static_cast<double>(std::max(1, road.getLaneCount())) *
+           road.getLaneWidthMetres();
 }
 
 Vec2 roadDirection(const Road& road) {
@@ -161,6 +163,40 @@ Vec2 laneEndpoint(const Road& road, int laneIndex, bool atStart) {
                lateralOffsetWorld(road, laneIndex);
 }
 
+Vec2 laneBoundaryEndpoint(const Road& road,
+                          int boundaryIndex,
+                          bool atStart) {
+    boundaryIndex =
+        std::clamp(boundaryIndex, 0, road.getLaneCount());
+    const Vec2 surface = roadSurfaceEndpoint(road, atStart);
+    const double acrossMetres =
+        (static_cast<double>(boundaryIndex) -
+         static_cast<double>(road.getLaneCount()) * 0.5) *
+        road.getLaneWidthMetres();
+    return surface +
+           rightNormal(roadDirection(road)) *
+               (acrossMetres / metresPerWorldUnit(road));
+}
+
+Vec2 roadEdgeEndpoint(const Road& road,
+                      bool rightEdge,
+                      bool atStart) {
+    return laneBoundaryEndpoint(
+        road,
+        rightEdge ? road.getLaneCount() : 0,
+        atStart);
+}
+
+Vec2 sampleRoadSurface(const Road& road, double progressMetres) {
+    const double ratio = road.getDistance() > 1e-12
+        ? std::clamp(progressMetres / road.getDistance(), 0.0, 1.0)
+        : 0.0;
+    return lerp(
+        roadSurfaceEndpoint(road, true),
+        roadSurfaceEndpoint(road, false),
+        ratio);
+}
+
 Pose2D sampleLane(const Road& road,
                   int laneIndex,
                   double progressMetres) {
@@ -175,6 +211,18 @@ Pose2D sampleLane(const Road& road,
         std::atan2(tangent.y, tangent.x),
         0.0
     };
+}
+
+double stopLineProgressMetres(const Road& incomingRoad) {
+    return std::max(
+        0.0,
+        incomingRoad.getDistance() - STOP_LINE_SETBACK_METRES);
+}
+
+Vec2 stopLineCentre(const Road& incomingRoad) {
+    return sampleRoadSurface(
+        incomingRoad,
+        stopLineProgressMetres(incomingRoad));
 }
 
 } // namespace RoadGeometry

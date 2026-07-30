@@ -21,6 +21,8 @@ private:
     double congestionLevel;
 
     int laneCount;
+    double laneWidthMetres;
+    Road* reverseRoad = nullptr; // non-owning physical-road counterpart
     std::vector<Lane> lanes;
     std::vector<std::unique_ptr<BusStop>> busStops;
     std::vector<double> busStopPositions;
@@ -32,7 +34,8 @@ public:
          double distance, 
          double speedLimit, 
          double congestionLevel = 1.0,
-         int laneCount = 1);
+         int laneCount = 1,
+         double laneWidthMetres = 3.5);
 
     Road(const Road&) = delete;
     Road& operator=(const Road&) = delete;
@@ -53,6 +56,9 @@ public:
     virtual bool isTunnel() const { return false; }
 
     int getLaneCount () const;
+    double getLaneWidthMetres() const;
+    Road* getReverseRoad() const;
+    void setReverseRoad(Road* road);
     // Lane indices are ordered from the road centre/median toward the curb
     // for this directional Road. A reverse Road uses the same ordering in
     // its own direction, so its final lane is also its curb lane.
