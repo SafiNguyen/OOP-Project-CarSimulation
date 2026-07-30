@@ -15,6 +15,7 @@
 #include <cmath>
 #include <limits>
 #include <cstdlib>
+#include <chrono>
 
 namespace {
 
@@ -1098,7 +1099,10 @@ Road* Vehicle::getNextRoad() const {
     return nullptr;
 }
 
-void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
+void Vehicle::update(double dt,
+                     Graph* graph,
+                     PathFindingStrategy* strategy,
+                     bool allowDynamicReroute) {
     if (hasReachedDestination() || currentRoad == nullptr) {
         clearLaneChangeIntent();
         junctionTurnSignal_ = TurnSignal::Off;
@@ -1204,7 +1208,7 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
 
     if (allowsDynamicRerouting()) {
         recalculateTimer -= elapsedTimeThisUpdate;
-        if (recalculateTimer <= 0.0) {
+        if (recalculateTimer <= 0.0 && allowDynamicReroute) {
             recalculateTimer = 10.0 +
                 static_cast<double>(
                     std::rand() % 50) /
@@ -1226,9 +1230,23 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
                     }
                 }
                 if (hasCongestion) {
-                    recalculateRoute(
-                        *graph,
-                        strategy);
+                                    auto start = std::chrono::high_resolution_clock::now();
+
+                    bool ok = recalculateRoute(*graph, strategy);
+
+                    auto us =
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::high_resolution_clock::now() - start)
+                            .count();
+
+                    if (us > 1000) {
+                        std::cout
+                            << "[REROUTE] vehicle "
+                            << getId()
+                            << " took "
+                            << us / 1000.0
+                            << " ms\n";
+                    }
                 }
             }
         }
@@ -1290,7 +1308,21 @@ void Vehicle::update(double dt, Graph* graph, PathFindingStrategy* strategy) {
         }
     }
 
+    int loopCount = 0;
     while (remainingTime > 0.0 && currentRoad != nullptr && !paused) {
+        
+        ++loopCount;
+
+        if (loopCount > 1000) {
+            std::cout << "[STUCK] Vehicle " << getId()
+                    << " loopCount=" << loopCount
+                    << " remainingTime=" << remainingTime
+                    << " speed=" << currentSpeed
+                    << " road=" << (currentRoad ? currentRoad->getId() : -1)
+                    << '\n';
+            break;
+        }
+            
         if (movementState_ == MovementState::TraversingJunction) {
             const double consumed = advanceJunction(remainingTime);
             remainingTime =

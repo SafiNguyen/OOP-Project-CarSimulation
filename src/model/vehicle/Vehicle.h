@@ -139,7 +139,12 @@ public:
     virtual bool mustStopForTrafficLight(Intersection* nextIntersection) const;
     virtual void onPauseStarted() {}
     virtual PauseUpdateResult updatePause(double availableTime);
-    virtual void update(double dt, Graph* graph = nullptr, PathFindingStrategy* strategy = nullptr);
+    // TrafficSimulator can defer expensive route searches without pausing
+    // the vehicle's regular movement update.
+    virtual void update(double dt,
+                        Graph* graph = nullptr,
+                        PathFindingStrategy* strategy = nullptr,
+                        bool allowDynamicReroute = true);
     virtual double getYieldSpeedFactor() const;
     virtual double getYieldEscapeSpeedFactor() const;
     virtual void notifyEmergencyApproaching(int emergencyLaneIndex = -1);

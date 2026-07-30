@@ -762,7 +762,6 @@ void TrafficSimulator::removeFinishedVehicles() {
                     pruneMergingIndex(road);
             }
 
-            v->setRouteAt(std::vector<Road*>{}, -1, 0.0);
             finishedVehicles.push_back(v); // Keep vehicle instead of deleting
             return true;
         }
@@ -876,7 +875,6 @@ void TrafficSimulator::triggerEvent(std::unique_ptr<TrafficEvent> event) {
 void TrafficSimulator::update(double dt) {
     if (paused) return;
 
-    static sf::Clock profilerClock;
     static int profileFrames = 0;
 
     static double activateTime = 0.0;
@@ -887,7 +885,6 @@ void TrafficSimulator::update(double dt) {
     static double removeTime = 0.0;
     static double totalTime = 0.0;
 
-    sf::Clock totalClock;
 
     double safeDt = std::clamp(dt, 0.0, MAX_RAW_DT);
     double remaining = leftoverDt + safeDt * speedMultiplier;
@@ -901,15 +898,12 @@ void TrafficSimulator::update(double dt) {
 
         elapsedTime += step;
 
-        profilerClock.restart();
         activatePendingVehicles();
-        activateTime += profilerClock.getElapsedTime().asMicroseconds();
 
         if (statisticsManager) {
             statisticsManager->recordTick(step);
         }
 
-        profilerClock.restart();
 
         if (graph) {
             for (Intersection* intersection : graph->getAllIntersections()) {
@@ -922,29 +916,38 @@ void TrafficSimulator::update(double dt) {
             }
         }
 
-        trafficLightTime += profilerClock.getElapsedTime().asMicroseconds();
 
-        profilerClock.restart();
 
         if (eventManager) {
             eventManager->update(step);
         }
 
-        eventTime += profilerClock.getElapsedTime().asMicroseconds();
 
-        profilerClock.restart();
 
+        const std::size_t vehicleCount = vehicles.size();
+        const std::size_t rerouteStart =
+            vehicleCount == 0u ? 0u : dynamicRerouteCursor_ % vehicleCount;
+        dynamicRerouteCursor_ +=
+            MAX_DYNAMIC_REROUTES_PER_SUBSTEP;
+
+        std::size_t vehicleIndex = 0u;
         for (Vehicle* v : vehicles) {
-            v->update(step, graph, pathFindingStrategy);
+            const std::size_t offset =
+                (vehicleIndex + vehicleCount - rerouteStart) %
+                (vehicleCount == 0u ? 1u : vehicleCount);
+            const bool allowDynamicReroute =
+                offset < MAX_DYNAMIC_REROUTES_PER_SUBSTEP;
+            ++vehicleIndex;
+
+            v->update(
+                step, graph, pathFindingStrategy, allowDynamicReroute);
 
             if (statisticsManager) {
                 statisticsManager->recordVehicleTravel(v->getId(), step);
             }
         }
 
-        vehicleTime += profilerClock.getElapsedTime().asMicroseconds();
 
-        profilerClock.restart();
 
         for (const auto& pedestrian : pedestrians_) {
             if (pedestrian) {
@@ -959,14 +962,11 @@ void TrafficSimulator::update(double dt) {
             }
         }
 
-        pedestrianTime += profilerClock.getElapsedTime().asMicroseconds();
 
-        profilerClock.restart();
 
         removeFinishedVehicles();
         removeFinishedPedestrians();
 
-        removeTime += profilerClock.getElapsedTime().asMicroseconds();
 
         remaining -= step;
         ++stepsRun;
@@ -980,7 +980,6 @@ void TrafficSimulator::update(double dt) {
         statisticsManager->printPeriodicReport(tickCount, 600);
     }
 
-    totalTime += totalClock.getElapsedTime().asMicroseconds();
 
     profileFrames++;
 
@@ -1150,3 +1149,5 @@ void TrafficSimulator::setPendingVehicleTimeout(
 const Graph& TrafficSimulator::getGraph() const { return *graph; }
 StatisticsManager* TrafficSimulator::getStatisticsManager() const { return statisticsManager.get(); }
 double TrafficSimulator::getElapsedTime() const { return elapsedTime; }
+
+

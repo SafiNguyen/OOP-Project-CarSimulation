@@ -456,14 +456,15 @@ public:
     void update(
         double dt,
         Graph* graph = nullptr,
-        PathFindingStrategy* strategy = nullptr) override {
+        PathFindingStrategy* strategy = nullptr,
+        bool allowDynamicReroute = true) override {
         if (service_ != nullptr &&
             currentRoad != nullptr &&
             tripState_ ==
                 BusTripState::WaitingAtOrigin) {
             tripState_ = BusTripState::Departing;
         }
-        Vehicle::update(dt, graph, strategy);
+        Vehicle::update(dt, graph, strategy, allowDynamicReroute);
         if (service_ != nullptr &&
             currentRoad != nullptr &&
             tripState_ == BusTripState::Departing) {

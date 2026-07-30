@@ -129,6 +129,9 @@ private:
     static constexpr double
         DEFAULT_PENDING_TIMEOUT_SECONDS = 600.0;
     static constexpr int MAX_ROUTE_ATTEMPTS = 8;
+    // Route searches allocate and traverse the graph. Keeping this bounded
+    // prevents a synchronized reroute wave from stalling a render frame.
+    static constexpr std::size_t MAX_DYNAMIC_REROUTES_PER_SUBSTEP = 2u;
 
     void pruneMergingIndex(Road* road);
     void recalculateAllVehicleRoutes();
@@ -154,6 +157,7 @@ private:
     Graph* graph;                                   
     PathFindingStrategy* pathFindingStrategy;  
     std::vector<Vehicle*> vehicles;
+    std::size_t dynamicRerouteCursor_ = 0u;
     std::unordered_map<Road*, std::vector<Vehicle*>> mergingFromPOIByRoad_;
     std::deque<PendingVehicle> pendingVehicles;
     std::vector<Vehicle*> finishedVehicles;      

@@ -60,9 +60,10 @@ public:
 
     void update(double dt,
                 Graph* graph = nullptr,
-                PathFindingStrategy* strategy = nullptr) override {
+                PathFindingStrategy* strategy = nullptr,
+                bool allowDynamicReroute = true) override {
         requestPreemptionIfNear();
-        Vehicle::update(dt, graph, strategy);
+        Vehicle::update(dt, graph, strategy, allowDynamicReroute);
         notifyVehiclesAhead();
     }
 
