@@ -9,6 +9,7 @@ namespace {
 
 constexpr double PI = 3.14159265358979323846;
 constexpr double MIN_SCALE = 1e-6;
+constexpr double ROUNDABOUT_BLEND_ANGLE = PI / 6.0;
 
 Pose2D poseFromDerivatives(Vec2 position,
                            Vec2 first,
@@ -60,13 +61,25 @@ std::vector<std::shared_ptr<const MotionPath>> buildRoundaboutSegments(
     double metricScale,
     bool forceFullCircle) {
     radiusWorld = std::max(radiusWorld, 1e-3);
-    const Vec2 entryRadial = normalized(entryPoint - centre, {-1.0, 0.0});
-    const Vec2 exitRadial = normalized(exitPoint - centre, {1.0, 0.0});
+    const Vec2 rawEntryRadial =
+        normalized(entryPoint - centre, {-1.0, 0.0});
+    const Vec2 rawExitRadial =
+        normalized(exitPoint - centre, {1.0, 0.0});
+    const double directionSign = clockwise ? -1.0 : 1.0;
+    const double entryAngle =
+        std::atan2(rawEntryRadial.y, rawEntryRadial.x) +
+        directionSign * ROUNDABOUT_BLEND_ANGLE;
+    const double exitAngle =
+        std::atan2(rawExitRadial.y, rawExitRadial.x) -
+        directionSign * ROUNDABOUT_BLEND_ANGLE;
+    const Vec2 entryRadial{
+        std::cos(entryAngle), std::sin(entryAngle)
+    };
+    const Vec2 exitRadial{
+        std::cos(exitAngle), std::sin(exitAngle)
+    };
     const Vec2 entryMerge = centre + entryRadial * radiusWorld;
     const Vec2 exitMerge = centre + exitRadial * radiusWorld;
-    const double entryAngle = std::atan2(entryRadial.y, entryRadial.x);
-    const double exitAngle = std::atan2(exitRadial.y, exitRadial.x);
-    const double directionSign = clockwise ? -1.0 : 1.0;
     const Vec2 entryCircleTangent =
         directionSign * Vec2{-std::sin(entryAngle), std::cos(entryAngle)};
     const Vec2 exitCircleTangent =
@@ -74,10 +87,14 @@ std::vector<std::shared_ptr<const MotionPath>> buildRoundaboutSegments(
 
     const double entryGap = distance(entryPoint, entryMerge);
     const double exitGap = distance(exitPoint, exitMerge);
+    const double entryRadialClearance = std::max(
+        0.0, distance(entryPoint, centre) - radiusWorld);
+    const double exitRadialClearance = std::max(
+        0.0, distance(exitPoint, centre) - radiusWorld);
     const double entryRoadControl =
-        std::max(1e-3, entryGap * 0.40);
+        std::max(1e-3, entryRadialClearance * 0.40);
     const double exitRoadControl =
-        std::max(1e-3, exitGap * 0.40);
+        std::max(1e-3, exitRadialClearance * 0.40);
     const double entryCircleControl =
         std::max(radiusWorld * 0.28, entryGap * 0.55);
     const double exitCircleControl =
