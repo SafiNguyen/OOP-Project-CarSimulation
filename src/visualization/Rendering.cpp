@@ -27,7 +27,6 @@
 namespace {
 
 constexpr float kVehicleOutlinePixels = 0.55f;
-constexpr float kMapCacheRefreshSeconds = 0.5f;
 constexpr int kPedestrianDiscSegments = 10;
 constexpr float kTurnSignalRadiusPixels = 1.8f;
 constexpr float kTurnSignalHaloPixels = 0.6f;
@@ -175,7 +174,7 @@ void appendDisc(std::vector<sf::Vertex>& vertices,
     }
 }
 
-bool drawCachedGraph(AppContext& ctx) {
+bool drawCachedStaticLayer(AppContext& ctx) {
     const sf::Vector2u requestedSize(
         ctx.windowW,
         ctx.windowH);
@@ -189,11 +188,8 @@ bool drawCachedGraph(AppContext& ctx) {
         !ctx.mapCacheReady ||
         ctx.mapCacheRevision != visualizationRevision ||
         ctx.mapCacheTexture.getSize() != requestedSize;
-    const bool dynamicRefreshDue =
-        ctx.mapCacheRefreshClock.getElapsedTime().asSeconds() >=
-            kMapCacheRefreshSeconds;
 
-    if (geometryChanged || dynamicRefreshDue) {
+    if (geometryChanged) {
         if (ctx.mapCacheTexture.getSize() != requestedSize &&
             !ctx.mapCacheTexture.create(
                 requestedSize.x,
@@ -207,7 +203,7 @@ bool drawCachedGraph(AppContext& ctx) {
         // Match the window clear color so translucent map details are blended
         // exactly once before this opaque cached texture is composited.
         ctx.mapCacheTexture.clear(sf::Color(34, 42, 48));
-        ctx.visualization.drawGraph(
+        ctx.visualization.drawStaticLayer(
             ctx.mapCacheTexture,
             ctx.graph);
         ctx.mapCacheTexture.display();
@@ -216,7 +212,6 @@ bool drawCachedGraph(AppContext& ctx) {
             true);
         ctx.mapCacheRevision = visualizationRevision;
         ctx.mapCacheReady = true;
-        ctx.mapCacheRefreshClock.restart();
     }
 
     ctx.window.draw(ctx.mapCacheSprite);
@@ -661,11 +656,15 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
 
     window.setView(ctx.view);
     window.clear(sf::Color(34, 42, 48));
-    if (!drawCachedGraph(ctx)) {
-        ctx.visualization.drawGraph(
+    if (!drawCachedStaticLayer(ctx)) {
+        ctx.visualization.drawStaticLayer(
             window,
             ctx.graph);
     }
+
+    ctx.visualization.drawDynamicLayer(
+        window,
+        ctx.graph);
 
     if (simulator) {
         drawActiveVehicles(

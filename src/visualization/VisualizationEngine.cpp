@@ -142,7 +142,8 @@ void VisualizationEngine::prepare(const Graph& graph) {
     }
 }
 
-void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph) const {
+
+void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph& graph) const {
     auto roads = graph.getAllRoads();
     auto intersections = graph.getAllIntersections();
 
@@ -219,11 +220,7 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
             rd.borderColor = sf::Color::Transparent;
             rd.borderWidth = 0.0f;
         } else {
-            if (heatMapEnabled_) {
-                rd.bodyColor = colorForRoad(road);
-            } else {
-                rd.bodyColor = sf::Color(110, 110, 110);
-            }
+            rd.bodyColor = sf::Color(110, 110, 110);
             rd.hasBorder = false;
             rd.borderColor = sf::Color::Transparent;
             rd.borderWidth = 0.0f;
@@ -232,9 +229,8 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
         drawList.push_back(rd);
     }
 
-    // Pass 1: road bodies and blocked-lane fills. Markings are deliberately
-    // deferred until every body exists so a later road cannot paint over an
-    // earlier road's lane dividers.
+    // Pass 1: neutral road bodies. (Blocked-lane fills and congestion tint
+    // moved to drawDynamicLayer() - they depend on live simulation state.)
     for (const RoadDraw& rd : drawList) {
         drawRoadStrip(
             target,
@@ -244,27 +240,6 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
             rd.totalWidth);
         rasterizeBodyToMask(rd.offsetA, rd.offsetB, rd.totalWidth,
                             bodyMask, gridW, gridH, kBorderMaskCellSize);
-
-        // Draw individual blocked lanes
-        Road* roadObj = rd.road;
-        for (int i = 0; i < rd.laneCount; ++i) {
-            if (roadObj->getLane(i).isBlocked() && !roadObj->isBlocked() && heatMapEnabled_) {
-                const Vec2 laneStart =
-                    RoadGeometry::laneEndpoint(*roadObj, i, true);
-                const Vec2 laneEnd =
-                    RoadGeometry::laneEndpoint(*roadObj, i, false);
-                const sf::Vector2f laneCenterA =
-                    worldToScreen(laneStart.x, laneStart.y);
-                const sf::Vector2f laneCenterB =
-                    worldToScreen(laneEnd.x, laneEnd.y);
-                drawRoadStrip(
-                    target,
-                    laneCenterA,
-                    laneCenterB,
-                    sf::Color(180, 40, 40),
-                    std::max(1.0f, rd.laneWidth - 1.0f));
-            }
-        }
     }
 
     // Pass 2: lane dividers and carriageway edges.
@@ -465,15 +440,96 @@ void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph
     target.draw(border);
 
     for (auto* intersection : intersections) {
-        drawIntersectionNode(target, intersection);
+        drawIntersectionNode(target, intersection, /*tintByCongestion=*/false);
     }
 
-    drawCrosswalks(target, graph);
+    drawCrosswalkStripes(target, graph);
     drawBusStops(target, graph);
     drawBusStations(target, graph);
     drawPOIs(target, graph);
     drawRoadNames(target, roads);
+}
+
+
+void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph& graph) const {
+    drawRoadCongestionOverlay(target, graph);
+    drawBlockedLaneFills(target, graph);
+
+    auto intersections = graph.getAllIntersections();
+    std::sort(intersections.begin(), intersections.end(), [](Intersection* lhs, Intersection* rhs) {
+        return lhs->getId() < rhs->getId();
+    });
+    if (heatMapEnabled_) {
+        for (auto* intersection : intersections) {
+            drawIntersectionNode(target, intersection, /*tintByCongestion=*/true);
+        }
+    }
+
+    drawCrosswalkSignals(target, graph);
     drawTrafficLights(target, graph);
+}
+
+void VisualizationEngine::drawRoadCongestionOverlay(sf::RenderTarget& target, const Graph& graph) const {
+    if (!heatMapEnabled_) {
+        return;
+    }
+    for (Road* road : graph.getAllRoads()) {
+        if (road == nullptr || road->isBridge() || road->isTunnel()) {
+            continue;
+        }
+        auto* start = road->getStart();
+        auto* end = road->getEnd();
+        if (start == nullptr || end == nullptr) {
+            continue;
+        }
+        const float laneWidth = getLaneWidthPixels(road);
+        const float totalWidth =
+            static_cast<float>(std::max(1, road->getLaneCount())) * laneWidth;
+        const sf::Vector2f a = getRoadEntryPoint(road, start);
+        const sf::Vector2f b = getRoadEntryPoint(road, end);
+        drawRoadStrip(
+            target,
+            a,
+            b,
+            colorForRoad(road),
+            totalWidth);
+    }
+}
+
+void VisualizationEngine::drawBlockedLaneFills(sf::RenderTarget& target, const Graph& graph) const {
+    if (!heatMapEnabled_) {
+        return;
+    }
+    for (Road* road : graph.getAllRoads()) {
+        if (road == nullptr || road->isBlocked()) {
+            continue;
+        }
+        const float laneWidth = getLaneWidthPixels(road);
+        for (int i = 0; i < road->getLaneCount(); ++i) {
+            if (!road->getLane(i).isBlocked()) {
+                continue;
+            }
+            const Vec2 laneStart =
+                RoadGeometry::laneEndpoint(*road, i, true);
+            const Vec2 laneEnd =
+                RoadGeometry::laneEndpoint(*road, i, false);
+            const sf::Vector2f laneCenterA =
+                worldToScreen(laneStart.x, laneStart.y);
+            const sf::Vector2f laneCenterB =
+                worldToScreen(laneEnd.x, laneEnd.y);
+            drawRoadStrip(
+                target,
+                laneCenterA,
+                laneCenterB,
+                sf::Color(180, 40, 40),
+                std::max(1.0f, laneWidth - 1.0f));
+        }
+    }
+}
+
+void VisualizationEngine::drawGraph(sf::RenderTarget& target, const Graph& graph) const {
+    drawStaticLayer(target, graph);
+    drawDynamicLayer(target, graph);
 }
 
 void VisualizationEngine::setFont(const sf::Font& font) {
@@ -565,6 +621,6 @@ sf::Color VisualizationEngine::colorForRoad(const Road* road) const {
     if (normalized < 0.5f) {
         return mixColor(green, yellow, normalized * 2.0f);
     }
-
     return mixColor(yellow, red, (normalized - 0.5f) * 2.0f);
+
 }

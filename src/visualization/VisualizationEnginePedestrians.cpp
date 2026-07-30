@@ -141,7 +141,7 @@ void VisualizationEngine::drawSidewalks(
     }
 }
 
-void VisualizationEngine::drawCrosswalks(
+void VisualizationEngine::drawCrosswalkStripes(
     sf::RenderTarget& target,
     const Graph& graph) const {
     constexpr double stripeMetres = 0.30;
@@ -229,9 +229,15 @@ void VisualizationEngine::drawCrosswalks(
             target.draw(stripe);
         }
     }
+}
 
+void VisualizationEngine::drawCrosswalks(
+    sf::RenderTarget& target,
+    const Graph& graph) const {
+    drawCrosswalkStripes(target, graph);
     drawCrosswalkSignals(target, graph);
 }
+
 
 void VisualizationEngine::drawCrosswalkSignals(
     sf::RenderTarget& target,

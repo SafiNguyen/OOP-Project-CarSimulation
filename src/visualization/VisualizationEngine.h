@@ -24,6 +24,8 @@ public:
     sf::Color colorForRoad(const Road* road) const;
 
     void drawGraph(sf::RenderTarget& target, const Graph& graph) const;
+    void drawStaticLayer(sf::RenderTarget& target, const Graph& graph) const;
+    void drawDynamicLayer(sf::RenderTarget& target, const Graph& graph) const;
 
     void setSpriteTexture(const sf::Texture& texture,
                           const sf::IntRect& rect = sf::IntRect(),
@@ -72,10 +74,14 @@ private:
     void drawBusStations(sf::RenderTarget& target, const Graph& graph) const;
     void drawSidewalks(sf::RenderTarget& target, const Graph& graph) const;
     void drawCrosswalks(sf::RenderTarget& target, const Graph& graph) const;
+    void drawCrosswalkStripes(sf::RenderTarget& target, const Graph& graph) const;
     void drawCrosswalkSignals(sf::RenderTarget& target,
                               const Graph& graph) const;
-    void drawIntersectionNode(sf::RenderTarget& target, const Intersection* intersection) const;
-    
+    void drawIntersectionNode(sf::RenderTarget& target, const Intersection* intersection,
+                              bool tintByCongestion) const;
+    void drawRoadCongestionOverlay(sf::RenderTarget& target, const Graph& graph) const;
+    void drawBlockedLaneFills(sf::RenderTarget& target, const Graph& graph) const;
+
     sf::Color lightColor(LightState state) const;
     sf::Vector2f roadNormal(const sf::Vector2f& a, const sf::Vector2f& b) const;
 
@@ -85,7 +91,7 @@ private:
     void drawRoadNames(sf::RenderTarget& target, const std::vector<Road*>& roads) const;
     float getIntersectionBoxHalfExtent(const Intersection* intersection) const;
     float getLaneWidthPixels(const Road* road) const;
-    sf::Color getIntersectionBoxColor(const Intersection* intersection) const;
+    sf::Color getIntersectionBoxColor(const Intersection* intersection, bool tintByCongestion) const;
 
     sf::Vector2u windowSize_;
     float margin_;

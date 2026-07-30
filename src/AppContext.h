@@ -8,10 +8,6 @@
 class Graph;
 class VisualizationEngine;
 
-// Bundles the camera/view and map-loading state that used to live as plain
-// locals + captured lambdas inside main(). Passed by reference into the
-// free functions in Camera.h / MapLoading.h / InputHandling.h / Rendering.h
-// so none of them need a dozen separate parameters each.
 struct AppContext {
     AppContext(Graph& graphRef, VisualizationEngine& visualizationRef,
                sf::RenderWindow& windowRef, unsigned int w, unsigned int h)
@@ -41,12 +37,8 @@ struct AppContext {
     bool heatMapEnabled = true;
     bool showParkedVehicles = true;
 
-    // drawGraph() builds hundreds of shapes and a CPU road-overlap mask.
-    // Keep its result on the GPU and only rebuild it when the visualization
-    // geometry changes or when the lower-frequency map-state refresh is due.
     sf::RenderTexture mapCacheTexture;
     sf::Sprite mapCacheSprite;
-    sf::Clock mapCacheRefreshClock;
     std::uint64_t mapCacheRevision = 0;
     bool mapCacheReady = false;
 };

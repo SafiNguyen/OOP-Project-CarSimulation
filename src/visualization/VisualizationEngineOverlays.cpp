@@ -595,13 +595,17 @@ void VisualizationEngine::drawBusStations(
     }
 }
 
-void VisualizationEngine::drawIntersectionNode(sf::RenderTarget& target, const Intersection* intersection) const {
+void VisualizationEngine::drawIntersectionNode(sf::RenderTarget& target, const Intersection* intersection,
+                                               bool tintByCongestion) const {
     if (intersection == nullptr) {
         return;
     }
 
     const sf::Vector2f point = worldToScreen(intersection->getX(), intersection->getY());
     if (intersection->isRoundabout()) {
+        if (tintByCongestion) {
+            return;
+        }
         const float metricScale = static_cast<float>(
             RoadGeometry::metresPerWorldUnit(*intersection));
         const float roadWidth = static_cast<float>(
@@ -615,7 +619,7 @@ void VisualizationEngine::drawIntersectionNode(sf::RenderTarget& target, const I
         const float outerRadius =
             circulationRadius + roadWidth * 0.5f;
         const sf::Color roundaboutRoadColor =
-            getIntersectionBoxColor(intersection);
+            getIntersectionBoxColor(intersection, /*tintByCongestion=*/false);
 
         // Transition each physical road from its rectangular carriageway
         // into a wider mouth on the outer circle. The short flare starts
@@ -912,12 +916,12 @@ void VisualizationEngine::drawIntersectionNode(sf::RenderTarget& target, const I
         sf::RectangleShape core({halfExtent * 2.0f, halfExtent * 2.0f});
         core.setOrigin(halfExtent, halfExtent);
         core.setPosition(point);
-        core.setFillColor(getIntersectionBoxColor(intersection));
+        core.setFillColor(getIntersectionBoxColor(intersection, tintByCongestion));
         core.setOutlineThickness(0.0f);
         target.draw(core);
     }
 
-    if (spriteTexture_ != nullptr) {
+    if (!tintByCongestion && spriteTexture_ != nullptr) {
         sf::Sprite sprite(*spriteTexture_, spriteRect_);
         sprite.setPosition(point.x - spriteSize_.x * 0.5f, point.y - spriteSize_.y * 0.5f);
         sprite.setScale(spriteSize_.x / std::max(1.0f, static_cast<float>(spriteRect_.width ? spriteRect_.width : spriteTexture_->getSize().x)),
@@ -993,9 +997,12 @@ float VisualizationEngine::getLaneWidthPixels(
         RoadGeometry::metresPerWorldUnit(*road) * scale_);
 }
 
-sf::Color VisualizationEngine::getIntersectionBoxColor(const Intersection* intersection) const {
+sf::Color VisualizationEngine::getIntersectionBoxColor(const Intersection* intersection, bool tintByCongestion) const {
     const sf::Color fallbackGray(110, 110, 110);
     if (intersection == nullptr) {
+        return fallbackGray;
+    }
+    if (!tintByCongestion || !heatMapEnabled_) {
         return fallbackGray;
     }
 
@@ -1009,7 +1016,7 @@ sf::Color VisualizationEngine::getIntersectionBoxColor(const Intersection* inter
             if (road == nullptr || road->isBridge() || road->isTunnel()) {
                 continue; // these have their own distinct colors, not congestion-based
             }
-            const sf::Color c = heatMapEnabled_ ? colorForRoad(road) : sf::Color(110, 110, 110);
+            const sf::Color c = colorForRoad(road);
             r += c.r;
             g += c.g;
             b += c.b;
