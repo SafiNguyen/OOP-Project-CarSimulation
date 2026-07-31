@@ -520,6 +520,7 @@ void Intersection::resetSignalCycle() {
         phaseGroups.empty() ? 0.0 : greenDurationSeconds_;
     preemptedRoad_ = nullptr;
     preemptionHoldSeconds_ = 0.0;
+    extendedGreenForPreemption_ = false;
     emergencyApproach_ = {};
     emergencyPriorityRemainingSeconds_ = 0.0;
     pedestrianPhasePending_ = false;
@@ -781,6 +782,19 @@ void Intersection::updateTrafficLights(double dt) {
                       << std::endl;
             stageRemainingSeconds_ = 0.0;
             stuckTimer_ = 0.0;
+            if (signalStage_ ==
+                    SignalStage::PEDESTRIAN_CLEARANCE) {
+                endPedestrianPhase();
+                activePhaseGroup = nextScheduledPhase();
+                signalStage_ = SignalStage::GREEN;
+                stageRemainingSeconds_ =
+                    std::max(
+                        greenDurationSeconds_,
+                        preemptionHoldSeconds_);
+                preemptedRoad_ = nullptr;
+                preemptionHoldSeconds_ = 0.0;
+                extendedGreenForPreemption_ = false;
+            }
         }
     } else {
         stuckLastStage_ = signalStage_;
@@ -821,6 +835,7 @@ void Intersection::updateTrafficLights(double dt) {
 
         if (signalStage_ == SignalStage::GREEN) {
             signalStage_ = SignalStage::YELLOW;
+            extendedGreenForPreemption_ = false;
             stageRemainingSeconds_ =
                 yellowDurationSeconds_;
         } else if (signalStage_ == SignalStage::YELLOW) {
@@ -854,7 +869,8 @@ void Intersection::updateTrafficLights(double dt) {
             beginPedestrianClearance();
         } else {
             if (hasOccupiedCrosswalk()) {
-                stageRemainingSeconds_ = 0.0;
+                // Retry clearance periodically instead of freezing at 0.
+                stageRemainingSeconds_ = 0.25;
                 break;
             }
             endPedestrianPhase();
@@ -878,6 +894,7 @@ void Intersection::clearEmergencyPriority() {
     emergencyPriorityRemainingSeconds_ = 0.0;
     preemptedRoad_ = nullptr;
     preemptionHoldSeconds_ = 0.0;
+    extendedGreenForPreemption_ = false;
 }
 
 void Intersection::updateEmergencyPriority(double dt) {
@@ -985,8 +1002,11 @@ void Intersection::requestEmergencyPreemption(
         std::max(preemptionHoldSeconds_, holdDuration);
     if (requestedPhase == activePhaseGroup &&
         signalStage_ == SignalStage::GREEN) {
-        stageRemainingSeconds_ =
-            std::max(stageRemainingSeconds_, holdDuration);
+        if (!extendedGreenForPreemption_) {
+            stageRemainingSeconds_ =
+                std::max(stageRemainingSeconds_, holdDuration);
+            extendedGreenForPreemption_ = true;
+        }
         preemptedRoad_ = nullptr;
         synchronizeSignalHeads();
         return;

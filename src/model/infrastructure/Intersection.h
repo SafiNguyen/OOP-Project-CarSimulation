@@ -120,6 +120,7 @@ private:
 
     const Road* preemptedRoad_ = nullptr;
     double preemptionHoldSeconds_ = 0.0;
+    bool extendedGreenForPreemption_ = false;
     EmergencyApproach emergencyApproach_;
     double emergencyPriorityRemainingSeconds_ = 0.0;
 

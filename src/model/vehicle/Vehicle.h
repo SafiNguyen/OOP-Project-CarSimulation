@@ -1,6 +1,7 @@
 #ifndef VEHICLE_H
 #define VEHICLE_H
 
+#include <cstdlib>
 #include <memory>
 #include <vector>
 #include "Geometry.h"
@@ -91,7 +92,7 @@ protected:
     double rightOnRedStoppedSeconds_ = 0.0;
     double simulationTimeSeconds_ = 0.0;
     
-    double recalculateTimer = 5.0;
+    double recalculateTimer = 10.0 + static_cast<double>(std::rand() % 50) / 10.0; // 10-15s initial spread
     
     double poiAnimationTimer = 2.0;
     double poiAnimationDuration = 2.0;

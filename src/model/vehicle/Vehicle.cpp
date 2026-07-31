@@ -1214,16 +1214,20 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                 movementState_ ==
                     MovementState::OnRoad) {
                 bool hasCongestion = false;
-                for (size_t i =
-                         currentRouteIndex + 1;
-                     i < currentRoute.size();
-                     ++i) {
-                    if (currentRoute[i]->
-                                getDynamicCongestionLevel() >
-                            1.5 ||
-                        currentRoute[i]->isBlocked()) {
-                        hasCongestion = true;
-                        break;
+                {
+                    const size_t maxLookAhead = 50; // Check only the next 50 roads for congestion
+                    const size_t end = std::min(
+                        currentRouteIndex + 1 + maxLookAhead,
+                        currentRoute.size());
+                    for (size_t i = currentRouteIndex + 1;
+                         i < end; ++i) {
+                        if (currentRoute[i]->
+                                    getDynamicCongestionLevel() >
+                                1.5 ||
+                            currentRoute[i]->isBlocked()) {
+                            hasCongestion = true;
+                            break;
+                        }
                     }
                 }
                 if (hasCongestion) {
