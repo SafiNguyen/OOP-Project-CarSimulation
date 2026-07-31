@@ -1526,7 +1526,7 @@ double Intersection::limitTraversalAdvance(
     }
 
     const double metricScale =
-        RoadGeometry::metresPerWorldUnit(*this);
+    RoadGeometry::metresPerWorldUnit(*this);
     std::vector<OrientedVehicleBounds> occupantBounds;
     occupantBounds.reserve(occupants_.size() - 1);
     for (const auto& entry : occupants_) {
@@ -1554,9 +1554,6 @@ double Intersection::limitTraversalAdvance(
                 clearanceMetres);
         for (const OrientedVehicleBounds& other : occupantBounds) {
             if (boundsOverlap(candidate, other)) {
-                if (candidateEntryId < reservation.entryId) {
-                    continue; // Candidate entered first, ignore overlap
-                }
                 return false;
             }
         }
