@@ -246,7 +246,7 @@ void DebugConsole::drawBottomDock(sf::RenderWindow& window,
         ImGuiWindowFlags_NoScrollWithMouse;
 
     if (ImGui::Begin("##bottom_control_dock", nullptr, flags)) {
-        const int itemCount = narrow ? 6 : (wide ? 8 : 7);
+        const int itemCount = narrow ? 4 : (wide ? 7 : 6);
         const float gap = 6.0f;
         const float itemWidth = std::max(58.0f,
             (ImGui::GetContentRegionAvail().x - gap * static_cast<float>(itemCount - 1))
@@ -255,20 +255,15 @@ void DebugConsole::drawBottomDock(sf::RenderWindow& window,
 
         auto next = [&]() { ImGui::SameLine(0.0f, gap); };
 
-        if (UiTheme::selectionButton(narrow ? "Menu" : "Map",
-                                     drawerOpen_ && activeTab_ == (narrow ? DrawerTab::OVERVIEW
-                                                                         : DrawerTab::MAP),
-                                     buttonSize)) {
-            openDrawer(narrow ? DrawerTab::OVERVIEW : DrawerTab::MAP);
-        }
-        UiTheme::tooltip(narrow ? "Open simulation overview" : "Open map controls");
-        next();
-
         if (wide) {
-            if (ImGui::Button("Demo Map", buttonSize)) {
-                performMapLoad(true, simulator, mapPathInput, loadError);
+            if (ImGui::Button("Reset", buttonSize)) {
+                if (mapPathInput.empty()) {
+                    performMapLoad(true, simulator, mapPathInput, loadError);
+                } else {
+                    performMapLoad(false, simulator, mapPathInput, loadError);
+                }
             }
-            UiTheme::tooltip("Load the built-in demo map");
+            UiTheme::tooltip("Reload the current map and restart the simulation");
             next();
         }
 
@@ -310,12 +305,7 @@ void DebugConsole::drawBottomDock(sf::RenderWindow& window,
             UiTheme::tooltip("Toggle completed vehicles near destinations");
             next();
         } else {
-            if (UiTheme::selectionButton("Map", drawerOpen_ && activeTab_ == DrawerTab::MAP,
-                                         buttonSize)) {
-                openDrawer(DrawerTab::MAP);
-            }
-            UiTheme::tooltip("Open map controls");
-            next();
+            // narrow mode: no Map button
         }
 
         if (UiTheme::selectionButton(narrow ? "Tools" : "Road Tools",

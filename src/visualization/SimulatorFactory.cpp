@@ -74,7 +74,7 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingS
     }
 
     std::mt19937 rng(42);
-    VehicleSpawnPolicy spawnPolicy(graph, 42u);
+    VehicleSpawnPolicy spawnPolicy(graph, 42u, VehicleSpawnPolicy::DemandWeights{});
     std::uniform_int_distribution<std::size_t> intersectionDistribution(
         0,
         intersections.size() - 1);

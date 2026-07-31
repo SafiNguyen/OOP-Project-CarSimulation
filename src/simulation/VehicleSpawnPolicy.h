@@ -33,10 +33,15 @@ public:
     };
 
     struct DemandWeights {
-        double car = 45.5;
-        double motorbike = 45.5;
-        double bus = 5.0;
-        double emergency = 4.0;
+        double car;
+        double motorbike;
+        double bus;
+        double emergency;
+
+        DemandWeights()
+            : car(45.5), motorbike(45.5), bus(5.0), emergency(4.0) {}
+        DemandWeights(double car, double motorbike, double bus, double emergency)
+            : car(car), motorbike(motorbike), bus(bus), emergency(emergency) {}
     };
 
     explicit VehicleSpawnPolicy(

@@ -93,9 +93,23 @@ std::string resolveInitialMapPath(int argc, char** argv) {
 
 bool loadSnapshotFont(sf::Font& font) {
     const std::vector<std::string> paths = {
+        // Linux system fonts (Debian/Ubuntu)
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        // Linux system fonts (Arch Linux)
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/usr/share/fonts/TTF/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/TTF/JetBrainsMonoNerdFont-Medium.ttf",
+        // Windows fonts
         "C:/Windows/Fonts/arial.ttf",
         "C:/Windows/Fonts/segoeui.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        // macOS fonts
+        "/Library/Fonts/Arial.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        // Bundled assets folder
+        "assets/DejaVuSans.ttf",
+        "assets/LiberationSans-Regular.ttf",
+        "assets/arial.ttf"
     };
     for (const std::string& path : paths) {
         if (std::filesystem::exists(path) &&
@@ -481,15 +495,19 @@ int main(int argc, char** argv) {
     sf::Font font;
     bool fontLoaded = false;
     
-    // Cross-platform font loading: try Linux, Windows, macOS, and relative paths
+    // Cross-platform font loading: try Linux, Windows, macOS, Arch, and relative paths
     const std::vector<std::string> fontPaths = {
-        // Linux system fonts
+        // Linux system fonts (Debian/Ubuntu)
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
         "/usr/share/fonts/opentype/liberation/LiberationSans-Regular.otf",
         "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
         "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+        // Linux system fonts (Arch Linux)
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/usr/share/fonts/TTF/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/TTF/NotoSans-Regular.ttf",
         // Windows fonts
         "C:/Windows/Fonts/arial.ttf",
         "C:/Windows/Fonts/segoeui.ttf",
@@ -497,6 +515,10 @@ int main(int argc, char** argv) {
         // macOS fonts
         "/Library/Fonts/Arial.ttf",
         "/System/Library/Fonts/Helvetica.ttc",
+        // Bundled assets folder (user can place a .ttf here)
+        "assets/DejaVuSans.ttf",
+        "assets/LiberationSans-Regular.ttf",
+        "assets/arial.ttf",
         // Relative paths
         "arial.ttf",
         "./assets/fonts/arial.ttf",

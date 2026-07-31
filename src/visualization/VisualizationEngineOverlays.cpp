@@ -509,12 +509,33 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                         0.0,
                         light->getRemainingSeconds() -
                             1e-9)));
-            drawSevenSegmentNumber(
-                target,
-                displayedSeconds,
-                countdownCenter,
-                countdownSize,
-                lightColor(state));
+            if (font_) {
+                sf::Text countdownText;
+                countdownText.setFont(*font_);
+                countdownText.setString(
+                    std::to_string(displayedSeconds));
+                countdownText.setCharacterSize(
+                    static_cast<unsigned int>(
+                        std::max(8.0f, countdownSize * 0.7f)));
+                countdownText.setStyle(sf::Text::Bold);
+                countdownText.setFillColor(lightColor(state));
+                const sf::FloatRect bounds =
+                    countdownText.getLocalBounds();
+                countdownText.setOrigin(
+                    bounds.left + bounds.width * 0.5f,
+                    bounds.top + bounds.height * 0.5f);
+                countdownText.setPosition(
+                    std::round(countdownCenter.x),
+                    std::round(countdownCenter.y));
+                target.draw(countdownText);
+            } else {
+                drawSevenSegmentNumber(
+                    target,
+                    displayedSeconds,
+                    countdownCenter,
+                    countdownSize,
+                    lightColor(state));
+            }
         }
     }
 }
