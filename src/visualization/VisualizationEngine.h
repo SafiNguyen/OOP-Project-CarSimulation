@@ -2,6 +2,8 @@
 #define VISUALIZATIONENGINE_H
 
 #include <SFML/Graphics.hpp>
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 #include "TrafficLight.h"
@@ -10,6 +12,74 @@ class Graph;
 class Road;
 class Intersection;
 class Vehicle;
+
+class ViewportBounds {
+public:
+    explicit ViewportBounds(
+        const sf::View& view,
+        float margin = 0.0f) noexcept {
+        const sf::Vector2f center = view.getCenter();
+        const sf::Vector2f size = view.getSize();
+        const float halfWidth = std::abs(size.x) * 0.5f;
+        const float halfHeight = std::abs(size.y) * 0.5f;
+        const float radians =
+            view.getRotation() * 3.14159265358979323846f / 180.0f;
+        const float cosine = std::abs(std::cos(radians));
+        const float sine = std::abs(std::sin(radians));
+        const float enclosingHalfWidth =
+            cosine * halfWidth + sine * halfHeight;
+        const float enclosingHalfHeight =
+            sine * halfWidth + cosine * halfHeight;
+        const float safeMargin = std::max(0.0f, margin);
+
+        minimumX_ = center.x - enclosingHalfWidth - safeMargin;
+        maximumX_ = center.x + enclosingHalfWidth + safeMargin;
+        minimumY_ = center.y - enclosingHalfHeight - safeMargin;
+        maximumY_ = center.y + enclosingHalfHeight + safeMargin;
+    }
+
+    bool containsPoint(
+        const sf::Vector2f& point,
+        float radius = 0.0f) const noexcept {
+        const float safeRadius = std::max(0.0f, radius);
+        return point.x + safeRadius >= minimumX_ &&
+               point.x - safeRadius <= maximumX_ &&
+               point.y + safeRadius >= minimumY_ &&
+               point.y - safeRadius <= maximumY_;
+    }
+
+    bool intersectsRectangle(
+        const sf::FloatRect& rectangle,
+        float margin = 0.0f) const noexcept {
+        const float safeMargin = std::max(0.0f, margin);
+        return rectangle.left + rectangle.width + safeMargin >=
+                   minimumX_ &&
+               rectangle.left - safeMargin <= maximumX_ &&
+               rectangle.top + rectangle.height + safeMargin >=
+                   minimumY_ &&
+               rectangle.top - safeMargin <= maximumY_;
+    }
+
+    bool intersectsSegment(
+        const sf::Vector2f& start,
+        const sf::Vector2f& end,
+        float halfThickness = 0.0f) const noexcept {
+        const float thickness =
+            std::max(0.0f, halfThickness);
+        const float left = std::min(start.x, end.x) - thickness;
+        const float top = std::min(start.y, end.y) - thickness;
+        const float right = std::max(start.x, end.x) + thickness;
+        const float bottom = std::max(start.y, end.y) + thickness;
+        return intersectsRectangle(
+            sf::FloatRect(left, top, right - left, bottom - top));
+    }
+
+private:
+    float minimumX_ = 0.0f;
+    float maximumX_ = 0.0f;
+    float minimumY_ = 0.0f;
+    float maximumY_ = 0.0f;
+};
 
 class VisualizationEngine {
 public:

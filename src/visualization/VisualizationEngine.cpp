@@ -459,7 +459,21 @@ void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph
         return lhs->getId() < rhs->getId();
     });
     if (heatMapEnabled_) {
+        const ViewportBounds viewportBounds(
+            target.getView(),
+            2.0f);
         for (auto* intersection : intersections) {
+            const sf::Vector2f intersectionPosition =
+                worldToScreen(
+                    intersection->getX(),
+                    intersection->getY());
+            const float intersectionHalfExtent =
+                getIntersectionBoxHalfExtent(intersection);
+            if (!viewportBounds.containsPoint(
+                    intersectionPosition,
+                    intersectionHalfExtent)) {
+                continue;
+            }
             drawIntersectionNode(target, intersection, /*tintByCongestion=*/true);
         }
     }
@@ -477,6 +491,9 @@ void VisualizationEngine::drawRoadCongestionOverlay(sf::RenderTarget& target, co
     if (!heatMapEnabled_) {
         return;
     }
+    const ViewportBounds viewportBounds(
+        target.getView(),
+        2.0f);
     for (Road* road : graph.getAllRoads()) {
         if (road == nullptr || road->isBridge() || road->isTunnel()) {
             continue;
@@ -491,6 +508,12 @@ void VisualizationEngine::drawRoadCongestionOverlay(sf::RenderTarget& target, co
             static_cast<float>(std::max(1, road->getLaneCount())) * laneWidth;
         const sf::Vector2f a = getRoadEntryPoint(road, start);
         const sf::Vector2f b = getRoadEntryPoint(road, end);
+        if (!viewportBounds.intersectsSegment(
+                a,
+                b,
+                totalWidth * 0.5f)) {
+            continue;
+        }
         drawRoadStrip(
             target,
             a,
@@ -504,6 +527,9 @@ void VisualizationEngine::drawBlockedLaneFills(sf::RenderTarget& target, const G
     if (!heatMapEnabled_) {
         return;
     }
+    const ViewportBounds viewportBounds(
+        target.getView(),
+        2.0f);
     for (Road* road : graph.getAllRoads()) {
         if (road == nullptr || road->isBlocked()) {
             continue;
@@ -521,12 +547,20 @@ void VisualizationEngine::drawBlockedLaneFills(sf::RenderTarget& target, const G
                 worldToScreen(laneStart.x, laneStart.y);
             const sf::Vector2f laneCenterB =
                 worldToScreen(laneEnd.x, laneEnd.y);
+            const float laneFillWidth =
+                std::max(1.0f, laneWidth - 1.0f);
+            if (!viewportBounds.intersectsSegment(
+                    laneCenterA,
+                    laneCenterB,
+                    laneFillWidth * 0.5f)) {
+                continue;
+            }
             drawRoadStrip(
                 target,
                 laneCenterA,
                 laneCenterB,
                 sf::Color(180, 40, 40),
-                std::max(1.0f, laneWidth - 1.0f));
+                laneFillWidth);
         }
     }
 }
