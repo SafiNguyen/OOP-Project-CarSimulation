@@ -769,6 +769,13 @@ void TrafficSimulator::removeFinishedVehicles() {
         return false;
     });
     vehicles.erase(it, vehicles.end());
+    
+    // Cap the size of finishedVehicles to prevent memory bloat
+    const size_t MAX_FINISHED_VEHICLES = 500;
+    while (finishedVehicles.size() > MAX_FINISHED_VEHICLES) {
+        delete finishedVehicles.front();
+        finishedVehicles.erase(finishedVehicles.begin());
+    }
 }
 
 bool TrafficSimulator::addVehicleWithFixedRoute(

@@ -87,21 +87,4 @@ public:
     std::string getEventType() const override { return "Road Closure"; }
 };
 
-// Traffic Light Delay Event
-class TrafficLightDelayEvent : public TrafficEvent {
-public:
-    // Simulates a red light by temporarily blocking the road right before the intersection
-    TrafficLightDelayEvent(int rId, double redLightDuration) : TrafficEvent(rId, redLightDuration) {}
-
-    void apply(Graph& graph) override {
-        graph.updateRoadCondition(roadId, 1.0, true); // Red light: stop traffic
-    }
-
-    void remove(Graph& graph) override {
-        graph.updateRoadCondition(roadId, 1.0, false); // Green light: resume traffic
-    }
-
-    std::string getEventType() const override { return "Traffic Light Delay"; }
-};
-
 #endif

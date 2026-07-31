@@ -1488,6 +1488,7 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                 }
             }
         }
+        currentLeader_ = leader;
 
         if (leader != nullptr) {
             minGap = std::max(minGap, leader->getMinGap());
@@ -1524,13 +1525,20 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
             const bool atIntersectionStopPosition =
                 progressOnCurrentRoad + 1e-6 >=
                 getIntersectionStopPosition();
+            
+            isWaitingForLight_ = (controlReason != PauseReason::None && atIntersectionStopPosition);
+
+            if (isStuckInJam()) {
+                stuckTimer += subDt;
+            } else {
+                stuckTimer = 0.0;
+            }
+
             if (controlReason != PauseReason::None &&
                 atIntersectionStopPosition) {
                 beginPause(controlReason);
                 break;
             }
-
-            stuckTimer += subDt;
             if (allowsUTurn() &&
                 stuckTimer > patienceThreshold &&
                 graph != nullptr && strategy != nullptr) {
@@ -1608,8 +1616,10 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                     progressOnCurrentRoad = std::min(
                         currentRoad->getDistance(),
                         std::max(currentPos, getIntersectionStopPosition()));
-                    beginPause(PauseReason::Intersection);
-                    break;
+                    targetSpeed = 0.0;
+                    currentSpeed = 0.0;
+                    remainingTime -= subDt;
+                    continue;
                 }
             } else if (nextIntersection != nullptr &&
                        reservedIntersection_ != nextIntersection) {
@@ -1620,8 +1630,10 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                     progressOnCurrentRoad = std::min(
                         currentRoad->getDistance(),
                         std::max(currentPos, getIntersectionStopPosition()));
-                    beginPause(PauseReason::Intersection);
-                    break;
+                    targetSpeed = 0.0;
+                    currentSpeed = 0.0;
+                    remainingTime -= subDt;
+                    continue;
                 }
             }
             const double distToEnd =
@@ -1664,6 +1676,10 @@ bool Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy
         return false;
     }
 
+    if (currentRoad->isBlocked()) {
+        return false;
+    }
+
     int startNodeId = currentRoad->getEnd()->getId();
     int destNodeId = destination->getId();
 
@@ -1695,15 +1711,7 @@ bool Vehicle::performUTurn(const Graph& graph, PathFindingStrategy* strategy) {
     }
 
     int startId = currentRoad->getStart()->getId();
-    int endId = currentRoad->getEnd()->getId();
-    Road* reverseRoad = nullptr;
-
-    for (Road* r : graph.getAllRoads()) {
-        if (r->getStart()->getId() == endId && r->getEnd()->getId() == startId) {
-            reverseRoad = r;
-            break;
-        }
-    }
+    Road* reverseRoad = currentRoad->getReverseRoad();
 
     if (reverseRoad == nullptr) {
         return false;
@@ -1799,5 +1807,13 @@ double Vehicle::getIntersectionTransitionProgress() const {
         return 1.0;
     }
     return junctionProgressMetres_ / length;
+}
+
+bool Vehicle::isStuckInJam(int depth) const {
+    if (depth > 100) return true; // safety limit against deep recursion
+    if (currentSpeed > 0.01) return false;
+    if (isWaitingForLight_) return false;
+    if (currentLeader_ != nullptr) return currentLeader_->isStuckInJam(depth + 1);
+    return true; 
 }
 

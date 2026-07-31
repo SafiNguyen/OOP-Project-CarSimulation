@@ -37,14 +37,19 @@ PathResult DijkstraStrategy::findPath(const Graph& graph, int startId, int goalI
 
     const double INF = std::numeric_limits<double>::infinity();
 
-    std::unordered_map<int, double> bestCost;
-    std::unordered_map<int, int> cameFromNode;
-    std::unordered_map<int, Road*> cameFromRoad;
-    std::unordered_map<int, bool> finalized;
-
+    int maxId = -1;
     for (Intersection* node : graph.getAllIntersections()) {
-        bestCost[node->getId()] = INF;
+        if (node != nullptr && node->getId() > maxId) {
+            maxId = node->getId();
+        }
     }
+    if (maxId < 0) return result;
+
+    std::vector<double> bestCost(maxId + 1, INF);
+    std::vector<int> cameFromNode(maxId + 1, -1);
+    std::vector<Road*> cameFromRoad(maxId + 1, nullptr);
+    std::vector<bool> finalized(maxId + 1, false);
+
     bestCost[startId] = 0.0;
 
     std::priority_queue<PQEntry, std::vector<PQEntry>, ComparePQ> pq;

@@ -58,6 +58,7 @@ protected:
         double progressMetres = 0.0;
         double vehicleLengthMetres = 4.5;
         double vehicleWidthMetres = 1.8;
+        uint64_t entryId = 0;
     };
 
 private:
@@ -112,6 +113,8 @@ private:
         ConnectorKey,
         std::shared_ptr<const JunctionConnector>,
         ConnectorKeyHash> connectorCache_;
+
+    uint64_t nextEntryId_ = 0;
 
     // Cache for hasPriorityVehicleApproaching to avoid O(N^2) per frame.
     // Cleared once per frame in TrafficSimulator::update().

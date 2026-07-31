@@ -1255,9 +1255,17 @@ bool Intersection::canEnterMovement(
     // creation from O(steps1 * steps2) to O(steps1 + steps2) per occupant.
     struct OccupantPath {
         std::vector<OrientedVehicleBounds> samples;
+        uint64_t entryId;
     };
     std::vector<OccupantPath> occupantPaths;
     occupantPaths.reserve(occupants_.size());
+    
+    uint64_t candidateEntryId = std::numeric_limits<uint64_t>::max();
+    auto candIt = occupants_.find(vehicleId);
+    if (candIt != occupants_.end()) {
+        candidateEntryId = candIt->second.entryId;
+    }
+
     for (const auto& entry : occupants_) {
         if (entry.first == vehicleId) continue;
         const Reservation& res = entry.second;
@@ -1269,6 +1277,7 @@ bool Intersection::canEnterMovement(
             continue;
         }
         OccupantPath path;
+        path.entryId = res.entryId;
         const double length2 = res.connector->getLength();
         const std::size_t estimatedSteps =
             static_cast<std::size_t>(
@@ -1297,6 +1306,9 @@ bool Intersection::canEnterMovement(
         for (const auto& path : occupantPaths) {
             for (const auto& other : path.samples) {
                 if (boundsOverlap(candidate, other)) {
+                    if (candidateEntryId < path.entryId) {
+                        continue; // Candidate entered first, ignore overlap
+                    }
                     return false; // Paths overlap, must yield
                 }
             }
@@ -1338,7 +1350,7 @@ bool Intersection::tryEnter(int vehicleId, const Road* fromRoad) {
     }
     occupants_.emplace(
         vehicleId,
-        Reservation{fromRoad, nullptr, 0.0, 4.5, 1.8});
+        Reservation{fromRoad, nullptr, 0.0, 4.5, 1.8, ++nextEntryId_});
     return true;
 }
 
@@ -1374,7 +1386,8 @@ bool Intersection::tryEnterMovement(
             connector,
             0.0,
             std::max(0.1, vehicleLengthMetres),
-            std::max(0.1, vehicleWidthMetres)
+            std::max(0.1, vehicleWidthMetres),
+            ++nextEntryId_
         });
     return true;
 }
@@ -1408,7 +1421,8 @@ bool Intersection::tryEnterYieldingMovement(
             connector,
             0.0,
             std::max(0.1, vehicleLengthMetres),
-            std::max(0.1, vehicleWidthMetres)
+            std::max(0.1, vehicleWidthMetres),
+            ++nextEntryId_
         });
     return true;
 }
@@ -1439,6 +1453,12 @@ double Intersection::limitTraversalAdvance(
 
     const double metricScale =
         RoadGeometry::metresPerWorldUnit(*this);
+    uint64_t candidateEntryId = std::numeric_limits<uint64_t>::max();
+    auto candIt = occupants_.find(vehicleId);
+    if (candIt != occupants_.end()) {
+        candidateEntryId = candIt->second.entryId;
+    }
+
     const auto isSafeAt = [&](double progressMetres) {
         const OrientedVehicleBounds candidate =
             makeVehicleBounds(
@@ -1462,6 +1482,9 @@ double Intersection::limitTraversalAdvance(
                     reservation.vehicleWidthMetres,
                     clearanceMetres);
             if (boundsOverlap(candidate, other)) {
+                if (candidateEntryId < reservation.entryId) {
+                    continue; // Candidate entered first, ignore overlap
+                }
                 return false;
             }
         }

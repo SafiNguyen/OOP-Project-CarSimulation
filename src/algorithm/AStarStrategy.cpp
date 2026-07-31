@@ -72,14 +72,19 @@ PathResult AStarStrategy::findPath(const Graph& graph, int startId, int goalId) 
         return euclidean(node, goalNode) * bestCasePerDistance;
     };
 
-    std::unordered_map<int, double> gScore; // best known cost from start
-    std::unordered_map<int, int> cameFromNode;
-    std::unordered_map<int, Road*> cameFromRoad;
-    std::unordered_map<int, bool> finalized;
-
+    int maxId = -1;
     for (Intersection* node : graph.getAllIntersections()) {
-        gScore[node->getId()] = INF;
+        if (node != nullptr && node->getId() > maxId) {
+            maxId = node->getId();
+        }
     }
+    if (maxId < 0) return result;
+
+    std::vector<double> gScore(maxId + 1, INF);
+    std::vector<int> cameFromNode(maxId + 1, -1);
+    std::vector<Road*> cameFromRoad(maxId + 1, nullptr);
+    std::vector<bool> finalized(maxId + 1, false);
+
     gScore[startId] = 0.0;
 
     std::priority_queue<PQEntry, std::vector<PQEntry>, ComparePQ> openSet;
