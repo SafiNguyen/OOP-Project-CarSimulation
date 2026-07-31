@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <string>
+#include <cstdint>
 #include <unordered_map>
 #include <unordered_set>
 #include <memory>
@@ -116,6 +117,20 @@ private:
 
     uint64_t nextEntryId_ = 0;
 
+    struct MovementGeometryCache {
+        bool valid = false;
+        std::uint64_t reservationRevision = 0;
+        int vehicleId = -1;
+        const JunctionConnector* connector = nullptr;
+        double requiredGapMetres = 0.0;
+        double vehicleLengthMetres = 0.0;
+        double vehicleWidthMetres = 0.0;
+        bool canEnter = false;
+    };
+
+    std::uint64_t reservationRevision_ = 0;
+    mutable MovementGeometryCache movementGeometryCache_;
+
     // Cache for hasPriorityVehicleApproaching to avoid O(N^2) per frame.
     // Cleared once per frame in TrafficSimulator::update().
     mutable std::unordered_map<const Road*, bool> priorityVehicleCache_;
@@ -134,6 +149,7 @@ private:
 
     void clearEmergencyPriority();
     void updateEmergencyPriority(double dt);
+    void markReservationStateChanged();
 
 protected:
     virtual std::shared_ptr<const JunctionConnector> createConnector(
@@ -315,6 +331,7 @@ public:
     void clearFrameCache() const {
         priorityVehicleCacheValid_ = false;
         priorityVehicleCache_.clear();
+        movementGeometryCache_.valid = false;
     }
 
     std::string toString() const;  

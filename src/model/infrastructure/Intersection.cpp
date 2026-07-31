@@ -61,6 +61,27 @@ bool boundsOverlap(const OrientedVehicleBounds& first,
                    const OrientedVehicleBounds& second) {
     const Vec2 delta =
         second.centreMetres - first.centreMetres;
+    const double firstHorizontalExtent =
+        first.halfLengthMetres * std::fabs(first.forward.x) +
+        first.halfWidthMetres * std::fabs(first.side.x);
+    const double firstVerticalExtent =
+        first.halfLengthMetres * std::fabs(first.forward.y) +
+        first.halfWidthMetres * std::fabs(first.side.y);
+    const double secondHorizontalExtent =
+        second.halfLengthMetres * std::fabs(second.forward.x) +
+        second.halfWidthMetres * std::fabs(second.side.x);
+    const double secondVerticalExtent =
+        second.halfLengthMetres * std::fabs(second.forward.y) +
+        second.halfWidthMetres * std::fabs(second.side.y);
+    if (std::fabs(delta.x) >=
+            firstHorizontalExtent +
+                secondHorizontalExtent + 1e-9 ||
+        std::fabs(delta.y) >=
+            firstVerticalExtent +
+                secondVerticalExtent + 1e-9) {
+        return false;
+    }
+
     const Vec2 axes[] = {
         first.forward,
         first.side,
@@ -1187,6 +1208,12 @@ std::shared_ptr<const JunctionConnector> Intersection::getConnector(
 
 void Intersection::invalidateConnectorCache() {
     connectorCache_.clear();
+    movementGeometryCache_.valid = false;
+}
+
+void Intersection::markReservationStateChanged() {
+    ++reservationRevision_;
+    movementGeometryCache_.valid = false;
 }
 
 // --- Intersection-box reservation ---
@@ -1249,6 +1276,36 @@ bool Intersection::canEnterMovement(
         return true;
     }
 
+    if (movementGeometryCache_.valid &&
+        movementGeometryCache_.reservationRevision ==
+            reservationRevision_ &&
+        movementGeometryCache_.vehicleId == vehicleId &&
+        movementGeometryCache_.connector == connector.get() &&
+        movementGeometryCache_.requiredGapMetres ==
+            requiredGapMetres &&
+        movementGeometryCache_.vehicleLengthMetres ==
+            vehicleLengthMetres &&
+        movementGeometryCache_.vehicleWidthMetres ==
+            vehicleWidthMetres) {
+        return movementGeometryCache_.canEnter;
+    }
+
+    const auto cacheGeometryResult = [&](bool canEnter) {
+        movementGeometryCache_.valid = true;
+        movementGeometryCache_.reservationRevision =
+            reservationRevision_;
+        movementGeometryCache_.vehicleId = vehicleId;
+        movementGeometryCache_.connector = connector.get();
+        movementGeometryCache_.requiredGapMetres =
+            requiredGapMetres;
+        movementGeometryCache_.vehicleLengthMetres =
+            vehicleLengthMetres;
+        movementGeometryCache_.vehicleWidthMetres =
+            vehicleWidthMetres;
+        movementGeometryCache_.canEnter = canEnter;
+        return canEnter;
+    };
+
     // Precompute occupant OBB samples once, so the inner loop does not
     // redundantly call makeVehicleBounds (which calls cos/sin) for every
     // (candidate_position, occupant_position) pair. This reduces OBB
@@ -1309,12 +1366,13 @@ bool Intersection::canEnterMovement(
                     if (candidateEntryId < path.entryId) {
                         continue; // Candidate entered first, ignore overlap
                     }
-                    return false; // Paths overlap, must yield
+                    return cacheGeometryResult(
+                        false); // Paths overlap, must yield
                 }
             }
         }
     }
-    return true;
+    return cacheGeometryResult(true);
 }
 
 bool Intersection::canEnterYieldingMovement(
@@ -1351,6 +1409,7 @@ bool Intersection::tryEnter(int vehicleId, const Road* fromRoad) {
     occupants_.emplace(
         vehicleId,
         Reservation{fromRoad, nullptr, 0.0, 4.5, 1.8, ++nextEntryId_});
+    markReservationStateChanged();
     return true;
 }
 
@@ -1362,6 +1421,11 @@ bool Intersection::tryEnterMovement(
     double vehicleWidthMetres) {
     auto existing = occupants_.find(vehicleId);
     if (existing != occupants_.end()) {
+        const auto previousConnector = existing->second.connector;
+        const double previousLength =
+            existing->second.vehicleLengthMetres;
+        const double previousWidth =
+            existing->second.vehicleWidthMetres;
         if (connector != nullptr) {
             existing->second.connector = connector;
         }
@@ -1369,6 +1433,11 @@ bool Intersection::tryEnterMovement(
             std::max(0.1, vehicleLengthMetres);
         existing->second.vehicleWidthMetres =
             std::max(0.1, vehicleWidthMetres);
+        if (existing->second.connector != previousConnector ||
+            existing->second.vehicleLengthMetres != previousLength ||
+            existing->second.vehicleWidthMetres != previousWidth) {
+            markReservationStateChanged();
+        }
         return true;
     }
     if (!canEnterMovement(
@@ -1389,6 +1458,7 @@ bool Intersection::tryEnterMovement(
             std::max(0.1, vehicleWidthMetres),
             ++nextEntryId_
         });
+    markReservationStateChanged();
     return true;
 }
 
@@ -1424,6 +1494,7 @@ bool Intersection::tryEnterYieldingMovement(
             std::max(0.1, vehicleWidthMetres),
             ++nextEntryId_
         });
+    markReservationStateChanged();
     return true;
 }
 
@@ -1432,8 +1503,12 @@ void Intersection::updateReservationProgress(
     double progressMetres) {
     auto found = occupants_.find(vehicleId);
     if (found != occupants_.end()) {
-        found->second.progressMetres =
+        const double updatedProgress =
             std::max(0.0, progressMetres);
+        if (found->second.progressMetres != updatedProgress) {
+            found->second.progressMetres = updatedProgress;
+            markReservationStateChanged();
+        }
     }
 }
 
@@ -1459,6 +1534,29 @@ double Intersection::limitTraversalAdvance(
         candidateEntryId = candIt->second.entryId;
     }
 
+    struct OccupantBounds {
+        OrientedVehicleBounds bounds;
+        uint64_t entryId = 0;
+    };
+    std::vector<OccupantBounds> occupantBounds;
+    occupantBounds.reserve(occupants_.size() - 1);
+    for (const auto& entry : occupants_) {
+        if (entry.first == vehicleId) continue;
+        const Reservation& reservation = entry.second;
+        if (reservation.connector == nullptr) {
+            return 0.0;
+        }
+        occupantBounds.push_back(OccupantBounds{
+            makeVehicleBounds(
+                reservation.connector->sampleByDistance(
+                    reservation.progressMetres),
+                metricScale,
+                reservation.vehicleLengthMetres,
+                reservation.vehicleWidthMetres,
+                clearanceMetres),
+            reservation.entryId});
+    }
+
     const auto isSafeAt = [&](double progressMetres) {
         const OrientedVehicleBounds candidate =
             makeVehicleBounds(
@@ -1467,22 +1565,9 @@ double Intersection::limitTraversalAdvance(
                 vehicleLengthMetres,
                 vehicleWidthMetres,
                 clearanceMetres);
-        for (const auto& entry : occupants_) {
-            if (entry.first == vehicleId) continue;
-            const Reservation& reservation = entry.second;
-            if (reservation.connector == nullptr) {
-                return false;
-            }
-            const OrientedVehicleBounds other =
-                makeVehicleBounds(
-                    reservation.connector->sampleByDistance(
-                        reservation.progressMetres),
-                    metricScale,
-                    reservation.vehicleLengthMetres,
-                    reservation.vehicleWidthMetres,
-                    clearanceMetres);
-            if (boundsOverlap(candidate, other)) {
-                if (candidateEntryId < reservation.entryId) {
+        for (const OccupantBounds& other : occupantBounds) {
+            if (boundsOverlap(candidate, other.bounds)) {
+                if (candidateEntryId < other.entryId) {
                     continue; // Candidate entered first, ignore overlap
                 }
                 return false;
@@ -1595,7 +1680,9 @@ bool Intersection::isOutgoingLaneReserved(
 }
 
 void Intersection::exit(int vehicleId) {
-    occupants_.erase(vehicleId);
+    if (occupants_.erase(vehicleId) > 0) {
+        markReservationStateChanged();
+    }
     if (hasActiveEmergencyPriority() &&
         emergencyApproach_.vehicleId == vehicleId) {
         clearEmergencyPriority();
