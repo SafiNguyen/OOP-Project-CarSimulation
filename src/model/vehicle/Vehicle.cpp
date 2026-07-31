@@ -15,7 +15,6 @@
 #include <cmath>
 #include <limits>
 #include <cstdlib>
-#include <chrono>
 
 namespace {
 
@@ -232,16 +231,14 @@ PauseReason Vehicle::getIntersectionControlReason() const {
 
     const LaneMapping movementMapping =
         getJunctionEntryLaneMapping();
-    const bool prioritizedMovement =
-        nextIntersection->isPrioritizedEmergencyVehicle(
-            getId(), currentRoad);
+    Road* outgoingRoad = getNextRoad();
     const JunctionDecision movementDecision =
-        prioritizedMovement
+        prioritizedEmergency
             ? JunctionDecision::Proceed
-            : movementMapping.valid && getNextRoad() != nullptr
+            : movementMapping.valid && outgoingRoad != nullptr
             ? nextIntersection->getMovementDecision(
                   currentRoad,
-                  getNextRoad(),
+                  outgoingRoad,
                   movementMapping.movement)
             : (nextIntersection->mustStopForRoad(currentRoad)
                    ? JunctionDecision::Stop
@@ -255,17 +252,15 @@ PauseReason Vehicle::getIntersectionControlReason() const {
 
     if (reservedIntersection_ != nextIntersection &&
         !currentRoad->getLane(currentLaneIndex).isBlocked()) {
-        Road* outgoing = getNextRoad();
-        if (outgoing != nullptr) {
-            const LaneMapping mapping =
-                getJunctionEntryLaneMapping();
-            if (!mapping.valid ||
-                currentLaneIndex != mapping.incomingLane) {
+        if (outgoingRoad != nullptr) {
+            if (!movementMapping.valid ||
+                currentLaneIndex !=
+                    movementMapping.incomingLane) {
                 return PauseReason::Intersection;
             }
             Vehicle* outgoingLeader =
-                outgoing->getFirstVehicleInLane(
-                    mapping.outgoingLane);
+                outgoingRoad->getFirstVehicleInLane(
+                    movementMapping.outgoingLane);
             if (outgoingLeader != nullptr &&
                 outgoingReleaseGap(
                     *this, *outgoingLeader) <
@@ -276,9 +271,9 @@ PauseReason Vehicle::getIntersectionControlReason() const {
             }
             auto connector = nextIntersection->getConnector(
                 currentRoad,
-                mapping.incomingLane,
-                outgoing,
-                mapping.outgoingLane);
+                movementMapping.incomingLane,
+                outgoingRoad,
+                movementMapping.outgoingLane);
             const double requiredGap =
                 getMinGap() + currentSpeed * getTimeHeadway();
             const bool canEnter =
@@ -357,6 +352,14 @@ bool Vehicle::shouldPauseAt(double currentPos,
                             double projectedPos,
                             double& pausePos) {
     if (currentRoad == nullptr) return false;
+
+    const double nominalStopPosition = std::max(
+        0.0,
+        RoadGeometry::stopLineProgressMetres(*currentRoad) -
+            getLength() * 0.5);
+    if (projectedPos + 1e-9 < nominalStopPosition) {
+        return false;
+    }
 
     const PauseReason controlReason = getIntersectionControlReason();
     if (controlReason == PauseReason::None) return false;
@@ -1227,23 +1230,7 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                     }
                 }
                 if (hasCongestion) {
-                                    auto start = std::chrono::high_resolution_clock::now();
-
-                    bool ok = recalculateRoute(*graph, strategy);
-
-                    auto us =
-                        std::chrono::duration_cast<std::chrono::microseconds>(
-                            std::chrono::high_resolution_clock::now() - start)
-                            .count();
-
-                    if (us > 1000) {
-                        std::cout
-                            << "[REROUTE] vehicle "
-                            << getId()
-                            << " took "
-                            << us / 1000.0
-                            << " ms\n";
-                    }
+                    recalculateRoute(*graph, strategy);
                 }
             }
         }
@@ -1359,15 +1346,14 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                         getEmergencyJunctionSpeedLimit(
                             freeFlowSpeed));
                 }
-                const PauseReason controlReason =
-                    getIntersectionControlReason();
-                if (controlReason != PauseReason::None) {
-                    const double distToStopLine =
-                        currentRoad->getDistance() -
-                        progressOnCurrentRoad;
-                    const double stoppingDistance = (currentSpeed * currentSpeed) / (2.0 * std::max(getDeceleration(), 1e-6));
-                    const double safetyBuffer = 1.0; // metres: small margin
-                    if (distToStopLine <= stoppingDistance + safetyBuffer) {
+                const double stoppingDistance = (currentSpeed * currentSpeed) / (2.0 * std::max(getDeceleration(), 1e-6));
+                const double safetyBuffer = 1.0; // metres: small margin
+                if (distanceToIntersection <=
+                    stoppingDistance + safetyBuffer) {
+                    const PauseReason controlReason =
+                        getIntersectionControlReason();
+                    if (controlReason !=
+                        PauseReason::None) {
                         targetSpeed = 0.0;
                     }
                 }
@@ -1465,10 +1451,8 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
         } else {
             Road* nextRoad = getNextRoad();
             if (nextRoad != nullptr) {
-                const LaneMapping leaderMapping =
-                    getJunctionEntryLaneMapping();
-                const int nextLaneIndex = leaderMapping.valid
-                    ? leaderMapping.outgoingLane
+                const int nextLaneIndex = entryMapping.valid
+                    ? entryMapping.outgoingLane
                     : std::clamp(
                           currentLaneIndex,
                           0,
@@ -1515,15 +1499,16 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
 
         double speed = currentSpeed;
         if (speed <= 0.0) {
-            const PauseReason controlReason =
-                getIntersectionControlReason();
             const bool atIntersectionStopPosition =
                 progressOnCurrentRoad + 1e-6 >=
                 getIntersectionStopPosition();
-            if (controlReason != PauseReason::None &&
-                atIntersectionStopPosition) {
-                beginPause(controlReason);
-                break;
+            if (atIntersectionStopPosition) {
+                const PauseReason controlReason =
+                    getIntersectionControlReason();
+                if (controlReason != PauseReason::None) {
+                    beginPause(controlReason);
+                    break;
+                }
             }
 
             stuckTimer += subDt;
@@ -1595,12 +1580,10 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                 currentRouteIndex + 1 <
                 static_cast<int>(currentRoute.size());
             if (hasNextRoad) {
-                const LaneMapping mapping =
-                    getJunctionEntryLaneMapping();
-                if (!mapping.valid ||
-                    currentLaneIndex != mapping.incomingLane ||
+                if (!entryMapping.valid ||
+                    currentLaneIndex != entryMapping.incomingLane ||
                     !beginJunctionTraversal(
-                        mapping, nextIntersection)) {
+                        entryMapping, nextIntersection)) {
                     progressOnCurrentRoad = std::min(
                         currentRoad->getDistance(),
                         std::max(currentPos, getIntersectionStopPosition()));

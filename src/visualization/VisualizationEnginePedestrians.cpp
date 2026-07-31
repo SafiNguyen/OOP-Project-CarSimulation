@@ -242,6 +242,9 @@ void VisualizationEngine::drawCrosswalks(
 void VisualizationEngine::drawCrosswalkSignals(
     sf::RenderTarget& target,
     const Graph& graph) const {
+    const ViewportBounds viewportBounds(
+        target.getView(),
+        1.0f);
     for (const Crosswalk* crosswalk :
          graph.getAllCrosswalks()) {
         if (crosswalk == nullptr ||
@@ -267,6 +270,11 @@ void VisualizationEngine::drawCrosswalkSignals(
             metresToScreenPixels(0.35, &incoming),
             2.5f,
             5.0f);
+        if (!viewportBounds.containsPoint(
+                signalPosition,
+                signalRadius + 1.0f)) {
+            continue;
+        }
         sf::CircleShape signal(signalRadius);
         signal.setOrigin(signalRadius, signalRadius);
         signal.setPosition(signalPosition);

@@ -444,6 +444,7 @@ void drawParkedVehicles(sf::RenderWindow& window, const VisualizationEngine& vis
 
     static std::vector<sf::Vertex> parkedVertices;
     parkedVertices.clear();
+    const ViewportBounds viewportBounds(window.getView());
     const std::size_t requiredVertices =
         simulator.getFinishedVehicles().size() * 8u;
     if (parkedVertices.capacity() < requiredVertices) {
@@ -465,6 +466,16 @@ void drawParkedVehicles(sf::RenderWindow& window, const VisualizationEngine& vis
         int rows = (static_cast<int>(list.size()) + cols - 1) / cols;
         float cellWidth = 24.0f;
         float cellHeight = 16.0f;
+
+        if (!viewportBounds.intersectsRectangle(
+                sf::FloatRect(
+                    boxX,
+                    boxY,
+                    cols * cellWidth + 8.0f,
+                    rows * cellHeight + 8.0f),
+                1.0f)) {
+            continue;
+        }
 
         sf::RectangleShape box({cols * cellWidth + 8.0f, rows * cellHeight + 8.0f});
         box.setPosition(boxX, boxY);
@@ -563,6 +574,7 @@ void drawPedestrians(
     static std::vector<sf::Vertex> directionLines;
     pedestrianTriangles.clear();
     directionLines.clear();
+    const ViewportBounds viewportBounds(target.getView());
     const std::size_t pedestrianCount =
         simulator.getPedestrians().size();
     const std::size_t requiredTriangleVertices =
@@ -594,6 +606,12 @@ void drawPedestrians(
             visualization.worldToScreen(
                 pose.position.x,
                 pose.position.y);
+        constexpr float maximumPedestrianRadius = 7.0f;
+        if (!viewportBounds.containsPoint(
+                position,
+                maximumPedestrianRadius)) {
+            continue;
+        }
         const Road* referenceRoad =
             pedestrian->getReferenceRoad();
         const float radius = std::clamp(

@@ -336,6 +336,9 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
 }
 
 void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Graph& graph) const {
+    const ViewportBounds viewportBounds(
+        target.getView(),
+        2.0f);
     for (const Intersection* intersection :
          graph.getAllIntersections()) {
         if (intersection == nullptr) continue;
@@ -365,14 +368,6 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                 worldToScreen(stopLeftWorld.x, stopLeftWorld.y);
             const sf::Vector2f stopRight =
                 worldToScreen(stopRightWorld.x, stopRightWorld.y);
-            drawRoadStrip(
-                target,
-                stopLeft,
-                stopRight,
-                sf::Color(255, 255, 255, 235),
-                std::max(
-                    1.5f,
-                    metresToScreenPixels(0.25, road)));
 
             // Anchor the complete signal assembly beyond the outer curb.
             // Keeping this calculation in world/metre space makes the
@@ -442,6 +437,53 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                 outwardDirection *
                     (edgeGap + housingLength +
                      countdownSize * 0.5f - 0.5f);
+            const float renderedMinimumX =
+                std::min(
+                    {stopLeft.x,
+                     stopRight.x,
+                     housingCenter.x,
+                     countdownCenter.x});
+            const float renderedMaximumX =
+                std::max(
+                    {stopLeft.x,
+                     stopRight.x,
+                     housingCenter.x,
+                     countdownCenter.x});
+            const float renderedMinimumY =
+                std::min(
+                    {stopLeft.y,
+                     stopRight.y,
+                     housingCenter.y,
+                     countdownCenter.y});
+            const float renderedMaximumY =
+                std::max(
+                    {stopLeft.y,
+                     stopRight.y,
+                     housingCenter.y,
+                     countdownCenter.y});
+            const float renderedHalfThickness =
+                std::max(housingThickness, countdownSize) *
+                    0.5f +
+                2.0f;
+            const sf::FloatRect renderedBounds(
+                renderedMinimumX,
+                renderedMinimumY,
+                renderedMaximumX - renderedMinimumX,
+                renderedMaximumY - renderedMinimumY);
+            if (!viewportBounds.intersectsRectangle(
+                    renderedBounds,
+                    renderedHalfThickness)) {
+                continue;
+            }
+
+            drawRoadStrip(
+                target,
+                stopLeft,
+                stopRight,
+                sf::Color(255, 255, 255, 235),
+                std::max(
+                    1.5f,
+                    metresToScreenPixels(0.25, road)));
 
             sf::RectangleShape housing(
                 {housingLength, housingThickness});
@@ -1193,6 +1235,9 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
 void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vector<Road*>& roads) const {
     if (!font_) return;
 
+    const ViewportBounds viewportBounds(
+        target.getView(),
+        2.0f);
     for (std::size_t roadIndex = 0; roadIndex < roads.size(); ++roadIndex) {
         const Road* road = roads[roadIndex];
         if (!road || road->getName().empty()) continue;
@@ -1235,6 +1280,13 @@ void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vec
             getRoadCenterlineEntryPoint(road, start);
         const sf::Vector2f b =
             getRoadCenterlineEntryPoint(road, end);
+        constexpr float maximumLabelHalfHeight = 10.0f;
+        if (!viewportBounds.intersectsSegment(
+                a,
+                b,
+                maximumLabelHalfHeight)) {
+            continue;
+        }
         const sf::Vector2f mid = (a + b) * 0.5f;
 
         const float dx = b.x - a.x;
@@ -1280,6 +1332,11 @@ void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vec
         text.setPosition(mid);
         text.setRotation(angle);
 
+        if (!viewportBounds.intersectsRectangle(
+                text.getGlobalBounds(),
+                4.0f)) {
+            continue;
+        }
 
         constexpr float kPlatePaddingX = 3.0f;
         constexpr float kPlatePaddingY = 1.0f;
