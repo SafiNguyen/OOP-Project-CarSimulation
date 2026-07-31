@@ -59,6 +59,7 @@ protected:
         double progressMetres = 0.0;
         double vehicleLengthMetres = 4.5;
         double vehicleWidthMetres = 1.8;
+        uint64_t entryId = 0;
     };
 
 private:
@@ -125,8 +126,10 @@ private:
         bool canEnter = false;
     };
 
+    std::uint64_t nextEntryId_ = 0;
     std::uint64_t reservationRevision_ = 0;
     mutable MovementGeometryCache movementGeometryCache_;
+
 
     // Cache for hasPriorityVehicleApproaching to avoid O(N^2) per frame.
     // Cleared once per frame in TrafficSimulator::update().
@@ -135,6 +138,7 @@ private:
 
     const Road* preemptedRoad_ = nullptr;
     double preemptionHoldSeconds_ = 0.0;
+    bool extendedGreenForPreemption_ = false;
     EmergencyApproach emergencyApproach_;
     double emergencyPriorityRemainingSeconds_ = 0.0;
 

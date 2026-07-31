@@ -769,6 +769,13 @@ void TrafficSimulator::removeFinishedVehicles() {
         return false;
     });
     vehicles.erase(it, vehicles.end());
+    
+    // Cap the size of finishedVehicles to prevent memory bloat
+    const size_t MAX_FINISHED_VEHICLES = 500;
+    while (finishedVehicles.size() > MAX_FINISHED_VEHICLES) {
+        delete finishedVehicles.front();
+        finishedVehicles.erase(finishedVehicles.begin());
+    }
 }
 
 bool TrafficSimulator::addVehicleWithFixedRoute(
@@ -1019,49 +1026,7 @@ void TrafficSimulator::update(double dt) {
     if (statisticsManager && tickCount % 600 == 0) {
         statisticsManager->printPeriodicReport(tickCount, 600);
     }
-
-
-    auto frameEnd = std::chrono::high_resolution_clock::now();
-    totalTime += std::chrono::duration<double, std::micro>(frameEnd - frameStart).count();
-    profileFrames++;
-
-    if (profileFrames >= 60) {
-
-        std::cout << "\n========== TrafficSimulator::update ==========\n";
-        std::cout << "activatePendingVehicles : "
-                  << activateTime / profileFrames / 1000.0 << " ms\n";
-
-        std::cout << "traffic lights         : "
-                  << trafficLightTime / profileFrames / 1000.0 << " ms\n";
-
-        std::cout << "eventManager           : "
-                  << eventTime / profileFrames / 1000.0 << " ms\n";
-
-        std::cout << "vehicle update         : "
-                  << vehicleTime / profileFrames / 1000.0 << " ms\n";
-
-        std::cout << "pedestrian update      : "
-                  << pedestrianTime / profileFrames / 1000.0 << " ms\n";
-
-        std::cout << "remove finished        : "
-                  << removeTime / profileFrames / 1000.0 << " ms\n";
-
-        std::cout << "TOTAL                  : "
-                  << totalTime / profileFrames / 1000.0 << " ms\n";
-
-        std::cout << "Vehicles: " << vehicles.size()
-                  << " Pending: " << pendingVehicles.size()
-                  << "\n=============================================\n";
-
-        activateTime = 0.0;
-        trafficLightTime = 0.0;
-        eventTime = 0.0;
-        vehicleTime = 0.0;
-        pedestrianTime = 0.0;
-        removeTime = 0.0;
-        totalTime = 0.0;
-        profileFrames = 0;
-    }
+    
 }
 
 void TrafficSimulator::setPathFindingStrategy(PathFindingStrategy* strategy) {

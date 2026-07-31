@@ -12,6 +12,7 @@
 
 #include "AppContext.h"
 #include "Intersection.h"
+#include "Road.h"
 #include "Pedestrian.h"
 #include "Vehicle.h"
 #include "simulation/StatisticsManager.h"
@@ -564,6 +565,70 @@ void drawSelectedVehicleHighlight(sf::RenderWindow& window,
     window.draw(ring);
 }
 
+void drawSelectedVehicleRoute(sf::RenderWindow& window,
+                              const VisualizationEngine& visualization,
+                              TrafficSimulator& simulator,
+                              const VehicleInspector& vehicleInspector) {
+    if (!vehicleInspector.hasSelection()) {
+        return;
+    }
+
+    const int selectedId = vehicleInspector.getSelectedId();
+    Vehicle* target = nullptr;
+    for (Vehicle* v : simulator.getVehicles()) {
+        if (v->getId() == selectedId) {
+            target = v;
+            break;
+        }
+    }
+    if (target == nullptr) {
+        for (Vehicle* v : simulator.getFinishedVehicles()) {
+            if (v->getId() == selectedId) {
+                target = v;
+                break;
+            }
+        }
+    }
+    
+    if (target == nullptr) return;
+
+    const auto& route = target->getCurrentRoute();
+    if (route.empty()) return;
+
+    int currentIdx = target->getCurrentRouteIndex();
+    if (currentIdx < 0) currentIdx = 0;
+
+    std::vector<sf::Vertex> routeVertices;
+    const float thickness = 6.0f;
+    const sf::Color color(0, 255, 255, 120); // Cyan semi-transparent
+
+    for (size_t i = currentIdx; i < route.size(); ++i) {
+        const Road* road = route[i];
+        if (road == nullptr || road->getStart() == nullptr || road->getEnd() == nullptr) {
+            continue;
+        }
+
+        sf::Vector2f startPos = visualization.worldToScreen(road->getStart()->getX(), road->getStart()->getY());
+        sf::Vector2f endPos = visualization.worldToScreen(road->getEnd()->getX(), road->getEnd()->getY());
+
+        sf::Vector2f dir = endPos - startPos;
+        float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+        if (len < 0.1f) continue;
+        dir /= len;
+        sf::Vector2f normal(-dir.y, dir.x);
+        sf::Vector2f offset = normal * (thickness * 0.5f);
+
+        routeVertices.emplace_back(startPos - offset, color);
+        routeVertices.emplace_back(startPos + offset, color);
+        routeVertices.emplace_back(endPos + offset, color);
+        routeVertices.emplace_back(endPos - offset, color);
+    }
+
+    if (!routeVertices.empty()) {
+        window.draw(routeVertices.data(), routeVertices.size(), sf::Quads);
+    }
+}
+
 } // namespace
 
 void drawPedestrians(
@@ -685,6 +750,7 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
         ctx.graph);
 
     if (simulator) {
+        drawSelectedVehicleRoute(window, ctx.visualization, *simulator, vehicleInspector);
         drawActiveVehicles(
             window, ctx.visualization, *simulator, ctx.view);
         drawPedestrians(

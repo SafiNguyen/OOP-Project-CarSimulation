@@ -541,6 +541,7 @@ void Intersection::resetSignalCycle() {
         phaseGroups.empty() ? 0.0 : greenDurationSeconds_;
     preemptedRoad_ = nullptr;
     preemptionHoldSeconds_ = 0.0;
+    extendedGreenForPreemption_ = false;
     emergencyApproach_ = {};
     emergencyPriorityRemainingSeconds_ = 0.0;
     pedestrianPhasePending_ = false;
@@ -802,6 +803,19 @@ void Intersection::updateTrafficLights(double dt) {
                       << std::endl;
             stageRemainingSeconds_ = 0.0;
             stuckTimer_ = 0.0;
+            if (signalStage_ ==
+                    SignalStage::PEDESTRIAN_CLEARANCE) {
+                endPedestrianPhase();
+                activePhaseGroup = nextScheduledPhase();
+                signalStage_ = SignalStage::GREEN;
+                stageRemainingSeconds_ =
+                    std::max(
+                        greenDurationSeconds_,
+                        preemptionHoldSeconds_);
+                preemptedRoad_ = nullptr;
+                preemptionHoldSeconds_ = 0.0;
+                extendedGreenForPreemption_ = false;
+            }
         }
     } else {
         stuckLastStage_ = signalStage_;
@@ -842,6 +856,7 @@ void Intersection::updateTrafficLights(double dt) {
 
         if (signalStage_ == SignalStage::GREEN) {
             signalStage_ = SignalStage::YELLOW;
+            extendedGreenForPreemption_ = false;
             stageRemainingSeconds_ =
                 yellowDurationSeconds_;
         } else if (signalStage_ == SignalStage::YELLOW) {
@@ -875,7 +890,8 @@ void Intersection::updateTrafficLights(double dt) {
             beginPedestrianClearance();
         } else {
             if (hasOccupiedCrosswalk()) {
-                stageRemainingSeconds_ = 0.0;
+                // Retry clearance periodically instead of freezing at 0.
+                stageRemainingSeconds_ = 0.25;
                 break;
             }
             endPedestrianPhase();
@@ -899,6 +915,7 @@ void Intersection::clearEmergencyPriority() {
     emergencyPriorityRemainingSeconds_ = 0.0;
     preemptedRoad_ = nullptr;
     preemptionHoldSeconds_ = 0.0;
+    extendedGreenForPreemption_ = false;
 }
 
 void Intersection::updateEmergencyPriority(double dt) {
@@ -1006,8 +1023,11 @@ void Intersection::requestEmergencyPreemption(
         std::max(preemptionHoldSeconds_, holdDuration);
     if (requestedPhase == activePhaseGroup &&
         signalStage_ == SignalStage::GREEN) {
-        stageRemainingSeconds_ =
-            std::max(stageRemainingSeconds_, holdDuration);
+        if (!extendedGreenForPreemption_) {
+            stageRemainingSeconds_ =
+                std::max(stageRemainingSeconds_, holdDuration);
+            extendedGreenForPreemption_ = true;
+        }
         preemptedRoad_ = nullptr;
         synchronizeSignalHeads();
         return;
@@ -1292,9 +1312,17 @@ bool Intersection::canEnterMovement(
     // creation from O(steps1 * steps2) to O(steps1 + steps2) per occupant.
     struct OccupantPath {
         std::vector<OrientedVehicleBounds> samples;
+        uint64_t entryId;
     };
     std::vector<OccupantPath> occupantPaths;
     occupantPaths.reserve(occupants_.size());
+    
+    uint64_t candidateEntryId = std::numeric_limits<uint64_t>::max();
+    auto candIt = occupants_.find(vehicleId);
+    if (candIt != occupants_.end()) {
+        candidateEntryId = candIt->second.entryId;
+    }
+
     for (const auto& entry : occupants_) {
         if (entry.first == vehicleId) continue;
         const Reservation& res = entry.second;
@@ -1306,6 +1334,7 @@ bool Intersection::canEnterMovement(
             continue;
         }
         OccupantPath path;
+        path.entryId = res.entryId;
         const double length2 = res.connector->getLength();
         const std::size_t estimatedSteps =
             static_cast<std::size_t>(
@@ -1334,8 +1363,10 @@ bool Intersection::canEnterMovement(
         for (const auto& path : occupantPaths) {
             for (const auto& other : path.samples) {
                 if (boundsOverlap(candidate, other)) {
-                    return cacheGeometryResult(
-                        false); // Paths overlap, must yield
+                    if (candidateEntryId < path.entryId) {
+                        continue; // Candidate entered first, ignore overlap
+                    }
+                    return false; // Paths overlap, must yield
                 }
             }
         }
@@ -1376,7 +1407,7 @@ bool Intersection::tryEnter(int vehicleId, const Road* fromRoad) {
     }
     occupants_.emplace(
         vehicleId,
-        Reservation{fromRoad, nullptr, 0.0, 4.5, 1.8});
+    Reservation{fromRoad, nullptr, 0.0, 4.5, 1.8, ++nextEntryId_});
     markReservationStateChanged();
     return true;
 }
@@ -1423,7 +1454,8 @@ bool Intersection::tryEnterMovement(
             connector,
             0.0,
             std::max(0.1, vehicleLengthMetres),
-            std::max(0.1, vehicleWidthMetres)
+            std::max(0.1, vehicleWidthMetres),
+            ++nextEntryId_
         });
     markReservationStateChanged();
     return true;
@@ -1458,7 +1490,8 @@ bool Intersection::tryEnterYieldingMovement(
             connector,
             0.0,
             std::max(0.1, vehicleLengthMetres),
-            std::max(0.1, vehicleWidthMetres)
+            std::max(0.1, vehicleWidthMetres),
+            ++nextEntryId_
         });
     markReservationStateChanged();
     return true;
@@ -1521,6 +1554,9 @@ double Intersection::limitTraversalAdvance(
                 clearanceMetres);
         for (const OrientedVehicleBounds& other : occupantBounds) {
             if (boundsOverlap(candidate, other)) {
+                if (candidateEntryId < reservation.entryId) {
+                    continue; // Candidate entered first, ignore overlap
+                }
                 return false;
             }
         }
