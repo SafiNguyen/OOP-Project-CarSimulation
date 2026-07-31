@@ -799,7 +799,7 @@ void Intersection::updateTrafficLights(double dt) {
             if (pedestrianPhasePending_ &&
                 !hasActiveEmergencyPriority()) {
                 if (hasIntersectionOccupants()) {
-                    stageRemainingSeconds_ = 0.0;
+                    stageRemainingSeconds_ = 0.5;
                     break;
                 }
                 beginPedestrianWalk();
@@ -808,7 +808,7 @@ void Intersection::updateTrafficLights(double dt) {
             const std::size_t nextPhase =
                 nextScheduledPhase();
             if (hasConflictingReservationForPhase(nextPhase)) {
-                stageRemainingSeconds_ = 0.0;
+                stageRemainingSeconds_ = 0.5;
                 break;
             }
             activePhaseGroup = nextPhase;

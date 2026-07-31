@@ -1099,10 +1099,7 @@ Road* Vehicle::getNextRoad() const {
     return nullptr;
 }
 
-void Vehicle::update(double dt,
-                     Graph* graph,
-                     PathFindingStrategy* strategy,
-                     bool allowDynamicReroute) {
+void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool allowDynamicReroute) {
     if (hasReachedDestination() || currentRoad == nullptr) {
         clearLaneChangeIntent();
         junctionTurnSignal_ = TurnSignal::Off;
