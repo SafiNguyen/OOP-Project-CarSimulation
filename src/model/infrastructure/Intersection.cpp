@@ -8,6 +8,7 @@
 #include "Vehicle.h"
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 
 namespace {
 constexpr double PI = 3.14159265358979323846;
@@ -659,6 +660,11 @@ bool Intersection::hasConflictingReservationForPhase(
     for (const auto& entry : occupants_) {
         const Road* occupiedFrom = entry.second.fromRoad;
         if (occupiedFrom == nullptr) return true;
+        // Roads without a traffic light are not part of any phase group,
+        // so they should not block the signal cycle.
+        if (getLightForIncomingRoad(occupiedFrom) == nullptr) {
+            continue;
+        }
         if (phaseIndexForRoad(occupiedFrom) != phaseIndex) {
             return true;
         }
@@ -721,6 +727,13 @@ void Intersection::synchronizeSignalHeads() {
                    signalStage_ == SignalStage::YELLOW) {
             state = LightState::YELLOW;
             remaining = stageRemainingSeconds_;
+        } else if (phaseIndex == activePhaseGroup &&
+                   signalStage_ == SignalStage::ALL_RED) {
+            // When stuck in ALL_RED (e.g. waiting for a conflicting
+            // reservation to clear), show the actual retry countdown
+            // instead of the full cycle time until the next green.
+            state = LightState::RED;
+            remaining = stageRemainingSeconds_;
         }
         for (Road* road : phaseGroups[phaseIndex]) {
             TrafficLight* light = getLightForIncomingRoad(road);
@@ -749,8 +762,32 @@ void Intersection::updateTrafficLights(double dt) {
     if (phaseGroups.empty() ||
         !std::isfinite(dt) ||
         dt <= 0.0) {
+        synchronizeSignalHeads();
         return;
     }
+
+    // Stuck detection: if the signal stays in the same stage for too long
+    // without the countdown changing, force-advance to the next stage.
+    constexpr double STUCK_TIMEOUT_SECONDS = 10.0;
+    if (signalStage_ == stuckLastStage_ &&
+        std::fabs(stageRemainingSeconds_ - stuckLastRemaining_) < 1e-6) {
+        stuckTimer_ += dt;
+        if (stuckTimer_ >= STUCK_TIMEOUT_SECONDS) {
+            std::cout << "[TL] Intersection " << id
+                      << " FORCE-ADVANCE from stage="
+                      << static_cast<int>(signalStage_)
+                      << " remaining=" << stageRemainingSeconds_
+                      << " (stuck " << stuckTimer_ << "s)"
+                      << std::endl;
+            stageRemainingSeconds_ = 0.0;
+            stuckTimer_ = 0.0;
+        }
+    } else {
+        stuckLastStage_ = signalStage_;
+        stuckLastRemaining_ = stageRemainingSeconds_;
+        stuckTimer_ = 0.0;
+    }
+
     if (signalStage_ !=
             SignalStage::PEDESTRIAN_WALK &&
         signalStage_ !=
@@ -798,19 +835,11 @@ void Intersection::updateTrafficLights(double dt) {
         } else if (signalStage_ == SignalStage::ALL_RED) {
             if (pedestrianPhasePending_ &&
                 !hasActiveEmergencyPriority()) {
-                if (hasIntersectionOccupants()) {
-                    stageRemainingSeconds_ = 0.5;
-                    break;
-                }
                 beginPedestrianWalk();
                 continue;
             }
             const std::size_t nextPhase =
                 nextScheduledPhase();
-            if (hasConflictingReservationForPhase(nextPhase)) {
-                stageRemainingSeconds_ = 0.5;
-                break;
-            }
             activePhaseGroup = nextPhase;
             signalStage_ = SignalStage::GREEN;
             stageRemainingSeconds_ =

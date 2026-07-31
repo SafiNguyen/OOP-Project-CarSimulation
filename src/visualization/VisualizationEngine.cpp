@@ -447,7 +447,6 @@ void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph&
     drawBusStops(target, graph);
     drawBusStations(target, graph);
     drawPOIs(target, graph);
-    drawRoadNames(target, roads);
 }
 
 
@@ -467,6 +466,11 @@ void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph
 
     drawCrosswalkSignals(target, graph);
     drawTrafficLights(target, graph);
+
+    // Road names drawn last so they appear on top of the heatmap overlay
+    // and remain readable when heat map mode is active.
+    auto roads = graph.getAllRoads();
+    drawRoadNames(target, roads);
 }
 
 void VisualizationEngine::drawRoadCongestionOverlay(sf::RenderTarget& target, const Graph& graph) const {

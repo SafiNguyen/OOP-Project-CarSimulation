@@ -123,6 +123,11 @@ private:
     EmergencyApproach emergencyApproach_;
     double emergencyPriorityRemainingSeconds_ = 0.0;
 
+    // Per-intersection stuck detection state
+    SignalStage stuckLastStage_ = SignalStage::GREEN;
+    double stuckLastRemaining_ = 0.0;
+    double stuckTimer_ = 0.0;
+
     void clearEmergencyPriority();
     void updateEmergencyPriority(double dt);
 
