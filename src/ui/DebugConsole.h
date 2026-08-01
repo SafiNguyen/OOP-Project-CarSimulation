@@ -20,6 +20,7 @@ class VisualizationEngine;
 class PathFindingStrategy;
 class StatsPanel;
 struct StatisticsSummary;
+class PointOfInterest;
 
 /**
  * DebugConsole
@@ -102,7 +103,7 @@ public:
     PathFindingStrategy* getSelectedStrategy();
 
 private:
-    enum class PickTarget { NONE, ADD_ROAD_START, ADD_ROAD_END, SPAWN_START, SPAWN_END };
+    enum class PickTarget { NONE, ADD_ROAD_START, ADD_ROAD_END, SPAWN_START, SPAWN_END, TRAFFIC_LIGHT_INTERSECTION };
     enum class DrawerTab { OVERVIEW, PERFORMANCE, MAP, ROAD_TOOLS, SIMULATION, DEBUG };
     enum class NoticeTone { INFO, SUCCESS, WARNING, ERROR };
 
@@ -242,8 +243,10 @@ private:
     bool snapshotDirty_ = true;
     std::vector<Intersection*> intersectionsSnapshot_;
     std::vector<Road*> roadsSnapshot_;
+    std::vector<PointOfInterest*> poisSnapshot_;
     size_t lastKnownIntersectionCount_ = 0;
     size_t lastKnownRoadCount_ = 0;
+    size_t lastKnownPoiCount_ = 0;
 };
 
 #endif

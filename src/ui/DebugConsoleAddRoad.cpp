@@ -21,15 +21,9 @@ void DebugConsole::drawAddRoadPanel(Graph& graph, VisualizationEngine& visualiza
 
     {
         std::string previewStart = addRoadStartId_ >= 0 ? ("#" + std::to_string(addRoadStartId_)) : "(none)";
-        if (ImGui::BeginCombo("Start##addroad", previewStart.c_str())) {
-            for (Intersection* it : intersectionsSnapshot_) {
-                bool selected = (it->getId() == addRoadStartId_);
-                if (ImGui::Selectable(intersectionLabel(it).c_str(), selected)) {
-                    addRoadStartId_ = it->getId();
-                }
-            }
-            ImGui::EndCombo();
-        }
+        ImGui::Text("Start:");
+        ImGui::SameLine();
+        ImGui::TextColored(UiTheme::TextMuted, "%s", previewStart.c_str());
     }
     ImGui::SameLine();
     if (UiTheme::selectionButton(
@@ -42,15 +36,9 @@ void DebugConsole::drawAddRoadPanel(Graph& graph, VisualizationEngine& visualiza
 
     {
         std::string previewEnd = addRoadEndId_ >= 0 ? ("#" + std::to_string(addRoadEndId_)) : "(none)";
-        if (ImGui::BeginCombo("End##addroad", previewEnd.c_str())) {
-            for (Intersection* it : intersectionsSnapshot_) {
-                bool selected = (it->getId() == addRoadEndId_);
-                if (ImGui::Selectable(intersectionLabel(it).c_str(), selected)) {
-                    addRoadEndId_ = it->getId();
-                }
-            }
-            ImGui::EndCombo();
-        }
+        ImGui::Text("End:");
+        ImGui::SameLine();
+        ImGui::TextColored(UiTheme::TextMuted, "%s", previewEnd.c_str());
     }
     ImGui::SameLine();
     if (UiTheme::selectionButton(

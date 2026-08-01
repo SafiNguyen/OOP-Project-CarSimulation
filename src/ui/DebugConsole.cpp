@@ -11,6 +11,7 @@
 #include "Intersection.h"
 #include "Road.h"
 #include "Vehicle.h"
+#include "model/infrastructure/SpawnPoint.h"
 #include "simulation/StatisticsManager.h"
 #include "simulation/TrafficSimulator.h"
 #include "StatsPanel.h"
@@ -75,16 +76,33 @@ void DebugConsole::handleMapClick(const Graph& graph,
         return;
     }
 
-    Intersection* picked = pickIntersectionNear(graph, visualization, worldPos);
-    if (picked != nullptr) {
-        switch (pickTarget_) {
-            case PickTarget::ADD_ROAD_START: addRoadStartId_ = picked->getId(); break;
-            case PickTarget::ADD_ROAD_END:   addRoadEndId_ = picked->getId(); break;
-            case PickTarget::SPAWN_START:    spawnStartId_ = picked->getId(); break;
-            case PickTarget::SPAWN_END:      spawnEndId_ = picked->getId(); break;
-            default: break;
+    if (pickTarget_ == PickTarget::ADD_ROAD_START || pickTarget_ == PickTarget::ADD_ROAD_END || pickTarget_ == PickTarget::TRAFFIC_LIGHT_INTERSECTION) {
+        Intersection* picked = pickIntersectionNear(graph, visualization, worldPos);
+        if (picked != nullptr) {
+            if (pickTarget_ == PickTarget::ADD_ROAD_START) addRoadStartId_ = picked->getId();
+            else if (pickTarget_ == PickTarget::ADD_ROAD_END) addRoadEndId_ = picked->getId();
+            else if (pickTarget_ == PickTarget::TRAFFIC_LIGHT_INTERSECTION) {
+                // Find the index of this intersection in the snapshot
+                for (int i = 0; i < static_cast<int>(intersectionsSnapshot_.size()); ++i) {
+                    if (intersectionsSnapshot_[i]->getId() == picked->getId()) {
+                        trafficLightIntersectionIdx_ = i;
+                        break;
+                    }
+                }
+            }
+        }
+    } else if (pickTarget_ == PickTarget::SPAWN_START || pickTarget_ == PickTarget::SPAWN_END) {
+        std::optional<POIType> filter = std::nullopt;
+        if (spawnVehicleTypeIdx_ == 1) filter = POIType::BUS_STATION;
+        else if (spawnVehicleTypeIdx_ == 3 && pickTarget_ == PickTarget::SPAWN_START) filter = POIType::HOSPITAL;
+        
+        PointOfInterest* pickedPoi = debugconsole_detail::pickPoiNear(graph, visualization, worldPos, filter);
+        if (pickedPoi != nullptr) {
+            if (pickTarget_ == PickTarget::SPAWN_START) spawnStartId_ = pickedPoi->getId();
+            else spawnEndId_ = pickedPoi->getId();
         }
     }
+    
     pickTarget_ = PickTarget::NONE;
 }
 
@@ -247,9 +265,10 @@ void DebugConsole::drawSimulationSetupPanel(
 void DebugConsole::rebuildSnapshotsIfNeeded(const Graph& graph) {
     const size_t curIntersections = graph.getAllIntersections().size();
     const size_t curRoads = graph.getAllRoads().size();
+    const size_t curPois = graph.getAllPOIs().size() + graph.getAllBusStations().size();
 
     if (!snapshotDirty_ && curIntersections == lastKnownIntersectionCount_
-        && curRoads == lastKnownRoadCount_) {
+        && curRoads == lastKnownRoadCount_ && curPois == lastKnownPoiCount_) {
         return; // graph hasn't changed shape since last frame - reuse cached snapshots
     }
 
@@ -261,8 +280,16 @@ void DebugConsole::rebuildSnapshotsIfNeeded(const Graph& graph) {
     std::sort(roadsSnapshot_.begin(), roadsSnapshot_.end(),
               [](Road* a, Road* b) { return a->getId() < b->getId(); });
 
+    poisSnapshot_ = graph.getAllPOIs();
+    for (auto* busStation : graph.getAllBusStations()) {
+        poisSnapshot_.push_back(busStation);
+    }
+    std::sort(poisSnapshot_.begin(), poisSnapshot_.end(),
+              [](PointOfInterest* a, PointOfInterest* b) { return a->getId() < b->getId(); });
+
     lastKnownIntersectionCount_ = curIntersections;
     lastKnownRoadCount_ = curRoads;
+    lastKnownPoiCount_ = curPois;
     snapshotDirty_ = false;
 
     // The accident road index refers into roadsSnapshot_ by position; if the
@@ -494,8 +521,6 @@ void DebugConsole::drawOverviewTab(std::unique_ptr<TrafficSimulator>& simulator,
                     ? simulator->getPendingVehicleCount()
                     : 0u);
     ImGui::Text("Heatmap  %s", heatMapEnabled ? "ON" : "OFF");
-    ImGui::SameLine(200.0f);
-    ImGui::Text("Parked  %s", showParkedVehicles ? "ON" : "OFF");
 
     if (lastLoadFailed_ && !loadError.empty()) {
         ImGui::Spacing();
@@ -529,12 +554,6 @@ void DebugConsole::drawOverviewTab(std::unique_ptr<TrafficSimulator>& simulator,
         visualization_.setHeatMapEnabled(heatMapEnabled);
     }
     UiTheme::tooltip("Toggle traffic-density heatmap");
-    ImGui::SameLine();
-    if (UiTheme::toggleButton("overview_parked", "Parked", showParkedVehicles,
-                              ImVec2(126.0f, 34.0f))) {
-        showParkedVehicles = !showParkedVehicles;
-    }
-    UiTheme::tooltip("Toggle completed vehicles near destinations");
 
     ImGui::Spacing();
     ImGui::Separator();

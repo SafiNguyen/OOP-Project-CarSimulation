@@ -10,6 +10,7 @@
 #include "Intersection.h"
 #include "Road.h"
 #include "TrafficLight.h"
+#include "UiTheme.h"
 
 using debugconsole_detail::intersectionLabel;
 
@@ -26,16 +27,18 @@ void DebugConsole::drawTrafficLightPanel() {
             preview = intersectionLabel(intersectionsSnapshot_[trafficLightIntersectionIdx_]);
         }
 
-        if (ImGui::BeginCombo("Intersection##tl", preview.c_str())) {
-            for (int i = 0; i < static_cast<int>(intersectionsSnapshot_.size()); ++i) {
-                bool selected = (i == trafficLightIntersectionIdx_);
-                if (ImGui::Selectable(intersectionLabel(intersectionsSnapshot_[i]).c_str(), selected)) {
-                    trafficLightIntersectionIdx_ = i;
-                }
-            }
-            ImGui::EndCombo();
-        }
+        ImGui::Text("Intersection:");
+        ImGui::SameLine();
+        ImGui::TextColored(UiTheme::TextMuted, "%s", preview.c_str());
     }
+    ImGui::SameLine();
+    if (UiTheme::selectionButton(
+            pickTarget_ == PickTarget::TRAFFIC_LIGHT_INTERSECTION ? "Click map...##tl"
+                                                                  : "Pick##tl",
+            pickTarget_ == PickTarget::TRAFFIC_LIGHT_INTERSECTION)) {
+        pickTarget_ = (pickTarget_ == PickTarget::TRAFFIC_LIGHT_INTERSECTION) ? PickTarget::NONE : PickTarget::TRAFFIC_LIGHT_INTERSECTION;
+    }
+    UiTheme::tooltip("Pick the intersection directly on the map");
 
     if (trafficLightIntersectionIdx_ < 0
         || trafficLightIntersectionIdx_ >= static_cast<int>(intersectionsSnapshot_.size())) {

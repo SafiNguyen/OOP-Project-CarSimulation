@@ -373,14 +373,10 @@ bool TrafficSimulator::resolveRoute(
             ? destination->getConnectedRoad()
             : nullptr;
 
-    if (origin != nullptr &&
-        (!origin->isSpawnPoint() ||
-         originRoad == nullptr)) {
+    if (origin != nullptr && originRoad == nullptr) {
         return false;
     }
-    if (destination != nullptr &&
-        (!destination->isDestination() ||
-         destinationRoad == nullptr)) {
+    if (destination != nullptr && destinationRoad == nullptr) {
         return false;
     }
     if ((originRoad != nullptr &&
@@ -622,17 +618,11 @@ bool TrafficSimulator::addVehicleWithDelay(
 
     const bool hasOrigin =
         (vehicle->getSpawnPOI() != nullptr &&
-         vehicle->getSpawnPOI()->
-             getConnectedRoad() != nullptr &&
-         vehicle->getSpawnPOI()->
-             isSpawnPoint()) ||
+         vehicle->getSpawnPOI()->getConnectedRoad() != nullptr) ||
         vehicle->getSpawnPoint() != nullptr;
     const bool hasDestination =
         (vehicle->getTargetPOI() != nullptr &&
-         vehicle->getTargetPOI()->
-             getConnectedRoad() != nullptr &&
-         vehicle->getTargetPOI()->
-             isDestination()) ||
+         vehicle->getTargetPOI()->getConnectedRoad() != nullptr) ||
         vehicle->getDestination() != nullptr;
     if (!hasOrigin || !hasDestination) {
         ++spawnStatistics_.rejected;
@@ -707,19 +697,12 @@ void TrafficSimulator::removeFinishedVehicles() {
                     pruneMergingIndex(road);
             }
 
-            finishedVehicles.push_back(v); // Keep vehicle instead of deleting
+            delete v; // Delete vehicle instead of keeping it in parking slot
             return true;
         }
         return false;
     });
     vehicles.erase(it, vehicles.end());
-    
-    // Cap the size of finishedVehicles to prevent memory bloat
-    const size_t MAX_FINISHED_VEHICLES = 500;
-    while (finishedVehicles.size() > MAX_FINISHED_VEHICLES) {
-        delete finishedVehicles.front();
-        finishedVehicles.erase(finishedVehicles.begin());
-    }
 }
 
 bool TrafficSimulator::addVehicleWithFixedRoute(

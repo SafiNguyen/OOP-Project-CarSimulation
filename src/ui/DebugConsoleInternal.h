@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <optional>
 
 #include <SFML/System/Vector2.hpp>
 
@@ -18,6 +19,8 @@
 #include "Vehicle.h"
 #include "simulation/TrafficSimulator.h"
 #include "visualization/VisualizationEngine.h"
+#include "model/infrastructure/PointOfInterest.h"
+#include "model/infrastructure/SpawnPoint.h"
 
 namespace debugconsole_detail {
 
@@ -67,6 +70,48 @@ inline Intersection* pickIntersectionNear(const Graph& graph,
 
 inline std::string intersectionLabel(Intersection* it) {
     return "#" + std::to_string(it->getId());
+}
+
+inline PointOfInterest* pickPoiNear(const Graph& graph,
+                                    const VisualizationEngine& visualization,
+                                    const sf::Vector2f& screenPos,
+                                    std::optional<POIType> filterType = std::nullopt,
+                                    float pickRadiusPixels = 20.0f) {
+    PointOfInterest* best = nullptr;
+    float bestDistSq = pickRadiusPixels * pickRadiusPixels;
+
+    for (PointOfInterest* candidate : graph.getAllPOIs()) {
+        if (filterType.has_value() && candidate->getType() != filterType.value()) {
+            continue;
+        }
+        const sf::Vector2f p = visualization.worldToScreen(candidate->getX(), candidate->getY());
+        const float dx = p.x - screenPos.x;
+        const float dy = p.y - screenPos.y;
+        const float distSq = dx * dx + dy * dy;
+        if (distSq <= bestDistSq) {
+            bestDistSq = distSq;
+            best = candidate;
+        }
+    }
+    
+    for (BusStation* candidate : graph.getAllBusStations()) {
+        if (filterType.has_value() && candidate->getType() != filterType.value()) {
+            continue;
+        }
+        const sf::Vector2f p = visualization.worldToScreen(candidate->getX(), candidate->getY());
+        const float dx = p.x - screenPos.x;
+        const float dy = p.y - screenPos.y;
+        const float distSq = dx * dx + dy * dy;
+        if (distSq <= bestDistSq) {
+            bestDistSq = distSq;
+            best = candidate;
+        }
+    }
+    return best;
+}
+
+inline std::string poiLabel(PointOfInterest* poi) {
+    return "#" + std::to_string(poi->getId()) + " (" + poi->getName() + ")";
 }
 
 } // namespace debugconsole_detail
