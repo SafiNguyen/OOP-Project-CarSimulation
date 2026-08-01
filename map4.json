@@ -436,8 +436,8 @@
             "id": 501,
             "code": "1",
             "name": "West Gate",
-            "roadId": 101,
-            "positionRatio": 0.5,
+            "roadId": 100,
+            "positionRatio": 0.15,
             "lane": 1,
             "dwellTime": 10.0
         },
@@ -445,8 +445,8 @@
             "id": 502,
             "code": "2",
             "name": "Central Market",
-            "roadId": 103,
-            "positionRatio": 0.5,
+            "roadId": 100,
+            "positionRatio": 0.85,
             "lane": 1,
             "dwellTime": 15.0
         },
@@ -454,8 +454,8 @@
             "id": 503,
             "code": "3",
             "name": "Central Market Eastbound",
-            "roadId": 106,
-            "positionRatio": 0.5,
+            "roadId": 104,
+            "positionRatio": 0.65,
             "lane": 1,
             "dwellTime": 12.0
         },
@@ -471,9 +471,9 @@
             "id": 505,
             "code": "5",
             "name": "Mid Avenue Westbound",
-            "roadId": -104,
+            "roadId": -105,
             "positionRatio": 0.5,
-            "lane": 1,
+            "lane": 2,
             "dwellTime": 12.0
         },
         {
@@ -481,7 +481,7 @@
             "code": "6",
             "name": "Market Road Eastbound",
             "roadId": 109,
-            "positionRatio": 0.5,
+            "positionRatio": 0.65,
             "lane": 1,
             "dwellTime": 12.0
         },
@@ -489,8 +489,8 @@
             "id": 507,
             "code": "7",
             "name": "Market Road Westbound",
-            "roadId": -108,
-            "positionRatio": 0.5,
+            "roadId": -110,
+            "positionRatio": 0.45,
             "lane": 1,
             "dwellTime": 12.0
         },
@@ -499,7 +499,7 @@
             "code": "8",
             "name": "South Boulevard Eastbound",
             "roadId": 114,
-            "positionRatio": 0.5,
+            "positionRatio": 0.35,
             "lane": 2,
             "dwellTime": 12.0
         },
@@ -507,8 +507,8 @@
             "id": 509,
             "code": "9",
             "name": "South Boulevard Westbound",
-            "roadId": -113,
-            "positionRatio": 0.5,
+            "roadId": -115,
+            "positionRatio": 0.35,
             "lane": 2,
             "dwellTime": 12.0
         }
@@ -519,11 +519,11 @@
             "code": "BS01",
             "name": "West Bus Station",
             "x": 10.0,
-            "y": 100.0,
-            "accessIntersectionId": 5,
-            "departureRoadId": -200,
-            "arrivalRoadId": -200,
-            "accessProgress": 100.0,
+            "y": 80.0,
+            "accessIntersectionId": 0,
+            "departureRoadId": 100,
+            "arrivalRoadId": -100,
+            "accessProgress": 20.0,
             "accessLane": 1,
             "capacity": 10
         },
@@ -532,11 +532,11 @@
             "code": "BS02",
             "name": "East Bus Station",
             "x": 490.0,
-            "y": 100.0,
+            "y": 20.0,
             "accessIntersectionId": 4,
-            "departureRoadId": 212,
-            "arrivalRoadId": 212,
-            "accessProgress": 100.0,
+            "departureRoadId": -103,
+            "arrivalRoadId": 103,
+            "accessProgress": 20.0,
             "accessLane": 1,
             "capacity": 10
         },
@@ -545,11 +545,11 @@
             "code": "BS03",
             "name": "West Mid Bus Station",
             "x": 10.0,
-            "y": 200.0,
-            "accessIntersectionId": 10,
-            "departureRoadId": -201,
-            "arrivalRoadId": -201,
-            "accessProgress": 100.0,
+            "y": 180.0,
+            "accessIntersectionId": 5,
+            "departureRoadId": 104,
+            "arrivalRoadId": -104,
+            "accessProgress": 20.0,
             "accessLane": 1,
             "capacity": 10
         },
@@ -558,11 +558,11 @@
             "code": "BS04",
             "name": "East Mid Bus Station",
             "x": 490.0,
-            "y": 200.0,
+            "y": 120.0,
             "accessIntersectionId": 9,
-            "departureRoadId": 213,
-            "arrivalRoadId": 213,
-            "accessProgress": 100.0,
+            "departureRoadId": -107,
+            "arrivalRoadId": 107,
+            "accessProgress": 20.0,
             "accessLane": 1,
             "capacity": 10
         },
@@ -571,11 +571,11 @@
             "code": "BS05",
             "name": "West Market Bus Station",
             "x": 10.0,
-            "y": 300.0,
-            "accessIntersectionId": 15,
-            "departureRoadId": -202,
-            "arrivalRoadId": -202,
-            "accessProgress": 100.0,
+            "y": 280.0,
+            "accessIntersectionId": 10,
+            "departureRoadId": 108,
+            "arrivalRoadId": -108,
+            "accessProgress": 20.0,
             "accessLane": 1,
             "capacity": 10
         },
@@ -584,11 +584,11 @@
             "code": "BS06",
             "name": "East Market Bus Station",
             "x": 490.0,
-            "y": 300.0,
+            "y": 220.0,
             "accessIntersectionId": 14,
-            "departureRoadId": 214,
-            "arrivalRoadId": 214,
-            "accessProgress": 100.0,
+            "departureRoadId": -111,
+            "arrivalRoadId": 111,
+            "accessProgress": 20.0,
             "accessLane": 1,
             "capacity": 10
         },
@@ -596,12 +596,12 @@
             "id": 607,
             "code": "BS07",
             "name": "West South Bus Station",
-            "x": 94.5625,
-            "y": 385.0,
-            "accessIntersectionId": 16,
-            "departureRoadId": -112,
+            "x": 10.0,
+            "y": 380.0,
+            "accessIntersectionId": 15,
+            "departureRoadId": 112,
             "arrivalRoadId": -112,
-            "accessProgress": 100.0,
+            "accessProgress": 20.0,
             "accessLane": 2,
             "capacity": 10
         },
@@ -609,12 +609,12 @@
             "id": 608,
             "code": "BS08",
             "name": "East South Bus Station",
-            "x": 400.0,
-            "y": 363.0,
+            "x": 490.0,
+            "y": 320.0,
             "accessIntersectionId": 19,
             "departureRoadId": -115,
-            "arrivalRoadId": -115,
-            "accessProgress": 40.0,
+            "arrivalRoadId": 115,
+            "accessProgress": 20.0,
             "accessLane": 2,
             "capacity": 10
         }
@@ -626,7 +626,7 @@
             "name": "West-East Service",
             "originStationId": 601,
             "destinationStationId": 602,
-            "roadIds": [-200, 100, 101, 102, 103, 212],
+            "roadIds": [100, 101, 102, 103],
             "stopIds": [501, 502]
         },
         {
@@ -635,7 +635,7 @@
             "name": "East-West Service",
             "originStationId": 602,
             "destinationStationId": 601,
-            "roadIds": [212, -212, -103, -102, -101, -100, 200, -200],
+            "roadIds": [-103, -102, -101, -100],
             "stopIds": [504]
         },
         {
@@ -644,7 +644,7 @@
             "name": "Mid Avenue Eastbound",
             "originStationId": 603,
             "destinationStationId": 604,
-            "roadIds": [-201, 104, 105, 106, 107, 213],
+            "roadIds": [104, 105, 106, 107],
             "stopIds": [503]
         },
         {
@@ -653,7 +653,7 @@
             "name": "Mid Avenue Westbound",
             "originStationId": 604,
             "destinationStationId": 603,
-            "roadIds": [213, -213, -107, -106, -105, -104, 201, -201],
+            "roadIds": [-107, -106, -105, -104],
             "stopIds": [505]
         },
         {
@@ -662,7 +662,7 @@
             "name": "Market Road Eastbound",
             "originStationId": 605,
             "destinationStationId": 606,
-            "roadIds": [-202, 108, 109, 110, 111, 214],
+            "roadIds": [108, 109, 110, 111],
             "stopIds": [506]
         },
         {
@@ -671,7 +671,7 @@
             "name": "Market Road Westbound",
             "originStationId": 606,
             "destinationStationId": 605,
-            "roadIds": [214, -214, -111, -110, -109, -108, 202, -202],
+            "roadIds": [-111, -110, -109, -108],
             "stopIds": [507]
         },
         {
@@ -680,7 +680,7 @@
             "name": "South Boulevard Eastbound",
             "originStationId": 607,
             "destinationStationId": 608,
-            "roadIds": [-112, 112, 113, 114, 115, -115],
+            "roadIds": [112, 113, 114, 115],
             "stopIds": [508]
         },
         {
@@ -689,7 +689,7 @@
             "name": "South Boulevard Westbound",
             "originStationId": 608,
             "destinationStationId": 607,
-            "roadIds": [-115, -114, -113, -112, 112, -112],
+            "roadIds": [-115, -114, -113, -112],
             "stopIds": [509]
         }
     ],
@@ -711,7 +711,6 @@
         {
             "id": 301,
             "name": "Central Mall",
-            "labelOnLeft": true,
             "x": 225.0,
             "y": 225.0,
             "type": "supermarket",
@@ -750,7 +749,6 @@
         {
             "id": 305,
             "name": "River Park",
-            "labelOnLeft": true,
             "x": 325.0,
             "y": 75.0,
             "type": "tourist_spot",
@@ -847,7 +845,6 @@
         {
             "id": 312,
             "name": "Southeast Residences",
-            "labelOnLeft": true,
             "x": 425.0,
             "y": 325.0,
             "type": "residential_area",

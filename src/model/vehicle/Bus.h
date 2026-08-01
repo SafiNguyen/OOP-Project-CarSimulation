@@ -147,8 +147,6 @@ private:
             }
         }
 
-        const BusStation& destinationStation =
-            service.getDestinationStation();
         for (std::size_t stopIndex = 0u;
              stopIndex < plan.orderedStops.size();
              ++stopIndex) {
@@ -156,17 +154,9 @@ private:
                 plan.orderedStops[stopIndex];
             const std::size_t routeIndex =
                 plan.stopRouteIndices[stopIndex];
-            const bool beyondDestinationAccess =
-                destinationStation.usesSharedAccessRoad() &&
-                routeIndex ==
-                    plan.roadRoute.size() - 1u &&
-                stop != nullptr &&
-                stop->getPositionOnRoad() >=
-                    destinationStation.getProgressOffset();
             if (stop == nullptr ||
                 routeIndex >=
                     plan.roadRoute.size() ||
-                beyondDestinationAccess ||
                 stop->getRoad() !=
                     plan.roadRoute[routeIndex] ||
                 (stopIndex > 0u &&
@@ -309,7 +299,7 @@ private:
 protected:
     int getRequiredLaneIndex() const override {
         if (!isApproachingNextStop()) {
-            return Vehicle::getRequiredLaneIndex();
+            return -1;
         }
 
         const int stopLane = nextStop->getLaneIndex();
@@ -431,7 +421,6 @@ public:
                 "Transit Bus requires a fleet code "
                 "and a valid trip plan.");
         }
-        setTargetPOI(destinationStation_);
         currentRoute =
             std::move(tripPlan.roadRoute);
         assignedStops_ =
@@ -482,12 +471,6 @@ public:
             tripState_ = BusTripState::Departing;
         }
         Vehicle::update(dt, graph, strategy, allowDynamicReroute);
-        if (service_ != nullptr &&
-            hasReachedDestination()) {
-            markRemainingStopsMissed();
-            tripState_ = BusTripState::Arrived;
-            return;
-        }
         if (service_ != nullptr &&
             currentRoad != nullptr &&
             tripState_ == BusTripState::Departing) {
