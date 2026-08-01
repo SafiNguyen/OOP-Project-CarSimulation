@@ -23,9 +23,6 @@
 #include "simulation/VehicleSpawnPolicy.h"
 
 namespace {
-
-constexpr int DEMO_VEHICLE_COUNT = 1000;
-
 constexpr double FIRST_BUS_DEPARTURE_SECONDS = 5.0;
 constexpr double NETWORK_BUS_DEPARTURE_INTERVAL_SECONDS = 4.0;
 constexpr double FIRST_GENERAL_VEHICLE_DEPARTURE_SECONDS = 1.0;
@@ -48,7 +45,7 @@ std::size_t recommendedActiveVehicleLimit(
         }
     }
 
-    // The demo still owns all 1000 requested trips, but releases only a
+    // The demo owns every requested trip, but releases only a
     // readable amount of simultaneous traffic for the map's lane count.
     // Permit a denser steady state while keeping the cap proportional to the
     // amount of road space available on each map.
@@ -60,7 +57,10 @@ std::size_t recommendedActiveVehicleLimit(
 
 } // namespace
 
-std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingStrategy* strategy) {
+std::unique_ptr<TrafficSimulator> createDemoSimulator(
+    Graph& graph,
+    PathFindingStrategy* strategy,
+    int vehicleCount) {
     auto simulator = std::make_unique<TrafficSimulator>(&graph, strategy);
     simulator->setMaximumActiveVehicles(
         recommendedActiveVehicleLimit(graph));
@@ -103,8 +103,10 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingS
             return lhs->getId() < rhs->getId();
         });
 
+    const int requestedVehicleCount =
+        std::max(0, vehicleCount);
     int firstGenericVehicleId = 0;
-    int genericVehicleCount = DEMO_VEHICLE_COUNT;
+    int genericVehicleCount = requestedVehicleCount;
     if (!busServices.empty()) {
         if (busStops.empty()) {
             throw std::runtime_error(
@@ -113,7 +115,7 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingS
         }
         const int transitBusCount =
             spawnPolicy.transitBusCount(
-                DEMO_VEHICLE_COUNT);
+                requestedVehicleCount);
         std::vector<int> fleetOrdinals(
             busServices.size(), 0);
         std::set<std::vector<int>>
@@ -199,7 +201,7 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingS
         }
         firstGenericVehicleId = transitBusCount;
         genericVehicleCount =
-            DEMO_VEHICLE_COUNT - transitBusCount;
+            requestedVehicleCount - transitBusCount;
     }
 
     std::unordered_map<const PointOfInterest*, double>

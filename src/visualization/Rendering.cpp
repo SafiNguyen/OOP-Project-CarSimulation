@@ -485,7 +485,8 @@ void drawParkedVehicles(sf::RenderWindow& window, const VisualizationEngine& vis
         window.draw(box);
 
         // Batch all parked vehicles into one submission. This matters late in
-        // a run, when the completed-trip list can contain all 1000 vehicles.
+        // a run, when the completed-trip list can contain thousands of
+        // vehicles from a large configured simulation.
         for (size_t i = 0; i < list.size(); ++i) {
             int col = i % cols;
             int row = i / cols;

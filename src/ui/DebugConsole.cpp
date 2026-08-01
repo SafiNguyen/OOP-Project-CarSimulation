@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
 
 #include <imgui.h>
 
@@ -15,8 +16,16 @@
 #include "StatsPanel.h"
 #include "UiTheme.h"
 #include "visualization/VisualizationEngine.h"
+#include "visualization/SimulatorFactory.h"
 
 using debugconsole_detail::pickIntersectionNear;
+
+namespace {
+
+constexpr int MINIMUM_SIMULATION_VEHICLES = 1;
+constexpr int MAXIMUM_SIMULATION_VEHICLES = 50000;
+
+} // namespace
 
 DebugConsole::DebugConsole(Graph& graph,
                            VisualizationEngine& visualization,
@@ -29,7 +38,9 @@ DebugConsole::DebugConsole(Graph& graph,
       loadAndRefresh_(std::move(loadAndRefresh)),
       resetSimulation_(std::move(resetSimulation)),
       clampViewToMap_(std::move(clampViewToMap)),
-      openFileDialog_(std::move(openFileDialog)) {
+      openFileDialog_(std::move(openFileDialog)),
+      simulationVehicleCountInput_(
+          DEFAULT_DEMO_VEHICLE_COUNT) {
 }
 
 bool DebugConsole::isPicking() const {
@@ -79,6 +90,150 @@ PathFindingStrategy* DebugConsole::currentStrategy() {
         case 1: return &dijkstraStrategy_;
         default: return &aStar_;
     }
+}
+
+bool DebugConsole::createConfiguredSimulation(
+    std::unique_ptr<TrafficSimulator>& simulator,
+    std::string& errorMessage) {
+    errorMessage.clear();
+    if (!simulationVehicleCountLocked_) {
+        errorMessage = "Lock the vehicle count before starting.";
+        return false;
+    }
+    if (!resetSimulation_) {
+        errorMessage = "Simulation factory is unavailable.";
+        return false;
+    }
+
+    try {
+        auto configured = resetSimulation_(
+            lockedSimulationVehicleCount_);
+        if (!configured) {
+            errorMessage = "Simulation creation returned no instance.";
+            return false;
+        }
+        simulator = std::move(configured);
+        simulationStarted_ = true;
+        return true;
+    } catch (const std::exception& ex) {
+        errorMessage = ex.what();
+    } catch (...) {
+        errorMessage = "Unknown error while creating the simulation.";
+    }
+    return false;
+}
+
+void DebugConsole::drawSimulationSetupPanel(
+    std::unique_ptr<TrafficSimulator>& simulator) {
+    if (!ImGui::TreeNodeEx(
+            "Simulation Setup",
+            ImGuiTreeNodeFlags_DefaultOpen)) {
+        return;
+    }
+
+    ImGui::TextWrapped(
+        "Choose the total number of routed vehicle trips. Locking the "
+        "value is permanent for this application session; Start creates "
+        "the simulation with that demand.");
+    ImGui::Spacing();
+
+    ImGui::BeginDisabled(simulationVehicleCountLocked_);
+    ImGui::SetNextItemWidth(180.0f);
+    if (ImGui::InputInt(
+            "Vehicle count",
+            &simulationVehicleCountInput_,
+            100,
+            1000)) {
+        simulationVehicleCountInput_ = std::clamp(
+            simulationVehicleCountInput_,
+            MINIMUM_SIMULATION_VEHICLES,
+            MAXIMUM_SIMULATION_VEHICLES);
+    }
+    ImGui::EndDisabled();
+    ImGui::TextDisabled(
+        "Allowed range: %d - %d",
+        MINIMUM_SIMULATION_VEHICLES,
+        MAXIMUM_SIMULATION_VEHICLES);
+
+    if (!simulationVehicleCountLocked_) {
+        if (UiTheme::actionButton(
+                "Lock Vehicle Count",
+                ImVec2(170.0f, 36.0f))) {
+            simulationVehicleCountInput_ = std::clamp(
+                simulationVehicleCountInput_,
+                MINIMUM_SIMULATION_VEHICLES,
+                MAXIMUM_SIMULATION_VEHICLES);
+            lockedSimulationVehicleCount_ =
+                simulationVehicleCountInput_;
+            simulationVehicleCountLocked_ = true;
+            simulationSetupMessage_ =
+                "Vehicle count locked at " +
+                std::to_string(lockedSimulationVehicleCount_) +
+                ". Press Start Simulation to begin.";
+            setNotice(
+                NoticeTone::SUCCESS,
+                simulationSetupMessage_);
+        }
+    } else {
+        ImGui::TextColored(
+            UiTheme::Success,
+            "LOCKED: %d vehicles",
+            lockedSimulationVehicleCount_);
+    }
+
+    ImGui::Spacing();
+    const bool mapReady = intersectionsSnapshot_.size() >= 2u;
+    const bool canStart =
+        simulationVehicleCountLocked_ &&
+        !simulator && !mapLoadPending_ && mapReady;
+    ImGui::BeginDisabled(!canStart);
+    if (UiTheme::actionButton(
+            simulator
+                ? "Simulation Running"
+                : "Start Simulation",
+            ImVec2(170.0f, 38.0f))) {
+        std::string errorMessage;
+        if (createConfiguredSimulation(
+                simulator, errorMessage)) {
+            simulationSetupMessage_ =
+                "Simulation started with " +
+                std::to_string(
+                    lockedSimulationVehicleCount_) +
+                " vehicle trips.";
+            setNotice(
+                NoticeTone::SUCCESS,
+                simulationSetupMessage_);
+        } else {
+            simulationSetupMessage_ =
+                "Could not start simulation: " +
+                errorMessage;
+            setNotice(
+                NoticeTone::ERROR,
+                simulationSetupMessage_);
+        }
+    }
+    ImGui::EndDisabled();
+    if (!simulationVehicleCountLocked_) {
+        UiTheme::tooltip("Lock the vehicle count first");
+    } else if (!mapReady) {
+        UiTheme::tooltip(
+            "Load a map with at least two intersections first");
+    }
+
+    if (!simulationSetupMessage_.empty()) {
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "%s", simulationSetupMessage_.c_str());
+    }
+
+    if (simulator) {
+        ImGui::Spacing();
+        ImGui::Text(
+            "Active  %zu   Waiting  %zu",
+            simulator->getVehicles().size(),
+            simulator->getPendingVehicleCount());
+    }
+    ImGui::TreePop();
 }
 
 void DebugConsole::rebuildSnapshotsIfNeeded(const Graph& graph) {
@@ -280,6 +435,8 @@ void DebugConsole::drawDrawer(sf::RenderWindow& window,
             if (ImGui::BeginTabItem("Simulation", nullptr, tabFlags)) {
                 activeTab_ = DrawerTab::SIMULATION;
                 ImGui::BeginChild("##simulation_scroll", ImVec2(0.0f, 0.0f), false);
+                drawSimulationSetupPanel(simulator);
+                ImGui::Spacing();
                 drawAlgorithmPanel(simulator);
                 ImGui::Spacing();
                 drawSpawnVehiclePanel(simulator);
