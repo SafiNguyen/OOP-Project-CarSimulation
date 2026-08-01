@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "SnapshotTypes.h"
+
 class Graph;
 class Road;
 class Vehicle;
@@ -18,6 +20,8 @@ class PathFindingStrategy;
 class StatisticsManager;
 class BusService;
 class PointOfInterest;
+class SnapshotManager;
+class TimePlaybackController;
 
 
 class TrafficSimulator {
@@ -93,7 +97,46 @@ public:
     // Ids of vehicles whose most recent recalculation attempt failed.
     const std::set<int>& getFailedRecalcIds() const;
 
+    // --- Snapshot support (Memento pattern) ---
+    // Captures the complete simulation state into a SimulationSnapshot.
+    // O(N) where N = active vehicles + intersections + pending vehicles.
+    SimulationSnapshot captureSnapshot() const;
+    // Restores the complete simulation state from a snapshot. O(N).
+    // Destroys all live vehicles and reconstructs them from snapshot data.
+    void restoreSnapshot(const SimulationSnapshot& snapshot);
+
+    // --- Snapshot auto-capture (OMIT_CAPTURE_PERFORMANCE feature) ---
+    // Snapshots are taken automatically every `intervalSeconds` of
+    // simulated time so playback history is always available. Setting
+    // intervalSeconds <= 0 disables auto-capture.
+    void setSnapshotInterval(double intervalSeconds);
+    double getSnapshotInterval() const { return snapshotIntervalSeconds_; }
+    // Time of the last auto-snapshot (for deciding when to capture next).
+    double getLastSnapshotTime() const { return lastSnapshotTime_; }
+    void notifySnapshotTaken(double atTime) { lastSnapshotTime_ = atTime; }
+
+    // Snapshot manager / playback controller access (Memento caretaker).
+    SnapshotManager* getSnapshotManager() const {
+        return snapshotManager_.get();
+    }
+    TimePlaybackController* getPlaybackController() const {
+        return playbackController_.get();
+    }
+
+    // Captures a snapshot right now (manual trigger from UI/keyboard).
+    // Returns the new snapshot index.
+    std::size_t captureSnapshotNow();
+
 private:
+    // Called from update() once per frame; applies auto-capture policy.
+    void maybeAutoCaptureSnapshot();
+
+    double snapshotIntervalSeconds_ = 5.0;
+    double lastSnapshotTime_ = 0.0;
+    std::unique_ptr<SnapshotManager> snapshotManager_;
+    std::unique_ptr<TimePlaybackController> playbackController_;
+    friend class SnapshotManager;
+    friend class TimePlaybackController;
     struct PendingVehicle {
         Vehicle* vehicle = nullptr;
         std::vector<Road*> route;

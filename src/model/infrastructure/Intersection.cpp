@@ -5,6 +5,7 @@
 #include "MotionPath.h"
 #include "RoadGeometry.h"
 #include "Vehicle.h"
+#include "simulation/SnapshotTypes.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -1352,4 +1353,61 @@ std::string Intersection::toString() const {
 }
 
 Intersection::~Intersection() {
+}
+
+// --- Snapshot support (Memento pattern) ---
+
+void Intersection::captureSnapshot(IntersectionSnapshot& snap) const {
+    snap.id = id;
+    snap.activePhaseGroup = activePhaseGroup;
+    snap.signalStage = static_cast<int>(signalStage_);
+    snap.stageRemainingSeconds = stageRemainingSeconds_;
+
+    snap.occupants.clear();
+    for (const auto& entry : occupants_) {
+        IntersectionSnapshot::ReservationData data;
+        data.fromRoadId =
+            entry.second.fromRoad != nullptr
+                ? entry.second.fromRoad->getId()
+                : -1;
+        data.progressMetres = entry.second.progressMetres;
+        data.vehicleLengthMetres = entry.second.vehicleLengthMetres;
+        data.vehicleWidthMetres = entry.second.vehicleWidthMetres;
+        snap.occupants[entry.first] = data;
+    }
+
+    snap.emergencyVehicleId = emergencyApproach_.vehicleId;
+    snap.emergencyIncomingRoadId =
+        emergencyApproach_.path.incomingRoad != nullptr
+            ? emergencyApproach_.path.incomingRoad->getId()
+            : -1;
+    snap.emergencyIncomingLane = emergencyApproach_.path.incomingLane;
+    snap.emergencyOutgoingRoadId =
+        emergencyApproach_.path.outgoingRoad != nullptr
+            ? emergencyApproach_.path.outgoingRoad->getId()
+            : -1;
+    snap.emergencyOutgoingLane = emergencyApproach_.path.outgoingLane;
+    snap.emergencyPriorityRemainingSeconds =
+        emergencyPriorityRemainingSeconds_;
+}
+
+void Intersection::restoreSnapshot(const IntersectionSnapshot& snap) {
+    activePhaseGroup = snap.activePhaseGroup;
+    signalStage_ = static_cast<SignalStage>(snap.signalStage);
+    stageRemainingSeconds_ = snap.stageRemainingSeconds;
+
+    // Occupants hold shared_ptr<const JunctionConnector> which are expensive
+    // to re-materialize from raw ids. Vehicles restore their own motion state
+    // (including junction traversal) and will re-establish their intersection
+    // reservations naturally during the next update step. Clear here so stale
+    // reservations from a different time slice never linger.
+    occupants_.clear();
+
+    // Emergency priority is derived from live vehicle positions; it will be
+    // re-requested by EmergencyVehicle::update() if the vehicle is near.
+    emergencyApproach_ = {};
+    emergencyPriorityRemainingSeconds_ = 0.0;
+
+    synchronizeSignalHeads();
+    markReservationStateChanged();
 }

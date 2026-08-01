@@ -11,6 +11,7 @@
 
 class Road;  
 class TrafficLight;
+struct IntersectionSnapshot;
 
 struct VehicleMovementPath {
     const Road* incomingRoad = nullptr;
@@ -312,6 +313,10 @@ public:
     }
 
     std::string toString() const;  
+
+    // --- Snapshot support (Memento pattern) ---
+    void captureSnapshot(IntersectionSnapshot& snap) const;
+    void restoreSnapshot(const IntersectionSnapshot& snap);
 
     virtual ~Intersection(); 
 };

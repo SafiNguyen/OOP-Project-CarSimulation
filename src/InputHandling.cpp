@@ -7,6 +7,7 @@
 #include "visualization/Camera.h"
 #include "visualization/VisualizationEngine.h"
 #include "simulation/TrafficSimulator.h"
+#include "simulation/TimePlaybackController.h"
 #include "ui/DebugConsole.h"
 #include "ui/VehicleInspector.h"
 
@@ -79,6 +80,34 @@ void handleEvent(const sf::Event& event, AppContext& ctx, DebugConsole& debugCon
             simulator->resume();
         } else if (simulator) {
             simulator->pause();
+        }
+    }
+
+    // --- Snapshot playback shortcuts ---
+    // [ : rewind one snapshot step
+    // ] : forward one snapshot step
+    // B : capture a snapshot manually
+    // N : clear playback history
+    if (event.type == sf::Event::KeyPressed &&
+        event.key.code == sf::Keyboard::LBracket && simulator) {
+        if (auto* controller = simulator->getPlaybackController()) {
+            controller->rewind(1);
+        }
+    }
+    if (event.type == sf::Event::KeyPressed &&
+        event.key.code == sf::Keyboard::RBracket && simulator) {
+        if (auto* controller = simulator->getPlaybackController()) {
+            controller->forward(1);
+        }
+    }
+    if (event.type == sf::Event::KeyPressed &&
+        event.key.code == sf::Keyboard::B && simulator) {
+        simulator->captureSnapshotNow();
+    }
+    if (event.type == sf::Event::KeyPressed &&
+        event.key.code == sf::Keyboard::N && simulator) {
+        if (auto* controller = simulator->getPlaybackController()) {
+            controller->reset();
         }
     }
     if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left
