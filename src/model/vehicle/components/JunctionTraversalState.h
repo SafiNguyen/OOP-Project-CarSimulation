@@ -3,12 +3,12 @@
 
 #include <memory>
 #include "Geometry.h"
+#include "LaneMapping.h"
 
 class Vehicle;
 class JunctionConnector;
 class Intersection;
 class Road;
-class LaneMapping;
 
 class JunctionTraversalState {
 public:
