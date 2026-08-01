@@ -9,6 +9,7 @@
 
 #include "simulation/StatisticsManager.h"
 #include "simulation/TrafficSimulator.h"
+#include "simulation/TimePlaybackController.h"
 #include "UiTheme.h"
 #include "visualization/Camera.h"
 #include "visualization/VisualizationEngine.h"
@@ -27,6 +28,47 @@ std::string formatTime(double totalSeconds, bool compact) {
         std::snprintf(buffer, sizeof(buffer), "%02d:%02d", minutes + hours * 60, remainder);
     }
     return buffer;
+}
+
+std::string formatTimeDelta(double totalSeconds) {
+    const bool negative = totalSeconds < 0.0;
+    const std::string formatted = formatTime(std::abs(totalSeconds), false);
+    return negative ? "-" + formatted : "+" + formatted;
+}
+
+std::string rewindButtonLabel(const TimePlaybackController* controller) {
+    if (controller == nullptr || controller->available() < 2u) {
+        return "<<";
+    }
+
+    const std::size_t currentIndex = controller->currentIndex();
+    const std::size_t fromIndex =
+        currentIndex == SnapshotManager::npos
+            ? controller->available() - 1u
+            : currentIndex;
+    if (fromIndex == 0u) {
+        return "<<";
+    }
+
+    const double delta =
+        controller->timeAt(fromIndex) - controller->timeAt(fromIndex - 1u);
+    return std::string("<< ") + formatTimeDelta(delta);
+}
+
+std::string forwardButtonLabel(const TimePlaybackController* controller) {
+    if (controller == nullptr || controller->available() < 2u) {
+        return ">>";
+    }
+
+    const std::size_t currentIndex = controller->currentIndex();
+    if (currentIndex == SnapshotManager::npos ||
+        currentIndex >= controller->available() - 1u) {
+        return ">>";
+    }
+
+    const double delta =
+        controller->timeAt(currentIndex + 1u) - controller->timeAt(currentIndex);
+    return formatTimeDelta(delta) + " >>";
 }
 
 std::string shortMapName(const std::string& path) {
@@ -155,9 +197,9 @@ void DebugConsole::drawTopHud(sf::RenderWindow& window,
             }
 
             ImGui::TableNextColumn();
-            metricBlock("SIM TIME",
-                        formatTime(statistics ? statistics->totalSimulatedTime : 0.0, narrow),
-                        narrow);
+            const double simTime = simulator ? simulator->getElapsedTime()
+                                             : (statistics ? statistics->totalSimulatedTime : 0.0);
+            metricBlock("SIM TIME", formatTime(simTime, narrow), narrow);
 
             ImGui::TableNextColumn();
             metricBlock(narrow ? "ACTIVE" : "ACTIVE VEHICLES",
@@ -283,6 +325,42 @@ void DebugConsole::drawBottomDock(sf::RenderWindow& window,
         }
         ImGui::EndDisabled();
         UiTheme::tooltip(paused ? "Resume simulation" : "Pause simulation");
+        next();
+
+        // --- Playback controls (snapshot rewind/forward) ---
+        ImGui::BeginDisabled(!simulator);
+        {
+            auto* controller = simulator
+                ? simulator->getPlaybackController()
+                : nullptr;
+            const bool canRewind = controller && controller->available() > 0;
+            ImGui::BeginDisabled(!canRewind);
+            const std::string rewindLabel = rewindButtonLabel(controller);
+            if (ImGui::Button(rewindLabel.c_str(), buttonSize) && controller) {
+                controller->rewind(1);
+            }
+            ImGui::EndDisabled();
+            UiTheme::tooltip(controller && controller->available() > 1u
+                                 ? "Rewind one snapshot"
+                                 : "No snapshot history available");
+            next();
+            const bool canForward = controller &&
+                controller->currentIndex() != SnapshotManager::npos &&
+                controller->currentIndex() <
+                    (controller->available() > 0
+                         ? controller->available() - 1
+                         : 0);
+            ImGui::BeginDisabled(!canForward);
+            const std::string forwardLabel = forwardButtonLabel(controller);
+            if (ImGui::Button(forwardLabel.c_str(), buttonSize) && controller) {
+                controller->forward(1);
+            }
+            ImGui::EndDisabled();
+            UiTheme::tooltip(controller && controller->available() > 1u
+                                 ? "Forward one snapshot"
+                                 : "No snapshot history available");
+        }
+        ImGui::EndDisabled();
         next();
 
         if (ImGui::Button(narrow ? "View" : "Reset View", buttonSize)) {

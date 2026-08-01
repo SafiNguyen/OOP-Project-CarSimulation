@@ -447,6 +447,12 @@ public:
         releaseDepartureSlot();
     }
 
+    // --- Snapshot support (Memento pattern) ---
+    void captureSnapshot(VehicleSnapshot& snap,
+                         const Graph& graph) const override;
+    void restoreSnapshot(const VehicleSnapshot& snap,
+                         Graph& graph) override;
+
     double calculateCurrentSpeed() const override {
         if (currentRoad == nullptr) {
             return 0.0;

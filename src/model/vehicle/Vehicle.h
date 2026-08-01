@@ -7,6 +7,7 @@
 #include "Geometry.h"
 #include "JunctionConnector.h"
 #include "VehicleTypes.h"
+#include "simulation/SnapshotTypes.h"
 
 class Intersection;
 class Road;
@@ -116,6 +117,16 @@ public:
 
     virtual ~Vehicle();
 
+    // --- Snapshot support (Memento pattern) ---
+    // Captures this vehicle's full state into `snap`.
+    // `graph` is needed to resolve Road*/Intersection* pointers to ids.
+    virtual void captureSnapshot(VehicleSnapshot& snap,
+                                 const class Graph& graph) const;
+    // Restores this vehicle's state from `snap`.
+    // `graph` is needed to resolve ids back to Road*/Intersection* pointers.
+    virtual void restoreSnapshot(const VehicleSnapshot& snap,
+                                 class Graph& graph);
+
     virtual double calculateCurrentSpeed() const = 0;
     virtual void onRoadChanged() {}
     virtual double getAcceleration() const;
@@ -171,6 +182,8 @@ public:
     int getId() const { return id; }
     Intersection* getSpawnPoint() const { return spawnPoint; }
     Intersection* getDestination() const { return destination; }
+    void setSpawnPoint(Intersection* start) { spawnPoint = start; }
+    void setDestination(Intersection* dest) { destination = dest; }
     double getBaseSpeed() const { return baseSpeed; }
     virtual double getLength() const;    // metres
     virtual double getWidth() const;     // metres

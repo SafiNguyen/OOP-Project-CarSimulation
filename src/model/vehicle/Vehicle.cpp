@@ -2252,3 +2252,206 @@ bool Vehicle::isStuckInJam(int depth) const {
     return true; 
 }
 
+// --- Snapshot support (Memento pattern) ---
+
+void Vehicle::captureSnapshot(VehicleSnapshot& snap,
+                              const Graph& graph) const {
+    snap.id = id;
+    snap.kind = getVehicleKind();
+    snap.currentRoadId = currentRoad != nullptr ? currentRoad->getId() : -1;
+    snap.currentLaneIndex = currentLaneIndex;
+    snap.progressOnCurrentRoad = progressOnCurrentRoad;
+    snap.currentSpeed = currentSpeed;
+
+    snap.currentRoute.clear();
+    snap.currentRoute.reserve(currentRoute.size());
+    for (const Road* road : currentRoute) {
+        snap.currentRoute.push_back(road != nullptr ? road->getId() : -1);
+    }
+    snap.currentRouteIndex = currentRouteIndex;
+
+    snap.travelHistory.clear();
+    snap.travelHistory.reserve(travelHistory.size());
+    for (const Road* road : travelHistory) {
+        snap.travelHistory.push_back(road != nullptr ? road->getId() : -1);
+    }
+
+    snap.paused = paused;
+    snap.pauseReason = pauseReason;
+    snap.movementState = movementState_;
+
+    snap.junctionIncomingRoadId = currentRoad != nullptr ? currentRoad->getId() : -1;
+    snap.junctionIncomingLane = incomingLaneIndex_;
+    snap.junctionOutgoingRoadId =
+        junctionOutgoingRoad_ != nullptr ? junctionOutgoingRoad_->getId() : -1;
+    snap.junctionOutgoingLane = outgoingLaneIndex_;
+    snap.junctionProgressMetres = junctionProgressMetres_;
+    snap.reservedIntersectionId =
+        reservedIntersection_ != nullptr ? reservedIntersection_->getId() : -1;
+
+    snap.laneChangeCooldownTimer = laneChangeCooldownTimer;
+    snap.yielding = yielding;
+    snap.yieldCooldownTimer = yieldCooldownTimer;
+    snap.emergencyLaneToAvoid = emergencyLaneToAvoid;
+    snap.laneChangeState = laneChangeState_;
+    snap.laneChangeTargetLane = laneChangeTargetLane_;
+    snap.laneChangeReason = laneChangeReason_;
+    snap.laneChangeSignalElapsedSeconds = laneChangeSignalElapsedSeconds_;
+    snap.turnSignal = turnSignal_;
+    snap.turnSignalReason = turnSignalReason_;
+    snap.junctionTurnSignal = junctionTurnSignal_;
+
+    snap.poseTransitionFromX = poseTransitionFrom_.position.x;
+    snap.poseTransitionFromY = poseTransitionFrom_.position.y;
+    snap.poseTransitionFromHeading = poseTransitionFrom_.headingRadians;
+    snap.poseTransitionToX = poseTransitionTo_.position.x;
+    snap.poseTransitionToY = poseTransitionTo_.position.y;
+    snap.poseTransitionToHeading = poseTransitionTo_.headingRadians;
+    snap.poseTransitionTimer = poseTransitionTimer_;
+    snap.poseTransitionDuration = poseTransitionDuration_;
+
+    snap.stuckTimer = stuckTimer;
+    snap.patienceThreshold = patienceThreshold;
+    snap.uTurnCooldownTimer = uTurnCooldownTimer;
+    snap.simulationTimeSeconds = simulationTimeSeconds_;
+    snap.recalculateTimer = recalculateTimer;
+    snap.isWaitingForLight = isWaitingForLight_;
+
+    snap.isMergingFromPOI = isMergingFromPOI;
+    snap.poiMergePhase = poiMergePhase_;
+    snap.isEnteringPOI = isEnteringPOI;
+    snap.mergeSourcePOIId =
+        mergeSourcePOI_ != nullptr ? mergeSourcePOI_->getId() : -1;
+    snap.mergeProgressOffset = mergeProgressOffset;
+    snap.mergeLaneIndex = mergeLaneIndex;
+    snap.poiAnimationTimer = poiAnimationTimer;
+    snap.poiAnimationDuration = poiAnimationDuration;
+
+    snap.spawnPointId =
+        spawnPoint != nullptr ? spawnPoint->getId() : -1;
+    snap.destinationId =
+        destination != nullptr ? destination->getId() : -1;
+    snap.baseSpeed = baseSpeed;
+    snap.spawnPOIId = spawnPOI != nullptr ? spawnPOI->getId() : -1;
+    snap.targetPOIId = targetPOI != nullptr ? targetPOI->getId() : -1;
+    snap.spawnLifecycleState = spawnLifecycleState_;
+    snap.reservedSpawnPointId =
+        reservedSpawnPoint_ != nullptr ? reservedSpawnPoint_->getId() : -1;
+}
+
+void Vehicle::restoreSnapshot(const VehicleSnapshot& snap,
+                              Graph& graph) {
+    id = snap.id;
+    baseSpeed = snap.baseSpeed;
+    spawnPoint = snap.spawnPointId >= 0
+        ? graph.getIntersection(snap.spawnPointId)
+        : nullptr;
+    destination = snap.destinationId >= 0
+        ? graph.getIntersection(snap.destinationId)
+        : nullptr;
+    currentLaneIndex = snap.currentLaneIndex;
+    progressOnCurrentRoad = snap.progressOnCurrentRoad;
+    currentSpeed = snap.currentSpeed;
+
+    // Restore route (road id -> Road*).
+    currentRoute.clear();
+    currentRoute.reserve(snap.currentRoute.size());
+    for (const int roadId : snap.currentRoute) {
+        currentRoute.push_back(roadId >= 0 ? graph.getRoad(roadId) : nullptr);
+    }
+    currentRouteIndex = snap.currentRouteIndex;
+    routeAssigned = true;
+
+    paused = snap.paused;
+    pauseReason = snap.pauseReason;
+    movementState_ = snap.movementState;
+
+    // Restore currentRoad from the route at the current index when OnRoad.
+    currentRoad =
+        (movementState_ != MovementState::TraversingJunction &&
+         currentRouteIndex >= 0 &&
+         static_cast<std::size_t>(currentRouteIndex) < currentRoute.size())
+            ? currentRoute[static_cast<std::size_t>(currentRouteIndex)]
+            : graph.getRoad(snap.currentRoadId);
+
+    travelHistory.clear();
+    travelHistory.reserve(snap.travelHistory.size());
+    for (const int roadId : snap.travelHistory) {
+        travelHistory.push_back(roadId >= 0 ? graph.getRoad(roadId) : nullptr);
+    }
+
+    incomingLaneIndex_ = snap.junctionIncomingLane;
+    outgoingLaneIndex_ = snap.junctionOutgoingLane;
+    junctionProgressMetres_ = snap.junctionProgressMetres;
+    junctionOutgoingRoad_ =
+        snap.junctionOutgoingRoadId >= 0
+            ? graph.getRoad(snap.junctionOutgoingRoadId)
+            : nullptr;
+    reservedIntersection_ =
+        snap.reservedIntersectionId >= 0
+            ? graph.getIntersection(snap.reservedIntersectionId)
+            : nullptr;
+
+    activeConnector_.reset();
+    if (movementState_ == MovementState::TraversingJunction &&
+        currentRoad != nullptr &&
+        junctionOutgoingRoad_ != nullptr) {
+        Intersection* intersection = currentRoad->getEnd();
+        if (intersection != nullptr) {
+            activeConnector_ = intersection->getConnector(
+                currentRoad,
+                incomingLaneIndex_,
+                junctionOutgoingRoad_,
+                outgoingLaneIndex_);
+        }
+    }
+
+    laneChangeCooldownTimer = snap.laneChangeCooldownTimer;
+    yielding = snap.yielding;
+    yieldCooldownTimer = snap.yieldCooldownTimer;
+    emergencyLaneToAvoid = snap.emergencyLaneToAvoid;
+    laneChangeState_ = snap.laneChangeState;
+    laneChangeTargetLane_ = snap.laneChangeTargetLane;
+    laneChangeReason_ = snap.laneChangeReason;
+    laneChangeSignalElapsedSeconds_ = snap.laneChangeSignalElapsedSeconds;
+    turnSignal_ = snap.turnSignal;
+    turnSignalReason_ = snap.turnSignalReason;
+    junctionTurnSignal_ = snap.junctionTurnSignal;
+
+    poseTransitionFrom_.position = {
+        snap.poseTransitionFromX, snap.poseTransitionFromY};
+    poseTransitionFrom_.headingRadians = snap.poseTransitionFromHeading;
+    poseTransitionTo_.position = {
+        snap.poseTransitionToX, snap.poseTransitionToY};
+    poseTransitionTo_.headingRadians = snap.poseTransitionToHeading;
+    poseTransitionTimer_ = snap.poseTransitionTimer;
+    poseTransitionDuration_ = snap.poseTransitionDuration;
+
+    stuckTimer = snap.stuckTimer;
+    patienceThreshold = snap.patienceThreshold;
+    uTurnCooldownTimer = snap.uTurnCooldownTimer;
+    simulationTimeSeconds_ = snap.simulationTimeSeconds;
+    recalculateTimer = snap.recalculateTimer;
+    isWaitingForLight_ = snap.isWaitingForLight;
+
+    isMergingFromPOI = snap.isMergingFromPOI;
+    poiMergePhase_ = snap.poiMergePhase;
+    isEnteringPOI = snap.isEnteringPOI;
+    mergeSourcePOI_ =
+        snap.mergeSourcePOIId >= 0
+            ? graph.getPOI(snap.mergeSourcePOIId)
+            : nullptr;
+    mergeProgressOffset = snap.mergeProgressOffset;
+    mergeLaneIndex = snap.mergeLaneIndex;
+    poiAnimationTimer = snap.poiAnimationTimer;
+    poiAnimationDuration = snap.poiAnimationDuration;
+
+    spawnPOI = snap.spawnPOIId >= 0
+        ? graph.getPOI(snap.spawnPOIId)
+        : nullptr;
+    targetPOI = snap.targetPOIId >= 0
+        ? graph.getPOI(snap.targetPOIId)
+        : nullptr;
+    spawnLifecycleState_ = snap.spawnLifecycleState;
+}
+
