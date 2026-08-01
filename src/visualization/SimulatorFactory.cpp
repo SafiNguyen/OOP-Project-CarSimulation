@@ -18,9 +18,6 @@
 #include "Bus.h"
 #include "BusService.h"
 #include "BusStop.h"
-#include "Crosswalk.h"
-#include "Pedestrian.h"
-#include "PedestrianRoute.h"
 #include "simulation/BusTripPlanner.h"
 #include "simulation/TrafficSimulator.h"
 #include "simulation/VehicleSpawnPolicy.h"
@@ -344,39 +341,5 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingS
         }
     }
 
-    int pedestrianId = 100000;
-    for (Crosswalk* crosswalk :
-         graph.getAllCrosswalks()) {
-        if (crosswalk == nullptr) continue;
-        constexpr int PEDESTRIANS_PER_CROSSWALK = 2;
-        for (int index = 0;
-             index < PEDESTRIANS_PER_CROSSWALK;
-             ++index) {
-            const CrossingDirection direction =
-                index % 2 == 0
-                    ? CrossingDirection::SideAToB
-                    : CrossingDirection::SideBToA;
-            const double approachDistance =
-                10.0 +
-                static_cast<double>(index) * 8.0;
-            const double departureDistance =
-                30.0 +
-                static_cast<double>(index % 4) * 7.0;
-            auto route = buildCrosswalkJourney(
-                *crosswalk,
-                direction,
-                approachDistance,
-                departureDistance);
-            if (route.empty()) continue;
-            const double speed =
-                1.25 +
-                static_cast<double>(index % 5) * 0.05;
-            simulator->addPedestrian(
-                std::make_unique<Pedestrian>(
-                    pedestrianId++,
-                    speed,
-                    std::move(route)));
-        }
-    }
     return simulator;
 }

@@ -272,12 +272,19 @@ void test_Vehicle_StopsAtRedTrafficLight() {
     g.addRoad(new Road(101, "Test Road", g.getIntersection(1), g.getIntersection(2), 80.0, 20.0, 1.0));
 
     Road* road = g.getRoad(101);
-    g.getIntersection(2)->registerIncomingLight(road);
-    TrafficLight* light = g.getIntersection(2)->getLightForIncomingRoad(road);
-    if (light != nullptr) {
-        light->forceState(LightState::RED);
-    }
-    bool hasRedLight = (light != nullptr) && light->mustStop();
+    Road* crossRoad = g.getRoad(100);
+    std::string signalError;
+    const bool signalConfigured =
+        g.getIntersection(2)->configureTrafficSignals(
+            {{crossRoad}, {road}},
+            30.0, 3.0, 2.0,
+            &signalError);
+    const TrafficLight* light =
+        g.getIntersection(2)->getLightForIncomingRoad(road);
+    const bool hasRedLight =
+        signalConfigured &&
+        light != nullptr &&
+        light->mustStop();
 
     Car car(1, 30.0, g.getIntersection(1), g.getIntersection(2));
     car.setRoute({road});
@@ -376,12 +383,16 @@ void test_Bus_RedLightIsNotDwellAndDwellDoesNotBypassRed() {
     g.addRoad(new Road(101, "Bus Road", g.getIntersection(1), g.getIntersection(2), 80.0, 20.0));
 
     Road* road = g.getRoad(101);
+    Road* crossRoad = g.getRoad(100);
     road->addBusStop(std::make_unique<BusStop>(501, "Before light", road, 20.0, 0, 1.0));
-    g.getIntersection(2)->registerIncomingLight(road);
-    TrafficLight* light = g.getIntersection(2)->getLightForIncomingRoad(road);
-    if (light != nullptr) {
-        light->forceState(LightState::RED);
-    }
+    std::string signalError;
+    const bool signalConfigured =
+        g.getIntersection(2)->configureTrafficSignals(
+            {{crossRoad}, {road}},
+            30.0, 3.0, 2.0,
+            &signalError);
+    const TrafficLight* light =
+        g.getIntersection(2)->getLightForIncomingRoad(road);
 
     Bus bus(1, 30.0, g.getIntersection(1), g.getIntersection(2));
     bus.setRoute({road});
@@ -390,7 +401,8 @@ void test_Bus_RedLightIsNotDwellAndDwellDoesNotBypassRed() {
     bus.update(1.0);
     bus.update(20.0);
 
-    const bool passed = light != nullptr && light->mustStop() &&
+    const bool passed = signalConfigured &&
+                        light != nullptr && light->mustStop() &&
                         dwelled &&
                         !bus.isDwelling() &&
                         bus.getPauseReason() != PauseReason::BusStop &&
@@ -592,11 +604,14 @@ void test_Vehicle_TrafficLightTakesPriorityOverIntersection() {
     Intersection i2(2, 80.0, 0.0);
     Road road(101, "Signal approach", &i1, &i2, 80.0, 20.0);
     i2.addIncomingRoad(&road);
-    i2.registerIncomingLight(&road);
-    TrafficLight* light = i2.getLightForIncomingRoad(&road);
-    if (light != nullptr) {
-        light->forceState(LightState::RED);
-    }
+    std::string signalError;
+    const bool signalConfigured =
+        i2.configureTrafficSignals(
+            {{&road}}, 1.0, 1.0, 10.0,
+            &signalError);
+    i2.updateTrafficLights(2.0);
+    const TrafficLight* light =
+        i2.getLightForIncomingRoad(&road);
 
     LaneTestCar car(1, 20.0, &i1, &i2);
     car.setRoute({&road});
@@ -606,13 +621,12 @@ void test_Vehicle_TrafficLightTakesPriorityOverIntersection() {
 
     car.update(0.05);
     const bool redReason = light != nullptr &&
+                           signalConfigured &&
                            occupied &&
                            car.isPaused() &&
                            car.getPauseReason() == PauseReason::TrafficLight;
 
-    if (light != nullptr) {
-        light->forceState(LightState::GREEN);
-    }
+    i2.updateTrafficLights(10.0);
     car.update(0.05);
     const bool greenButBlockedReason =
         car.isPaused() &&
@@ -751,11 +765,14 @@ void test_Bus_DwellCompletionDoesNotBypassRedLight() {
     road.addBusStop(std::make_unique<BusStop>(
         501, "Before signal", &road, 70.0, 0, 1.0));
     i2.addIncomingRoad(&road);
-    i2.registerIncomingLight(&road);
-    TrafficLight* light = i2.getLightForIncomingRoad(&road);
-    if (light != nullptr) {
-        light->forceState(LightState::RED);
-    }
+    std::string signalError;
+    const bool signalConfigured =
+        i2.configureTrafficSignals(
+            {{&road}}, 1.0, 1.0, 20.0,
+            &signalError);
+    i2.updateTrafficLights(2.0);
+    const TrafficLight* light =
+        i2.getLightForIncomingRoad(&road);
 
     TestBus bus(1, 20.0, &i1, &i2);
     bus.setRoute({&road});
@@ -765,7 +782,8 @@ void test_Bus_DwellCompletionDoesNotBypassRedLight() {
     const bool startedDwell = bus.isDwelling();
     bus.update(5.0);
 
-    const bool passed = light != nullptr &&
+    const bool passed = signalConfigured &&
+                        light != nullptr &&
                         startedDwell &&
                         !bus.isDwelling() &&
                         bus.isPaused() &&

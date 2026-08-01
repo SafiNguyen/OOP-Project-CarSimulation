@@ -7,7 +7,6 @@
 #include "JunctionConnector.h"
 #include "LaneMapping.h"
 #include "RoadGeometry.h"
-#include "Crosswalk.h"
 #include "algorithm/PathFindingStrategy.h"
 #include "PointOfInterest.h"
 #include "SpawnPoint.h"
@@ -124,6 +123,12 @@ bool isBetterCandidate(const LaneChangeCandidate& candidate,
     return candidate.gapBehind > best.gapBehind;
 }
 
+bool usesDedicatedEdgeLane(MovementType movement) {
+    return movement == MovementType::Right ||
+           movement == MovementType::Left ||
+           movement == MovementType::UTurn;
+}
+
 } // namespace
 
 
@@ -208,27 +213,10 @@ PauseReason Vehicle::getIntersectionControlReason() const {
         return PauseReason::None;
     }
 
-    const Crosswalk* crosswalk =
-        nextIntersection->
-            getCrosswalkForIncomingRoad(currentRoad);
     const bool prioritizedEmergency =
         nextIntersection->
             isPrioritizedEmergencyVehicle(
                 getId(), currentRoad);
-    if (prioritizedEmergency &&
-        !nextIntersection->
-             isEmergencyPathClear(getId())) {
-        return PauseReason::PedestrianCrossing;
-    }
-    if (crosswalk != nullptr &&
-        (crosswalk->getSignalState() ==
-             PedestrianSignalState::Walk ||
-         crosswalk->getSignalState() ==
-             PedestrianSignalState::Clearance) &&
-        !prioritizedEmergency) {
-        return PauseReason::PedestrianCrossing;
-    }
-
     const LaneMapping movementMapping =
         getJunctionEntryLaneMapping();
     Road* outgoingRoad = getNextRoad();
@@ -238,15 +226,13 @@ PauseReason Vehicle::getIntersectionControlReason() const {
             : movementMapping.valid && outgoingRoad != nullptr
             ? nextIntersection->getMovementDecision(
                   currentRoad,
+                  currentLaneIndex,
                   outgoingRoad,
                   movementMapping.movement)
             : (nextIntersection->mustStopForRoad(currentRoad)
                    ? JunctionDecision::Stop
                    : JunctionDecision::Proceed);
-    if (movementDecision == JunctionDecision::Stop ||
-        (movementDecision == JunctionDecision::Yield &&
-         rightOnRedStoppedSeconds_ + 1e-9 <
-             RIGHT_ON_RED_MIN_STOP_SECONDS)) {
+    if (movementDecision == JunctionDecision::Stop) {
         return PauseReason::TrafficLight;
     }
 
@@ -370,9 +356,7 @@ bool Vehicle::shouldPauseAt(double currentPos,
     // A red-light queue is still waiting for the signal. By contrast, a
     // vehicle held behind an intersection-waiting leader is stopped by that
     // leader, not directly by the box reservation.
-    if (controlReason == PauseReason::TrafficLight ||
-        controlReason ==
-            PauseReason::PedestrianCrossing) {
+    if (controlReason == PauseReason::TrafficLight) {
         Vehicle* leader = currentRoad->findLeader(currentLaneIndex, this);
         if (leader != nullptr && leader->isPaused()) {
             const double requiredGap =
@@ -426,7 +410,6 @@ bool Vehicle::setRouteAt(const std::vector<Road*>& route,
     movementState_ = MovementState::OnRoad;
     clearLaneChangeIntent();
     junctionTurnSignal_ = TurnSignal::Off;
-    rightOnRedStoppedSeconds_ = 0.0;
     routeAssigned = true;
 
     if (!currentRoute.empty()) {
@@ -493,7 +476,6 @@ bool Vehicle::advanceToNextRoad() {
     progressOnCurrentRoad = 0.0;
     clearLaneChangeIntent();
     junctionTurnSignal_ = TurnSignal::Off;
-    rightOnRedStoppedSeconds_ = 0.0;
     onRoadChanged();
     refreshTurnSignal();
     return false;
@@ -636,6 +618,7 @@ bool Vehicle::beginJunctionTraversal(
             ? JunctionDecision::Proceed
             : intersection->getMovementDecision(
                   currentRoad,
+                  mapping.incomingLane,
                   outgoing,
                   mapping.movement);
     const bool entered =
@@ -702,7 +685,6 @@ void Vehicle::completeJunctionTraversal(
     paused = false;
     pauseReason = PauseReason::None;
     junctionTurnSignal_ = TurnSignal::Off;
-    rightOnRedStoppedSeconds_ = 0.0;
     clearLaneChangeIntent();
 
     if (currentRoad != nullptr) {
@@ -887,24 +869,6 @@ bool Vehicle::isTurnSignalBlinkOn() const {
     return phase < TURN_SIGNAL_BLINK_PERIOD_SECONDS * 0.5;
 }
 
-bool Vehicle::isRightTurnOnRedYield() const {
-    if (currentRoad == nullptr ||
-        movementState_ == MovementState::TraversingJunction) {
-        return false;
-    }
-    Road* outgoing = getNextRoad();
-    Intersection* intersection = currentRoad->getEnd();
-    const LaneMapping mapping = getJunctionEntryLaneMapping();
-    return outgoing != nullptr &&
-           intersection != nullptr &&
-           mapping.valid &&
-           intersection->getMovementDecision(
-               currentRoad,
-               outgoing,
-               mapping.movement) ==
-               JunctionDecision::Yield;
-}
-
 bool Vehicle::tryRequiredLaneChange(
     int requiredLaneIndex,
     TurnSignalReason reason) {
@@ -921,8 +885,10 @@ bool Vehicle::tryRequiredLaneChange(
     }
 
     requestLaneChange(requiredLaneIndex, reason);
-    if (laneChangeSignalElapsedSeconds_ + 1e-9 <
-        MIN_SIGNAL_LEAD_TIME_SECONDS) {
+    const double signalLeadTime = hasTrafficPriority()
+        ? PRIORITY_SIGNAL_LEAD_TIME_SECONDS
+        : MIN_SIGNAL_LEAD_TIME_SECONDS;
+    if (laneChangeSignalElapsedSeconds_ + 1e-9 < signalLeadTime) {
         laneChangeState_ = LaneChangeState::Signaling;
         return false;
     }
@@ -944,7 +910,9 @@ bool Vehicle::tryRequiredLaneChange(
     currentRoad->getLane(currentLaneIndex).addVehicle(this);
     if (currentLaneIndex == requiredLaneIndex) {
         clearLaneChangeIntent();
-        laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN;
+        laneChangeCooldownTimer = hasTrafficPriority()
+            ? PRIORITY_LANE_CHANGE_COOLDOWN
+            : LANE_CHANGE_COOLDOWN;
     } else {
         laneChangeSignalElapsedSeconds_ = 0.0;
         laneChangeState_ = LaneChangeState::Signaling;
@@ -981,13 +949,16 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
         return; // khong bi can tro dang ke, khong can doi lane
     }
 
-    // Avoid opportunistic weaving while entering an intersection. Escaping a
-    // blocked lane remains allowed; emergency yielding is handled separately.
+    // Ordinary vehicles avoid opportunistic weaving while entering an
+    // intersection. A traffic-priority vehicle may still use a safe adjacent
+    // lane to clear a queue.
     const double distanceToIntersection = currentRoad->getDistance() - progressOnCurrentRoad;
     const double noChangeDistance = std::min(
         NO_LANE_CHANGE_DISTANCE,
         currentRoad->getDistance() * NO_LANE_CHANGE_ROAD_FRACTION);
-    if (!isCurrentLaneBlocked && distanceToIntersection <= noChangeDistance) {
+    if (!isCurrentLaneBlocked &&
+        !hasTrafficPriority() &&
+        distanceToIntersection <= noChangeDistance) {
         return;
     }
 
@@ -1024,8 +995,10 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
         requestLaneChange(
             bestCandidate.laneIndex,
             TurnSignalReason::LaneChange);
-        if (laneChangeSignalElapsedSeconds_ + 1e-9 <
-            MIN_SIGNAL_LEAD_TIME_SECONDS) {
+        const double signalLeadTime = hasTrafficPriority()
+            ? PRIORITY_SIGNAL_LEAD_TIME_SECONDS
+            : MIN_SIGNAL_LEAD_TIME_SECONDS;
+        if (laneChangeSignalElapsedSeconds_ + 1e-9 < signalLeadTime) {
             laneChangeState_ = LaneChangeState::Signaling;
             return;
         }
@@ -1035,7 +1008,9 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
         currentRoad->getLane(currentLaneIndex).addVehicle(this);
         clearLaneChangeIntent();
         refreshTurnSignal();
-        laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN;
+        laneChangeCooldownTimer = hasTrafficPriority()
+            ? PRIORITY_LANE_CHANGE_COOLDOWN
+            : LANE_CHANGE_COOLDOWN;
     } else {
         laneChangeCooldownTimer = 0.5; // Short cooldown when lane change is skipped/fails
     }
@@ -1079,22 +1054,6 @@ void Vehicle::tryYieldLaneChange() {
     }
 }
 
-bool Vehicle::mustStopForTrafficLight(Intersection* nextIntersection) const {
-    if (nextIntersection == nullptr || currentRoad == nullptr) {
-        return false;
-    }
-    Road* outgoing = getNextRoad();
-    const LaneMapping mapping = getJunctionEntryLaneMapping();
-    if (outgoing == nullptr || !mapping.valid) {
-        return nextIntersection->mustStopForRoad(currentRoad);
-    }
-    return nextIntersection->getMovementDecision(
-               currentRoad,
-               outgoing,
-               mapping.movement) !=
-           JunctionDecision::Proceed;
-}
-
 Road* Vehicle::getNextRoad() const {
     if (currentRouteIndex + 1 < static_cast<int>(currentRoute.size())) {
         return currentRoute[currentRouteIndex + 1];
@@ -1114,9 +1073,6 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
     simulationTimeSeconds_ += nonNegativeDt;
     if (laneChangeState_ != LaneChangeState::Idle) {
         laneChangeSignalElapsedSeconds_ += nonNegativeDt;
-    }
-    if (!isRightTurnOnRedYield()) {
-        rightOnRedStoppedSeconds_ = 0.0;
     }
     refreshTurnSignal();
 
@@ -1270,22 +1226,6 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
             }
             clearPause();
         } else {
-            if (isRightTurnOnRedYield() &&
-                rightOnRedStoppedSeconds_ + 1e-9 <
-                    RIGHT_ON_RED_MIN_STOP_SECONDS) {
-                const double needed =
-                    RIGHT_ON_RED_MIN_STOP_SECONDS -
-                    rightOnRedStoppedSeconds_;
-                const double consumed =
-                    std::min(remainingTime, needed);
-                rightOnRedStoppedSeconds_ += consumed;
-                remainingTime -= consumed;
-                if (rightOnRedStoppedSeconds_ + 1e-9 <
-                        RIGHT_ON_RED_MIN_STOP_SECONDS ||
-                    remainingTime <= 0.0) {
-                    return;
-                }
-            }
             const PauseReason currentControlReason =
                 getIntersectionControlReason();
             if (currentControlReason != PauseReason::None) {
@@ -1386,8 +1326,9 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
             currentRoad->getDistance() - progressOnCurrentRoad;
         const bool preparingForJunction =
             upcomingMapping.valid &&
-            distanceToJunction <=
-                getJunctionLanePreparationDistance();
+            (usesDedicatedEdgeLane(upcomingMapping.movement) ||
+             distanceToJunction <=
+                 getJunctionLanePreparationDistance());
         const int stopOrServiceLane = getRequiredLaneIndex();
         const int requiredLaneIndex =
             stopOrServiceLane >= 0
@@ -1395,7 +1336,15 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                 : (preparingForJunction
                        ? upcomingMapping.incomingLane
                        : -1);
+        const bool clearingEmergencyLane =
+            yielding && emergencyLaneToAvoid >= 0 &&
+            currentLaneIndex == emergencyLaneToAvoid;
+        const bool bypassingQueueForPriority =
+            upcomingMapping.valid &&
+            shouldBypassQueueBeforeJunction(upcomingMapping);
         const bool hasRequiredLane =
+            !clearingEmergencyLane &&
+            !bypassingQueueForPriority &&
             requiredLaneIndex >= 0 &&
             requiredLaneIndex < currentRoad->getLaneCount();
         if (laneChangeCooldownTimer <= 0.0) {

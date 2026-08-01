@@ -143,10 +143,6 @@ private:
     void drawBusStops(sf::RenderTarget& target, const Graph& graph) const;
     void drawBusStations(sf::RenderTarget& target, const Graph& graph) const;
     void drawSidewalks(sf::RenderTarget& target, const Graph& graph) const;
-    void drawCrosswalks(sf::RenderTarget& target, const Graph& graph) const;
-    void drawCrosswalkStripes(sf::RenderTarget& target, const Graph& graph) const;
-    void drawCrosswalkSignals(sf::RenderTarget& target,
-                              const Graph& graph) const;
     void drawIntersectionNode(sf::RenderTarget& target, const Intersection* intersection,
                               bool tintByCongestion) const;
     void drawRoadCongestionOverlay(sf::RenderTarget& target, const Graph& graph) const;

@@ -6,7 +6,6 @@
 #include <vector>
 
 #include "../algorithm/PathFindingStrategy.h" // PathResult
-#include "Pedestrian.h"
 
 class Graph;
 class PathFindingStrategy;
@@ -63,27 +62,11 @@ struct AlgorithmMetric {
  * Panel. Gom lại những con số quan trọng nhất từ toàn bộ
  * StatisticsManager thành 1 struct phẳng, dễ hiển thị.
  */
-struct PedestrianMetric {
-    int pedestrianId = -1;
-    double totalTravelTime = 0.0;
-    double totalWaitingTime = 0.0;
-    double totalCrossingTime = 0.0;
-    PedestrianState currentState =
-        PedestrianState::Walking;
-    bool completed = false;
-};
-
 struct StatisticsSummary {
     double totalSimulatedTime = 0.0;
     int totalVehiclesTracked = 0;
     int totalCompletedTrips = 0;
     long long totalRecalculations = 0;
-    int totalPedestriansTracked = 0;
-    int activePedestrians = 0;
-    int waitingPedestrians = 0;
-    int crossingPedestrians = 0;
-    int completedPedestrianTrips = 0;
-    double averagePedestrianWaitSeconds = 0.0;
     std::vector<AlgorithmMetric> perAlgorithm; // 1 dòng cho mỗi thuật toán đã đo
 };
 
@@ -135,11 +118,6 @@ public:
 
     // Đánh dấu 1 xe đã hoàn thành hành trình (tới đích).
     void markVehicleCompleted(int vehicleId);
-    void recordPedestrianTravel(
-        int pedestrianId,
-        PedestrianState state,
-        double dt);
-    void markPedestrianCompleted(int pedestrianId);
 
     // In báo cáo tạm ra terminal mỗi N tick (mặc định 10) - dùng bởi
     // TrafficSimulator::update() ở Thứ 6.
@@ -147,8 +125,6 @@ public:
 
     const std::unordered_map<int, TravelMetric>& getTravelMetrics() const;
     const TravelMetric* getTravelMetric(int vehicleId) const;
-    const std::unordered_map<int, PedestrianMetric>&
-        getPedestrianMetrics() const;
 
     // --- Thứ 7: tổng hợp cho Statistics Panel ---
     StatisticsSummary getSummary() const;
@@ -156,18 +132,13 @@ public:
 private:
     std::unordered_map<std::string, AlgorithmMetric> algorithmMetrics;
     std::unordered_map<int, TravelMetric> travelMetrics;
-    std::unordered_map<int, PedestrianMetric>
-        pedestrianMetrics;
 
     double totalSimulatedTime = 0.0;
     long long totalRecalculations = 0;
     long long tickCounter = 0;
     int completedTrips = 0;
-    int completedPedestrianTrips = 0;
 
     TravelMetric& getOrCreateTravelMetric(int vehicleId);
-    PedestrianMetric& getOrCreatePedestrianMetric(
-        int pedestrianId);
 };
 
 #endif

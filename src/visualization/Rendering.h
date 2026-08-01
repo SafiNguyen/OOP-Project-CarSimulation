@@ -22,9 +22,4 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
                   std::unique_ptr<TrafficSimulator>& simulator, StatsPanel& statsPanel,
                   VehicleInspector& vehicleInspector, float dt);
 
-void drawPedestrians(
-    sf::RenderTarget& target,
-    const VisualizationEngine& visualization,
-    const TrafficSimulator& simulator);
-
 #endif

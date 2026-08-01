@@ -29,7 +29,6 @@ TrafficLight::TrafficLight(int roadId,
                            LightState initialState)
     : controlledRoadId(roadId),
       currentState(initialState),
-      elapsedTime(0.0),
       remainingSeconds(0.0),
       greenDuration(positiveOr(green, 30.0)),
       yellowDuration(positiveOr(yellow, 3.0)),
@@ -43,10 +42,6 @@ int TrafficLight::getControlledRoadId() const {
 
 LightState TrafficLight::getState() const {
     return currentState;
-}
-
-double TrafficLight::getElapsedTime() const {
-    return elapsedTime;
 }
 
 double TrafficLight::getGreenDuration() const {
@@ -74,28 +69,6 @@ double TrafficLight::durationForState(LightState state) const {
     return redDuration;
 }
 
-LightState TrafficLight::nextState(LightState state) const {
-    switch (state) {
-        case LightState::GREEN: return LightState::YELLOW;
-        case LightState::YELLOW: return LightState::RED;
-        case LightState::RED: return LightState::GREEN;
-    }
-    return LightState::RED;
-}
-
-void TrafficLight::update(double dt) {
-    if (!std::isfinite(dt) || dt <= 0.0) return;
-
-    elapsedTime += dt;
-    double duration = durationForState(currentState);
-    while (elapsedTime >= duration) {
-        elapsedTime -= duration;
-        currentState = nextState(currentState);
-        duration = durationForState(currentState);
-    }
-    remainingSeconds = std::max(0.0, duration - elapsedTime);
-}
-
 bool TrafficLight::canProceed() const {
     return currentState == LightState::GREEN;
 }
@@ -111,21 +84,17 @@ void TrafficLight::setDurations(double green,
     yellowDuration = positiveOr(yellow, yellowDuration);
     redDuration = positiveOr(red, redDuration);
     const double duration = durationForState(currentState);
-    elapsedTime = std::clamp(elapsedTime, 0.0, duration);
-    remainingSeconds = duration - elapsedTime;
-}
-
-void TrafficLight::forceState(LightState state) {
-    synchronize(state, durationForState(state));
+    remainingSeconds = std::clamp(
+        remainingSeconds, 0.0, duration);
 }
 
 void TrafficLight::synchronize(LightState state, double remaining) {
     currentState = state;
     const double duration = durationForState(state);
-    remainingSeconds = std::max(
+    remainingSeconds = std::clamp(
+        std::isfinite(remaining) ? remaining : 0.0,
         0.0,
-        std::isfinite(remaining) ? remaining : 0.0);
-    elapsedTime = std::max(0.0, duration - remainingSeconds);
+        duration);
 }
 
 std::string TrafficLight::toString() const {

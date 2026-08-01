@@ -72,7 +72,8 @@ void DebugConsole::drawTrafficLightPanel() {
 
     // --- Per-road toggle ---
     for (Road* road : incomingRoads) {
-        TrafficLight* light = intersection->getLightForIncomingRoad(road);
+        const TrafficLight* light =
+            intersection->getLightForIncomingRoad(road);
         bool hasLight = (light != nullptr);
 
         std::string roadLabel = "Road #" + std::to_string(road->getId());

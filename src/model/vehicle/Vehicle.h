@@ -33,7 +33,8 @@ public:
     static constexpr double EMERGENCY_JUNCTION_CAUTION_DISTANCE = 45.0;
     static constexpr double EMERGENCY_JUNCTION_YIELD_SPEED_FACTOR = 0.25;
     static constexpr double MIN_SIGNAL_LEAD_TIME_SECONDS = 1.0;
-    static constexpr double RIGHT_ON_RED_MIN_STOP_SECONDS = 0.5;
+    static constexpr double PRIORITY_SIGNAL_LEAD_TIME_SECONDS = 0.25;
+    static constexpr double PRIORITY_LANE_CHANGE_COOLDOWN = 0.5;
     static constexpr double TURN_SIGNAL_BLINK_PERIOD_SECONDS = 1.0;
 
 protected:
@@ -89,7 +90,6 @@ protected:
     int laneChangeTargetLane_ = -1;
     TurnSignalReason laneChangeReason_ = TurnSignalReason::None;
     double laneChangeSignalElapsedSeconds_ = 0.0;
-    double rightOnRedStoppedSeconds_ = 0.0;
     double simulationTimeSeconds_ = 0.0;
     
     double recalculateTimer = 10.0 + static_cast<double>(std::rand() % 50) / 10.0; // 10-15s initial spread
@@ -115,6 +115,7 @@ public:
     virtual double getDeceleration() const;
     virtual double getMaxLateralAcceleration() const;
     virtual VehicleKind getVehicleKind() const;
+    virtual bool hasTrafficPriority() const { return false; }
     virtual bool canChangeLanes() const;
     virtual bool allowsDynamicRerouting() const { return true; }
     virtual bool allowsUTurn() const { return true; }
@@ -140,7 +141,6 @@ public:
     virtual bool shouldPauseAt(double currentPos,
                                 double projectedPos,
                                 double& pausePos);
-    virtual bool mustStopForTrafficLight(Intersection* nextIntersection) const;
     virtual void onPauseStarted() {}
     virtual PauseUpdateResult updatePause(double availableTime);
     bool isStuckInJam(int depth = 0) const;
@@ -246,6 +246,11 @@ protected:
         return freeFlowSpeed *
                EMERGENCY_JUNCTION_YIELD_SPEED_FACTOR;
     }
+    virtual bool shouldBypassQueueBeforeJunction(
+        const LaneMapping& preferredMapping) const {
+        (void)preferredMapping;
+        return false;
+    }
     LaneMapping getJunctionEntryLaneMapping() const;
 
 private:
@@ -265,7 +270,6 @@ private:
     void clearLaneChangeIntent();
     void refreshTurnSignal();
     TurnSignal deriveUpcomingJunctionSignal() const;
-    bool isRightTurnOnRedYield() const;
     void tryLaneChange(double freeFlowSpeedHint);
     void tryYieldLaneChange(); 
 };

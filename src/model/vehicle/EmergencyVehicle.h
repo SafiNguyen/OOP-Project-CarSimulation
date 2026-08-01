@@ -8,8 +8,8 @@
 class EmergencyVehicle : public Vehicle {
 public:
     static constexpr double YIELD_LOOKAHEAD_DISTANCE = 60.0;
-    static constexpr double PREEMPTION_LOOKAHEAD_DISTANCE = 80.0;
-    static constexpr double PREEMPTION_HOLD_DURATION = 3.0;
+    static constexpr double PRIORITY_LOOKAHEAD_DISTANCE = 80.0;
+    static constexpr double PRIORITY_HOLD_DURATION = 3.0;
     static constexpr double JUNCTION_CAUTION_SPEED_FACTOR = 0.85;
 
     EmergencyVehicle(int id,
@@ -30,10 +30,11 @@ public:
     VehicleKind getVehicleKind() const override {
         return VehicleKind::Emergency;
     }
+    bool hasTrafficPriority() const override { return true; }
 
-    // Preemption reserves the emergency approach before this vehicle may
-    // proceed against RED/YELLOW. Junction occupants and pedestrians inside
-    // the vehicle's physical lane remain hard safety constraints.
+    // Priority reserves the emergency approach before this vehicle may
+    // proceed against RED/YELLOW. Junction occupants remain a hard safety
+    // constraint.
     double getLength() const override { return 6.0; }
     double getWidth() const override { return 2.2; }
     double getHeight() const override { return 2.5; }
@@ -46,29 +47,34 @@ public:
                JUNCTION_CAUTION_SPEED_FACTOR;
     }
     void notifyEmergencyApproaching(int /*emergencyLaneIndex*/) override {}
-    bool mustStopForTrafficLight(
-        Intersection* nextIntersection) const override {
-        if (nextIntersection != nullptr &&
-            nextIntersection->
-                isPrioritizedEmergencyVehicle(
-                    getId(), getCurrentRoad())) {
-            return false;
-        }
-        return Vehicle::mustStopForTrafficLight(
-            nextIntersection);
-    }
-
     void update(double dt,
                 Graph* graph = nullptr,
                 PathFindingStrategy* strategy = nullptr,
                 bool allowDynamicReroute = true) override {
-        requestPreemptionIfNear();
+        requestPriorityIfNear();
         Vehicle::update(dt, graph, strategy, allowDynamicReroute);
+        // A lane change may have cleared the approach during this update.
+        // Re-evaluate immediately instead of delaying priority until the
+        // next simulation tick.
+        requestPriorityIfNear();
         notifyVehiclesAhead();
     }
 
+protected:
+    bool shouldBypassQueueBeforeJunction(
+        const LaneMapping& preferredMapping) const override {
+        if (currentRoad == nullptr || !preferredMapping.valid) {
+            return false;
+        }
+        const int queuedLane =
+            preferredMapping.movement == MovementType::Straight
+                ? currentLaneIndex
+                : preferredMapping.incomingLane;
+        return currentRoad->findLeader(queuedLane, this) != nullptr;
+    }
+
 private:
-    void requestPreemptionIfNear() const {
+    void requestPriorityIfNear() const {
         Road* road = getCurrentRoad();
         if (road == nullptr) return;
         Intersection* next = road->getEnd();
@@ -76,12 +82,16 @@ private:
 
         const double distanceToEnd =
             road->getDistance() - getProgressOnRoad();
-        if (distanceToEnd <= PREEMPTION_LOOKAHEAD_DISTANCE) {
+        const bool approachLaneIsClear =
+            road->findLeader(
+                getCurrentLaneIndex(), this) == nullptr;
+        if (distanceToEnd <= PRIORITY_LOOKAHEAD_DISTANCE &&
+            approachLaneIsClear) {
             const LaneMapping mapping =
                 getJunctionEntryLaneMapping();
             Road* outgoing =
                 mapping.valid ? getNextRoad() : nullptr;
-            next->requestEmergencyPreemption(
+            next->requestEmergencyPriority(
                 getId(),
                 road,
                 getCurrentLaneIndex(),
@@ -90,7 +100,7 @@ private:
                     ? mapping.outgoingLane
                     : -1,
                 getWidth(),
-                PREEMPTION_HOLD_DURATION);
+                PRIORITY_HOLD_DURATION);
         }
     }
 

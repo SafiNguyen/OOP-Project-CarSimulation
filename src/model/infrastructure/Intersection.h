@@ -11,10 +11,8 @@
 
 class Road;  
 class TrafficLight;
-class Crosswalk;
 
-struct EmergencyApproach {
-    int vehicleId = -1;
+struct VehicleMovementPath {
     const Road* incomingRoad = nullptr;
     int incomingLane = -1;
     const Road* outgoingRoad = nullptr;
@@ -22,10 +20,18 @@ struct EmergencyApproach {
     double vehicleWidthMetres = 0.0;
 
     bool isValid() const {
-        return vehicleId >= 0 &&
-               incomingRoad != nullptr &&
+        return incomingRoad != nullptr &&
                incomingLane >= 0 &&
                vehicleWidthMetres > 0.0;
+    }
+};
+
+struct EmergencyApproach {
+    int vehicleId = -1;
+    VehicleMovementPath path;
+
+    bool isValid() const {
+        return vehicleId >= 0 && path.isValid();
     }
 };
 
@@ -39,9 +45,7 @@ enum class IntersectionType {
 enum class SignalStage {
     GREEN,
     YELLOW,
-    ALL_RED,
-    PEDESTRIAN_WALK,
-    PEDESTRIAN_CLEARANCE
+    ALL_RED
 };
 
 enum class JunctionDecision {
@@ -71,8 +75,6 @@ private:
     std::vector<Road*> outgoingRoads;
     // key = id cua incoming road; moi road vao co dung 1 den rieng
     std::unordered_map<int, std::unique_ptr<TrafficLight>> trafficLights;
-    std::vector<Crosswalk*> crosswalks_; // non-owning; Graph owns
-
     
     std::vector<std::vector<Road*>> phaseGroups;
     std::size_t activePhaseGroup = 0;
@@ -81,25 +83,14 @@ private:
     double greenDurationSeconds_ = 30.0;
     double yellowDurationSeconds_ = 3.0;
     double allRedDurationSeconds_ = 2.0;
-    bool explicitSignalPlan_ = false;
-    bool pedestrianPhasePending_ = false;
     bool allowRightTurnOnRed_ = true;
 
     void rebuildPhaseGroups();
     void resetSignalCycle();
     void synchronizeSignalHeads();
-    bool hasEligiblePedestrianRequest() const;
-    bool hasOccupiedCrosswalk() const;
-    bool hasIntersectionOccupants() const;
-    double pedestrianWalkDuration() const;
-    double pedestrianClearanceDuration() const;
-    void beginPedestrianWalk();
-    void beginPedestrianClearance();
-    void endPedestrianPhase();
-    std::size_t phaseIndexForRoad(const Road* road) const;
+    TrafficLight* getMutableLightForIncomingRoad(int roadId);
+    double nominalRedDuration() const;
     std::size_t nextScheduledPhase() const;
-    bool hasConflictingReservationForPhase(
-        std::size_t phaseIndex) const;
 
     // --- Intersection-box reservation (prevents multiple vehicles from
     // different roads overlapping inside the junction at the same time,
@@ -136,16 +127,8 @@ private:
     mutable std::unordered_map<const Road*, bool> priorityVehicleCache_;
     mutable bool priorityVehicleCacheValid_ = false;
 
-    const Road* preemptedRoad_ = nullptr;
-    double preemptionHoldSeconds_ = 0.0;
-    bool extendedGreenForPreemption_ = false;
     EmergencyApproach emergencyApproach_;
     double emergencyPriorityRemainingSeconds_ = 0.0;
-
-    // Per-intersection stuck detection state
-    SignalStage stuckLastStage_ = SignalStage::GREEN;
-    double stuckLastRemaining_ = 0.0;
-    double stuckTimer_ = 0.0;
 
     void clearEmergencyPriority();
     void updateEmergencyPriority(double dt);
@@ -201,18 +184,15 @@ public:
         std::string* error = nullptr);
     void unregisterIncomingLight(Road* road);
     bool hasTrafficLights() const;
-    TrafficLight* getLightForIncomingRoad(int roadId) const;
-    TrafficLight* getLightForIncomingRoad(const Road* road) const;
-    void registerCrosswalk(Crosswalk* crosswalk);
-    void unregisterCrosswalk(Crosswalk* crosswalk);
-    const std::vector<Crosswalk*>& getCrosswalks() const;
-    Crosswalk* getCrosswalkForIncomingRoad(
+    const TrafficLight* getLightForIncomingRoad(int roadId) const;
+    const TrafficLight* getLightForIncomingRoad(
         const Road* road) const;
-    // Goi moi tick tu TrafficSimulator::update(dt)
+    // Advances the fixed signal clock once per simulator tick.
     void updateTrafficLights(double dt);
     bool mustStopForRoad(const Road* road) const;
     JunctionDecision getMovementDecision(
         const Road* incomingRoad,
+        int incomingLane,
         const Road* outgoingRoad,
         MovementType movement) const;
     void setAllowRightTurnOnRed(bool allow) {
@@ -244,7 +224,7 @@ public:
     // they are the same phase group, or one/both have no light at all).
     bool areRoadsInSamePhase(const Road* a, const Road* b) const;
 
-    void requestEmergencyPreemption(
+    void requestEmergencyPriority(
         int vehicleId,
         const Road* incomingRoad,
         int incomingLane,
@@ -256,8 +236,6 @@ public:
     bool isPrioritizedEmergencyVehicle(
         int vehicleId,
         const Road* incomingRoad) const;
-    const EmergencyApproach* getEmergencyApproach() const;
-    bool isEmergencyPathClear(int vehicleId) const;
     virtual bool canEnter(int vehicleId, const Road* fromRoad) const;
     virtual bool canEnterMovement(
         int vehicleId,

@@ -5,7 +5,6 @@
 #include <limits>
 
 #include "Intersection.h"
-#include "Crosswalk.h"
 #include "Road.h"
 
 namespace RoadGeometry {
@@ -336,17 +335,6 @@ Pose2D sampleRoadAccessPath(
 }
 
 double stopLineProgressMetres(const Road& incomingRoad) {
-    const Intersection* intersection =
-        incomingRoad.getEnd();
-    if (intersection != nullptr) {
-        const Crosswalk* crosswalk =
-            intersection->getCrosswalkForIncomingRoad(
-                &incomingRoad);
-        if (crosswalk != nullptr) {
-            return crosswalk->
-                getStopLineProgressMetres();
-        }
-    }
     return std::max(
         0.0,
         incomingRoad.getDistance() - STOP_LINE_SETBACK_METRES);

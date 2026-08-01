@@ -84,7 +84,6 @@ target_include_directories(urban_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/model
     ${CMAKE_CURRENT_SOURCE_DIR}/src/model/vehicle
     ${CMAKE_CURRENT_SOURCE_DIR}/src/model/infrastructure
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/model/pedestrian
     ${CMAKE_CURRENT_SOURCE_DIR}/src/loader
     ${sfml_SOURCE_DIR}/include
     ${imgui_SOURCE_DIR}
@@ -162,12 +161,5 @@ add_executable(test_motion tests/test_motion.cpp)
 target_link_libraries(test_motion PRIVATE urban_core)
 add_test(NAME motion_test COMMAND test_motion)
 set_tests_properties(motion_test PROPERTIES
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-add_executable(test_pedestrian tests/test_pedestrian.cpp)
-target_link_libraries(test_pedestrian PRIVATE urban_core)
-add_test(NAME pedestrian_test COMMAND test_pedestrian)
-set_tests_properties(pedestrian_test PROPERTIES
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )

@@ -11,25 +11,22 @@ enum class LightState {
 
 class Intersection;
 
-// A signal head is a read-only projection of the intersection controller.
-// Its standalone update/force API remains for backwards compatibility and
-// focused model tests, while production intersections synchronize every
-// head from one shared phase clock.
+// Read-only signal-head projection. Intersection is the sole owner of signal
+// timing and the only class allowed to synchronize state or durations.
 class TrafficLight {
 private:
     friend class Intersection;
 
     int controlledRoadId;
     LightState currentState;
-    double elapsedTime;
     double remainingSeconds;
     double greenDuration;
     double yellowDuration;
     double redDuration;
 
     double durationForState(LightState state) const;
-    LightState nextState(LightState state) const;
     void synchronize(LightState state, double remaining);
+    void setDurations(double green, double yellow, double red);
 
 public:
     TrafficLight(int roadId,
@@ -43,18 +40,13 @@ public:
 
     int getControlledRoadId() const;
     LightState getState() const;
-    double getElapsedTime() const;
     double getGreenDuration() const;
     double getYellowDuration() const;
     double getRedDuration() const;
     double getRemainingSeconds() const;
 
-    void update(double dt);
     bool canProceed() const;
     bool mustStop() const;
-
-    void setDurations(double green, double yellow, double red);
-    void forceState(LightState state);
 
     std::string toString() const;
 

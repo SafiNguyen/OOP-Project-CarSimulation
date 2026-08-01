@@ -33,19 +33,6 @@
       "allRedDuration": 1.5
     }
   ],
-  "crosswalks": [
-    {
-      "id": 301,
-      "intersectionId": 2,
-      "incomingRoadId": 101,
-      "enabled": true,
-      "width": 3.0,
-      "minimumWait": 3.0,
-      "walkDuration": 4.0,
-      "designWalkingSpeed": 1.2,
-      "clearanceBuffer": 1.0
-    }
-  ],
   "pois": [
     { "id": 201, "name": "House A", "x": 50.0, "y": 10.0, "type": "hospital" },
     { "id": 202, "name": "House B", "x": 110.0, "y": 50.0, "type": "supermarket" },

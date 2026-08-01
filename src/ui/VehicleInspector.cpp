@@ -142,9 +142,6 @@ void VehicleInspector::draw(TrafficSimulator* simulator, const VisualizationEngi
             const char* reasonStr = "Unknown";
             switch (vehicle->getPauseReason()) {
                 case PauseReason::TrafficLight:  reasonStr = "Waiting at red light"; break;
-                case PauseReason::PedestrianCrossing:
-                    reasonStr = "Waiting for pedestrians";
-                    break;
                 case PauseReason::Intersection:  reasonStr = "Waiting for intersection slot"; break;
                 case PauseReason::BusStop:       reasonStr = "Dwelling at bus stop"; break;
                 default: break;
