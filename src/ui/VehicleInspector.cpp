@@ -130,7 +130,6 @@ Vehicle* VehicleInspector::findSelectedVehicle(TrafficSimulator* simulator) cons
 }
 
 void VehicleInspector::draw(TrafficSimulator* simulator, const VisualizationEngine& visualization) {
-    (void)visualization;
     if (!hasSelection()) return;
 
     Vehicle* vehicle = findSelectedVehicle(simulator);
@@ -177,24 +176,60 @@ void VehicleInspector::draw(TrafficSimulator* simulator, const VisualizationEngi
         // --- 1. Origin / Destination ---
         Intersection* origin = vehicle->getSpawnPoint();
         Intersection* dest = vehicle->getDestination();
-        PointOfInterest* originPOI =
+        const PointOfInterest* originPOI =
             vehicle->getSpawnPOI();
-        PointOfInterest* destinationPOI =
+        const PointOfInterest* destinationPOI =
             vehicle->getTargetPOI();
-        if (originPOI != nullptr) {
+        const Bus* transitBus = nullptr;
+        if (vehicle->getVehicleKind() ==
+                VehicleKind::Bus) {
+            const auto& bus =
+                static_cast<const Bus&>(*vehicle);
+            if (bus.hasTransitService()) {
+                transitBus = &bus;
+            }
+        }
+
+        if (transitBus != nullptr) {
+            const BusStation* station =
+                transitBus->getOriginStation();
+            ImGui::Text(
+                "Origin:      Bus Station %s - %s (#%d)",
+                station->getCode().c_str(),
+                station->getName().c_str(),
+                station->getId());
+        } else if (originPOI != nullptr) {
+            const std::string displayName =
+                visualization.
+                    getPointOfInterestDisplayName(
+                        simulator->getGraph(),
+                        originPOI);
             ImGui::Text(
                 "Origin:      %s (#%d)",
-                originPOI->getName().c_str(),
+                displayName.c_str(),
                 originPOI->getId());
         } else {
             ImGui::Text(
                 "Origin:      intersection #%d",
                 origin ? origin->getId() : -1);
         }
-        if (destinationPOI != nullptr) {
+        if (transitBus != nullptr) {
+            const BusStation* station =
+                transitBus->getDestinationStation();
+            ImGui::Text(
+                "Destination: Bus Station %s - %s (#%d)",
+                station->getCode().c_str(),
+                station->getName().c_str(),
+                station->getId());
+        } else if (destinationPOI != nullptr) {
+            const std::string displayName =
+                visualization.
+                    getPointOfInterestDisplayName(
+                        simulator->getGraph(),
+                        destinationPOI);
             ImGui::Text(
                 "Destination: %s (#%d)",
-                destinationPOI->getName().c_str(),
+                displayName.c_str(),
                 destinationPOI->getId());
         } else {
             ImGui::Text(
@@ -202,102 +237,92 @@ void VehicleInspector::draw(TrafficSimulator* simulator, const VisualizationEngi
                 dest ? dest->getId() : -1);
         }
 
-        if (vehicle->getVehicleKind() ==
-                VehicleKind::Bus) {
-            const auto& bus =
-                static_cast<const Bus&>(*vehicle);
-            if (bus.hasTransitService()) {
-                const BusService* service =
-                    bus.getService();
-                const BusStop* nextStop =
-                    bus.getNextScheduledStop();
-                ImGui::Separator();
-                ImGui::Text(
-                    "Service: %s",
-                    service->getCode().c_str());
-                ImGui::Text(
-                    "Trip state: %s",
-                    busTripStateLabel(
-                        bus.getTripState()));
-                ImGui::Text(
-                    "Stations: %s -> %s",
-                    bus.getOriginStation()->
-                        getCode().c_str(),
-                    bus.getDestinationStation()->
-                        getCode().c_str());
-                ImGui::Text(
-                    "Next stop: %s",
-                    nextStop != nullptr
-                        ? nextStop->getCode().c_str()
-                        : "none");
-                ImGui::Text(
-                    "Served: %d   Missed: %d",
-                    static_cast<int>(
-                        bus.getServedStopIds().size()),
-                    static_cast<int>(
-                        bus.getMissedStopIds().size()));
-                ImGui::Text("Stops assigned to this Bus:");
-                ImGui::BeginChild(
-                    "##bus_stop_list",
-                    ImVec2(0.0f, 115.0f),
-                    true);
-                const auto& stops =
-                    bus.getAssignedStops();
-                const auto& servedStopIds =
-                    bus.getServedStopIds();
-                const auto& missedStopIds =
-                    bus.getMissedStopIds();
-                for (std::size_t index = 0;
-                     index < stops.size();
-                     ++index) {
-                    const BusStop* stop =
-                        stops[index];
-                    if (stop == nullptr) continue;
-                    const bool served =
-                        std::find(
-                            servedStopIds.begin(),
-                            servedStopIds.end(),
-                            stop->getId()) !=
-                        servedStopIds.end();
-                    const bool missed =
-                        std::find(
-                            missedStopIds.begin(),
-                            missedStopIds.end(),
-                            stop->getId()) !=
-                        missedStopIds.end();
-                    const bool next =
-                        index ==
-                        bus.getScheduledStopIndex();
-                    const char* status =
-                        served ? "served"
-                        : missed ? "missed"
-                        : next ? "next"
-                        : "pending";
-                    const ImVec4 color =
-                        served
-                            ? ImVec4(
-                                  0.4f, 0.9f,
-                                  0.4f, 1.0f)
-                        : missed
-                            ? ImVec4(
-                                  0.95f, 0.4f,
-                                  0.35f, 1.0f)
-                        : next
-                            ? ImVec4(
-                                  0.4f, 0.8f,
-                                  1.0f, 1.0f)
-                            : ImVec4(
-                                  0.75f, 0.75f,
-                                  0.75f, 1.0f);
-                    ImGui::TextColored(
-                        color,
-                        "%s %s  [%s]",
-                        stop->getCode().c_str(),
-                        stop->getName().c_str(),
-                        status);
-                }
-                ImGui::EndChild();
+        if (transitBus != nullptr) {
+            const auto& bus = *transitBus;
+            const BusService* service =
+                bus.getService();
+            const BusStop* nextStop =
+                bus.getNextScheduledStop();
+            ImGui::Separator();
+            ImGui::Text(
+                "Service: %s",
+                service->getCode().c_str());
+            ImGui::Text(
+                "Trip state: %s",
+                busTripStateLabel(
+                    bus.getTripState()));
+            ImGui::Text(
+                "Next stop: %s",
+                nextStop != nullptr
+                    ? nextStop->getCode().c_str()
+                    : "none");
+            ImGui::Text(
+                "Served: %d   Missed: %d",
+                static_cast<int>(
+                    bus.getServedStopIds().size()),
+                static_cast<int>(
+                    bus.getMissedStopIds().size()));
+            ImGui::Text("Stops assigned to this Bus:");
+            ImGui::BeginChild(
+                "##bus_stop_list",
+                ImVec2(0.0f, 115.0f),
+                true);
+            const auto& stops =
+                bus.getAssignedStops();
+            const auto& servedStopIds =
+                bus.getServedStopIds();
+            const auto& missedStopIds =
+                bus.getMissedStopIds();
+            for (std::size_t index = 0;
+                 index < stops.size();
+                 ++index) {
+                const BusStop* stop =
+                    stops[index];
+                if (stop == nullptr) continue;
+                const bool served =
+                    std::find(
+                        servedStopIds.begin(),
+                        servedStopIds.end(),
+                        stop->getId()) !=
+                    servedStopIds.end();
+                const bool missed =
+                    std::find(
+                        missedStopIds.begin(),
+                        missedStopIds.end(),
+                        stop->getId()) !=
+                    missedStopIds.end();
+                const bool next =
+                    index ==
+                    bus.getScheduledStopIndex();
+                const char* status =
+                    served ? "served"
+                    : missed ? "missed"
+                    : next ? "next"
+                    : "pending";
+                const ImVec4 color =
+                    served
+                        ? ImVec4(
+                              0.4f, 0.9f,
+                              0.4f, 1.0f)
+                    : missed
+                        ? ImVec4(
+                              0.95f, 0.4f,
+                              0.35f, 1.0f)
+                    : next
+                        ? ImVec4(
+                              0.4f, 0.8f,
+                              1.0f, 1.0f)
+                        : ImVec4(
+                              0.75f, 0.75f,
+                              0.75f, 1.0f);
+                ImGui::TextColored(
+                    color,
+                    "%s %s  [%s]",
+                    stop->getCode().c_str(),
+                    stop->getName().c_str(),
+                    status);
             }
+            ImGui::EndChild();
         }
 
         // --- 3. Algorithm ---

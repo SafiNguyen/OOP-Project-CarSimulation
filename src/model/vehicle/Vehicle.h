@@ -57,7 +57,7 @@ protected:
     double baseSpeed; // m/s
     Intersection* spawnPoint;
     PointOfInterest* spawnPOI = nullptr;
-    PointOfInterest* targetPOI = nullptr; // optional POI destination
+    const PointOfInterest* targetPOI = nullptr; // optional POI destination
     const SpawnPoint* reservedSpawnPoint_ = nullptr;
     SpawnLifecycleState spawnLifecycleState_ =
         SpawnLifecycleState::Scheduled;
@@ -218,8 +218,8 @@ public:
     // --- POI support ---
     PointOfInterest* getSpawnPOI() const { return spawnPOI; }
     void setSpawnPOI(PointOfInterest* poi) { spawnPOI = poi; }
-    PointOfInterest* getTargetPOI() const { return targetPOI; }
-    void setTargetPOI(PointOfInterest* poi) { targetPOI = poi; }
+    const PointOfInterest* getTargetPOI() const { return targetPOI; }
+    void setTargetPOI(const PointOfInterest* poi) { targetPOI = poi; }
     bool tryReserveSpawnSlot();
     void releaseSpawnSlot();
     bool hasSpawnSlotReservation() const {

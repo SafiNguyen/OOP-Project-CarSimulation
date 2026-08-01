@@ -1013,12 +1013,17 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 				}
 				return false;
 			}
+			const bool sharedAccessRoad =
+				arrivalRoad == departureRoad;
 			if (departureRoad->getStart() != access ||
-				arrivalRoad->getEnd() != access) {
+				(sharedAccessRoad
+					? arrivalRoad->getStart() != access
+					: arrivalRoad->getEnd() != access)) {
 				if (error) {
 					*error = stationContext +
-						": departure road must start and arrival "
-						"road must end at the access intersection.";
+						": departure road must start at the access "
+						"intersection; a distinct arrival road must "
+						"end there.";
 				}
 				return false;
 			}
@@ -1226,9 +1231,14 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 				}
 				return false;
 			}
+			const bool reachesDestinationAccess =
+				destination->usesSharedAccessRoad()
+					? route.back()->getStart() ==
+						destination->getAccessIntersection()
+					: route.back()->getEnd() ==
+						destination->getAccessIntersection();
 			if (route.back() != destination->getArrivalRoad() ||
-				route.back()->getEnd() !=
-					destination->getAccessIntersection()) {
+				!reachesDestinationAccess) {
 				if (error) {
 					*error = serviceContext +
 						": route must end on the destination station's "
@@ -1281,6 +1291,17 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 						*error = serviceContext +
 							": stop " + std::to_string(stopId) +
 							" is not on the ordered directional route.";
+					}
+					return false;
+				}
+				if (destination->usesSharedAccessRoad() &&
+					routeIndex == route.size() - 1u &&
+					stop->getPositionOnRoad() >=
+						destination->getProgressOffset()) {
+					if (error) {
+						*error = serviceContext +
+							": stop " + std::to_string(stopId) +
+							" is beyond the destination station access.";
 					}
 					return false;
 				}
@@ -1340,6 +1361,7 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 			double spawnCooldown = 1.0;
 			double accessProgress = 0.0;
 			double positionRatio = 0.0;
+			bool labelOnLeft = false;
 			std::string localError;
 
 			if (!getInt(item, "id", poiId, localError) ||
@@ -1347,6 +1369,8 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 				!getDoubleOptional(item, "y", py, localError) ||
 				!getStringOptional(item, "name", poiName, localError) ||
 				!getStringOptional(item, "type", poiTypeStr, localError) ||
+				!getBoolOptional(
+					item, "labelOnLeft", labelOnLeft, localError) ||
 				!getIntOptional(
 					item, "nearestIntersection", nearestId, localError) ||
 				!getIntOptional(item, "capacity", capacity, localError) ||
@@ -1465,6 +1489,7 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 			poi->setSpawnWeight(spawnWeight);
 			poi->setDestinationWeight(destinationWeight);
 			poi->setSpawnCooldownSeconds(spawnCooldown);
+			poi->setLabelOnLeft(labelOnLeft);
 
 			if (item.contains("capacity")) {
 				SpawnPoint* spawnPoint =

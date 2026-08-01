@@ -579,25 +579,31 @@ Pose2D Vehicle::getPose() const {
     }
     
     if (isEnteringPOI && targetPOI != nullptr) {
-        if (poiAnimationTimer > 0) {
-            double linearRatio = 1.0 - (poiAnimationTimer / poiAnimationDuration);
-            // Decelerate into the destination along the same driveway used
-            // for departures, sampled in reverse.
-            double ratio = linearRatio * (2.0 - linearRatio);
-            const RoadGeometry::RoadAccessPath accessPath =
-                RoadGeometry::makeRoadAccessPath(
-                    *currentRoad,
-                    currentLaneIndex,
-                    progressOnCurrentRoad,
-                    {targetPOI->getX(),
-                     targetPOI->getY()});
-            Pose2D pose =
-                RoadGeometry::sampleRoadAccessPath(
-                    accessPath, 1.0 - ratio);
-            pose.headingRadians +=
-                3.14159265358979323846;
-            return pose;
-        }
+        const double linearRatio = std::clamp(
+            1.0 -
+                poiAnimationTimer /
+                    std::max(
+                        poiAnimationDuration,
+                        1e-9),
+            0.0,
+            1.0);
+        // Decelerate into the destination along the same driveway used
+        // for departures, sampled in reverse.
+        const double ratio =
+            linearRatio * (2.0 - linearRatio);
+        const RoadGeometry::RoadAccessPath accessPath =
+            RoadGeometry::makeRoadAccessPath(
+                *currentRoad,
+                currentLaneIndex,
+                progressOnCurrentRoad,
+                {targetPOI->getX(),
+                 targetPOI->getY()});
+        Pose2D pose =
+            RoadGeometry::sampleRoadAccessPath(
+                accessPath, 1.0 - ratio);
+        pose.headingRadians +=
+            3.14159265358979323846;
+        return pose;
     }
 
     Pose2D pose = roadPose;
@@ -1084,6 +1090,27 @@ Road* Vehicle::getNextRoad() const {
     return nullptr;
 }
 
+int Vehicle::getRequiredLaneIndex() const {
+    if (targetPOI == nullptr ||
+        currentRoad == nullptr ||
+        currentRoad != targetPOI->getConnectedRoad() ||
+        currentRouteIndex !=
+            static_cast<int>(currentRoute.size()) - 1) {
+        return -1;
+    }
+
+    int accessLane =
+        targetPOI->getAccessLaneIndex();
+    if (accessLane < 0) {
+        accessLane = currentRoad->getCurbLaneIndex();
+    }
+    if (accessLane < 0 ||
+        accessLane >= currentRoad->getLaneCount()) {
+        return -1;
+    }
+    return accessLane;
+}
+
 void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool allowDynamicReroute) {
     if (hasReachedDestination() || currentRoad == nullptr) {
         clearLaneChangeIntent();
@@ -1162,10 +1189,13 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
     
     if (targetPOI != nullptr && currentRoad == targetPOI->getConnectedRoad()) {
         if (currentRouteIndex == static_cast<int>(currentRoute.size()) - 1) {
-            int targetLane = targetPOI->getAccessLaneIndex();
-            if (targetLane < 0) targetLane = currentRoad->getCurbLaneIndex();
-            
-            if (currentLaneIndex == targetLane && !isEnteringPOI && progressOnCurrentRoad >= targetPOI->getProgressOffset()) {
+            const int targetLane =
+                Vehicle::getRequiredLaneIndex();
+            if (!isEnteringPOI &&
+                targetLane >= 0 &&
+                currentLaneIndex == targetLane &&
+                progressOnCurrentRoad >=
+                    targetPOI->getProgressOffset()) {
                 setEnteringPOI(true);
                 currentRoad->getLane(currentLaneIndex).removeVehicle(this); // Stop blocking road while entering
                 return;
@@ -1338,32 +1368,50 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
         }
         
         // Slow down when approaching destination POI
-        if (targetPOI != nullptr && currentRoad == targetPOI->getConnectedRoad() && currentRouteIndex == static_cast<int>(currentRoute.size()) - 1) {
-            double distToPOI = targetPOI->getProgressOffset() - progressOnCurrentRoad;
-            int targetLane = targetPOI->getAccessLaneIndex();
-            if (targetLane < 0) targetLane = currentRoad->getCurbLaneIndex();
-
-            if (currentLaneIndex != targetLane) {
+        if (targetPOI != nullptr &&
+            currentRoad == targetPOI->getConnectedRoad() &&
+            currentRouteIndex ==
+                static_cast<int>(currentRoute.size()) - 1) {
+            const int targetLane =
+                Vehicle::getRequiredLaneIndex();
+            const double distanceToPOI =
+                targetPOI->getProgressOffset() -
+                progressOnCurrentRoad;
+            if (targetLane >= 0 &&
+                currentLaneIndex != targetLane) {
                 // We are in the wrong lane. We must change lanes BEFORE reaching the POI.
                 // Pick a point 25 meters before the POI to stop and wait for a clear gap.
-                double waitPoint = std::max(0.0, targetPOI->getProgressOffset() - 25.0);
-                double distToWaitPoint = waitPoint - progressOnCurrentRoad;
+                const double waitPoint = std::max(
+                    0.0,
+                    targetPOI->getProgressOffset() - 25.0);
+                const double distanceToWaitPoint =
+                    waitPoint - progressOnCurrentRoad;
 
-                if (distToWaitPoint <= 0.0) {
+                if (distanceToWaitPoint <= 0.0) {
                     targetSpeed = 0.0;
                     currentSpeed = 0.0;
                 } else {
-                    const double stoppingDistance = (currentSpeed * currentSpeed) / (2.0 * std::max(getDeceleration(), 1e-6));
-                    const double safetyBuffer = 3.0; // metres
-                    if (distToWaitPoint <= stoppingDistance + safetyBuffer) {
+                    const double stoppingDistance =
+                        (currentSpeed * currentSpeed) /
+                        (2.0 * std::max(
+                             getDeceleration(),
+                             1e-6));
+                    constexpr double safetyBuffer = 3.0;
+                    if (distanceToWaitPoint <=
+                        stoppingDistance + safetyBuffer) {
                         targetSpeed = 0.0;
                     }
                 }
-            } else {
-                if (distToPOI > 0.0) {
-                    const double stoppingDistance = (currentSpeed * currentSpeed) / (2.0 * std::max(getDeceleration(), 1e-6));
-                    const double safetyBuffer = 3.0; // metres
-                    if (distToPOI <= stoppingDistance + safetyBuffer) {
+            } else if (targetLane >= 0) {
+                if (distanceToPOI > 0.0) {
+                    const double stoppingDistance =
+                        (currentSpeed * currentSpeed) /
+                        (2.0 * std::max(
+                             getDeceleration(),
+                             1e-6));
+                    constexpr double safetyBuffer = 3.0;
+                    if (distanceToPOI <=
+                        stoppingDistance + safetyBuffer) {
                         targetSpeed = std::min(targetSpeed, 2.0); // Decelerate to 2 m/s before turning into POI
                     }
                 } else {
@@ -1390,17 +1438,14 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
         const int stopOrServiceLane = getRequiredLaneIndex();
         const int redLightCurbYieldLane =
             getRedLightCurbYieldLane();
-        const int targetPoiLane = getRequiredLaneIndex();
         const int requiredLaneIndex =
-            targetPoiLane >= 0
-                ? targetPoiLane
-                : stopOrServiceLane >= 0
-                    ? stopOrServiceLane
-                    : redLightCurbYieldLane >= 0
-                          ? redLightCurbYieldLane
-                          : (preparingForJunction
-                                 ? upcomingMapping.incomingLane
-                                 : -1);
+            stopOrServiceLane >= 0
+                ? stopOrServiceLane
+                : redLightCurbYieldLane >= 0
+                      ? redLightCurbYieldLane
+                      : (preparingForJunction
+                             ? upcomingMapping.incomingLane
+                             : -1);
         const bool clearingEmergencyLane =
             yielding && emergencyLaneToAvoid >= 0 &&
             currentLaneIndex == emergencyLaneToAvoid;
@@ -1459,7 +1504,7 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                 getLanePreparationSpeedLimit(freeFlowSpeed),
                 0.0,
                 freeFlowSpeed));
-                
+
         if (laneChangeState_ != LaneChangeState::Idle) {
             targetSpeed *= 0.85; // Giảm tốc độ khi đổi lane
         }
@@ -1890,16 +1935,6 @@ bool Vehicle::isStuckInJam(int depth) const {
     if (isWaitingForLight_) return false;
     if (currentLeader_ != nullptr) return currentLeader_->isStuckInJam(depth + 1);
     return true; 
-}
-
-int Vehicle::getRequiredLaneIndex() const {
-    if (targetPOI != nullptr && currentRoad == targetPOI->getConnectedRoad() &&
-        currentRouteIndex == static_cast<int>(currentRoute.size()) - 1) {
-        int targetLane = targetPOI->getAccessLaneIndex();
-        if (targetLane < 0) targetLane = currentRoad->getCurbLaneIndex();
-        return targetLane;
-    }
-    return -1;
 }
 
 // --- Snapshot support (Memento pattern) ---

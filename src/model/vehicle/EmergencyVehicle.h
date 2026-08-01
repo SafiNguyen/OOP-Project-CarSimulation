@@ -121,18 +121,46 @@ private:
             }
         }
 
-        if (remainingOnRoad < YIELD_LOOKAHEAD_DISTANCE) {
-            Road* next = getNextRoad();
-            if (next == nullptr) return;
-            const double spillover =
-                YIELD_LOOKAHEAD_DISTANCE - remainingOnRoad;
-            const int nextLane =
-                std::min(myLane, next->getLaneCount() - 1);
-            for (Vehicle* vehicle :
-                 next->getVehiclesInProgressRange(0.0, spillover)) {
-                if (vehicle != this) {
-                    vehicle->notifyEmergencyApproaching(nextLane);
-                }
+        Road* outgoing = getNextRoad();
+        if (outgoing == nullptr) return;
+
+        double distanceToOutgoing = remainingOnRoad;
+        int outgoingLane = -1;
+        if (movementState_ == MovementState::TraversingJunction &&
+            activeConnector_ != nullptr) {
+            distanceToOutgoing =
+                activeConnector_->getLength() -
+                junctionProgressMetres_;
+            outgoingLane = outgoingLaneIndex_;
+        } else {
+            const LaneMapping mapping =
+                getJunctionEntryLaneMapping();
+            Intersection* junction = road->getEnd();
+            if (!mapping.valid || junction == nullptr) return;
+
+            const auto connector = junction->getConnector(
+                road,
+                mapping.incomingLane,
+                outgoing,
+                mapping.outgoingLane);
+            if (connector == nullptr) return;
+
+            distanceToOutgoing += connector->getLength();
+            outgoingLane = mapping.outgoingLane;
+        }
+
+        if (outgoingLane < 0 ||
+            outgoingLane >= outgoing->getLaneCount() ||
+            distanceToOutgoing >= YIELD_LOOKAHEAD_DISTANCE) {
+            return;
+        }
+
+        const double spillover =
+            YIELD_LOOKAHEAD_DISTANCE - distanceToOutgoing;
+        for (Vehicle* vehicle :
+             outgoing->getVehiclesInProgressRange(0.0, spillover)) {
+            if (vehicle != this) {
+                vehicle->notifyEmergencyApproaching(outgoingLane);
             }
         }
     }
