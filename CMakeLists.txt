@@ -41,6 +41,8 @@ FetchContent_Declare(
 
 if (MINGW)
     set(SFML_USE_SYSTEM_DEPS ON CACHE BOOL "Use system deps for SFML on MinGW" FORCE)
+    set(SFML_BUILD_AUDIO OFF CACHE BOOL "Build SFML audio module" FORCE)
+    set(SFML_BUILD_NETWORK OFF CACHE BOOL "Build SFML network module" FORCE)
 endif()
 
 # Populate sources only — do NOT call MakeAvailable on imgui-sfml

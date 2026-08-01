@@ -8,6 +8,12 @@
 #include "JunctionConnector.h"
 #include "VehicleTypes.h"
 #include "simulation/SnapshotTypes.h"
+#include "components/VehicleDynamics.h"
+#include "components/CarFollowingModel.h"
+#include "components/LaneChangePolicy.h"
+#include "components/JunctionTraversalState.h"
+#include "components/RouteFollower.h"
+#include "components/VehicleBehavior.h"
 
 class Intersection;
 class Road;
@@ -18,6 +24,13 @@ class SpawnPoint;
 enum class JunctionDecision;
 
 class Vehicle {
+    friend class VehicleDynamics;
+    friend class CarFollowingModel;
+    friend class LaneChangePolicy;
+    friend class JunctionTraversalState;
+    friend class RouteFollower;
+    friend class VehicleBehavior;
+
 public:
     static constexpr double LANE_CHANGE_COOLDOWN = 8.0;
     static constexpr double LANE_CHANGE_GAP_IMPROVEMENT_FACTOR = 1.3;
@@ -107,6 +120,14 @@ protected:
     
     double poiAnimationTimer = 2.0;
     double poiAnimationDuration = 2.0;
+
+    // Helper components for behavior decomposition.
+    VehicleDynamics vehicleDynamics;
+    CarFollowingModel carFollowingModel;
+    LaneChangePolicy laneChangePolicy;
+    JunctionTraversalState junctionTraversalState;
+    RouteFollower routeFollower;
+    VehicleBehavior vehicleBehavior;
 
 public:
     Vehicle(int id, double speed, Intersection* start, Intersection* dest);
