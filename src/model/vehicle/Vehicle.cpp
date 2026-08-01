@@ -616,25 +616,31 @@ Pose2D Vehicle::getPose() const {
     }
     
     if (isEnteringPOI && targetPOI != nullptr) {
-        if (poiAnimationTimer > 0) {
-            double linearRatio = 1.0 - (poiAnimationTimer / poiAnimationDuration);
-            // Decelerate into the destination along the same driveway used
-            // for departures, sampled in reverse.
-            double ratio = linearRatio * (2.0 - linearRatio);
-            const RoadGeometry::RoadAccessPath accessPath =
-                RoadGeometry::makeRoadAccessPath(
-                    *currentRoad,
-                    currentLaneIndex,
-                    progressOnCurrentRoad,
-                    {targetPOI->getX(),
-                     targetPOI->getY()});
-            Pose2D pose =
-                RoadGeometry::sampleRoadAccessPath(
-                    accessPath, 1.0 - ratio);
-            pose.headingRadians +=
-                3.14159265358979323846;
-            return pose;
-        }
+        const double linearRatio = std::clamp(
+            1.0 -
+                poiAnimationTimer /
+                    std::max(
+                        poiAnimationDuration,
+                        1e-9),
+            0.0,
+            1.0);
+        // Decelerate into the destination along the same driveway used
+        // for departures, sampled in reverse.
+        const double ratio =
+            linearRatio * (2.0 - linearRatio);
+        const RoadGeometry::RoadAccessPath accessPath =
+            RoadGeometry::makeRoadAccessPath(
+                *currentRoad,
+                currentLaneIndex,
+                progressOnCurrentRoad,
+                {targetPOI->getX(),
+                 targetPOI->getY()});
+        Pose2D pose =
+            RoadGeometry::sampleRoadAccessPath(
+                accessPath, 1.0 - ratio);
+        pose.headingRadians +=
+            3.14159265358979323846;
+        return pose;
     }
 
     Pose2D pose = roadPose;
@@ -1304,6 +1310,24 @@ Road* Vehicle::getNextRoad() const {
     return nullptr;
 }
 
+int Vehicle::getRequiredLaneIndex() const {
+    if (targetPOI == nullptr ||
+        currentRoad == nullptr ||
+        currentRoad != targetPOI->getConnectedRoad() ||
+        currentRouteIndex !=
+            static_cast<int>(currentRoute.size()) - 1) {
+        return -1;
+    }
+
+    const int accessLane =
+        targetPOI->getAccessLaneIndex();
+    if (accessLane < 0 ||
+        accessLane >= currentRoad->getLaneCount()) {
+        return -1;
+    }
+    return accessLane;
+}
+
 void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool allowDynamicReroute) {
     if (hasReachedDestination() || currentRoad == nullptr) {
         clearLaneChangeIntent();
@@ -1382,7 +1406,15 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
     
     if (targetPOI != nullptr && currentRoad == targetPOI->getConnectedRoad()) {
         if (currentRouteIndex == static_cast<int>(currentRoute.size()) - 1) {
-            if (!isEnteringPOI && progressOnCurrentRoad >= targetPOI->getProgressOffset()) {
+            const int accessLane =
+                targetPOI->getAccessLaneIndex();
+            const bool alignedWithAccess =
+                accessLane < 0 ||
+                currentLaneIndex == accessLane;
+            if (!isEnteringPOI &&
+                alignedWithAccess &&
+                progressOnCurrentRoad >=
+                    targetPOI->getProgressOffset()) {
                 setEnteringPOI(true);
                 currentRoad->getLane(currentLaneIndex).removeVehicle(this); // Stop blocking road while entering
                 return;
@@ -1555,14 +1587,32 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
         }
         
         // Slow down when approaching destination POI
-        if (targetPOI != nullptr && currentRoad == targetPOI->getConnectedRoad() && currentRouteIndex == static_cast<int>(currentRoute.size()) - 1) {
-            double distToPOI = targetPOI->getProgressOffset() - progressOnCurrentRoad;
+        if (targetPOI != nullptr &&
+            currentRoad == targetPOI->getConnectedRoad() &&
+            currentRouteIndex ==
+                static_cast<int>(currentRoute.size()) - 1) {
+            const double distToPOI =
+                targetPOI->getProgressOffset() -
+                progressOnCurrentRoad;
+            const int accessLane =
+                targetPOI->getAccessLaneIndex();
+            const bool requiresLaneChange =
+                accessLane >= 0 &&
+                currentLaneIndex != accessLane;
             if (distToPOI > 0.0) {
-                const double stoppingDistance = (currentSpeed * currentSpeed) / (2.0 * std::max(getDeceleration(), 1e-6));
+                const double stoppingDistance =
+                    (currentSpeed * currentSpeed) /
+                    (2.0 * std::max(
+                         getDeceleration(),
+                         1e-6));
                 const double safetyBuffer = 3.0; // metres
                 if (distToPOI <= stoppingDistance + safetyBuffer) {
-                    targetSpeed = std::min(targetSpeed, 2.0); // Decelerate to 2 m/s before turning into POI
+                    targetSpeed = requiresLaneChange
+                        ? 0.0
+                        : std::min(targetSpeed, 2.0);
                 }
+            } else if (requiresLaneChange) {
+                targetSpeed = 0.0;
             }
         }
         

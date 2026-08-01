@@ -139,6 +139,9 @@ protected:
         int incomingLane,
         const Road& outgoing,
         int outgoingLane) const;
+    bool isEmergencyAdmissionBlocked(
+        int vehicleId,
+        const Road* incomingRoad) const;
 
 public:
     Intersection(int id, double x = 0.0, double y = 0.0);
