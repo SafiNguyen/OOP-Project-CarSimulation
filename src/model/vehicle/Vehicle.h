@@ -106,6 +106,7 @@ protected:
     
     double poiAnimationTimer = 2.0;
     double poiAnimationDuration = 2.0;
+    double rightOnRedStoppedSeconds_ = 0.0;
 
 public:
     Vehicle(int id, double speed, Intersection* start, Intersection* dest);
@@ -158,6 +159,10 @@ public:
                         Graph* graph = nullptr,
                         PathFindingStrategy* strategy = nullptr,
                         bool allowDynamicReroute = true);
+
+    bool isRightTurnOnRedYield() const;
+    bool mustStopForTrafficLight(Intersection* nextIntersection) const;
+
     virtual double getYieldSpeedFactor() const;
     virtual double getYieldEscapeSpeedFactor() const;
     virtual void notifyEmergencyApproaching(int emergencyLaneIndex = -1);
