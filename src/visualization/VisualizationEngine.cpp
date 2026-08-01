@@ -142,42 +142,10 @@ void VisualizationEngine::prepare(const Graph& graph) {
     }
 }
 
-
-void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph& graph) const {
-    auto roads = graph.getAllRoads();
-    auto intersections = graph.getAllIntersections();
-
-    std::sort(intersections.begin(), intersections.end(), [](Intersection* lhs, Intersection* rhs) {
-        return lhs->getId() < rhs->getId();
-    });
-
-    drawSidewalks(target, graph);
-    // Driveways sit above the sidewalk but below the carriageway. Drawing
-    // them here lets the road surface cleanly mask their curb connection.
-    drawPOIDriveways(target, graph);
-
-    constexpr unsigned int kBorderMaskCellSize = 2; // 2x2 px cells
-    const sf::Vector2u targetSize = target.getSize();
-    const unsigned int gridW = (targetSize.x + kBorderMaskCellSize - 1u) / kBorderMaskCellSize;
-    const unsigned int gridH = (targetSize.y + kBorderMaskCellSize - 1u) / kBorderMaskCellSize;
-    std::vector<uint8_t> bodyMask(static_cast<std::size_t>(gridW) * static_cast<std::size_t>(gridH), 0u);
-
-    // Pre-compute per-road geometry so the two passes don't recompute it.
-    struct RoadDraw {
-        Road* road;
-        sf::Vector2f offsetA;
-        sf::Vector2f offsetB;
-        float laneWidth;
-        float totalWidth;
-        int laneCount;
-        bool isBridge;
-        bool isTunnel;
-        sf::Color bodyColor;
-        bool hasBorder;
-        sf::Color borderColor;
-        float borderWidth;
-    };
+std::vector<VisualizationEngine::RoadDraw>
+VisualizationEngine::buildRoadDrawList(const Graph& graph) const {
     std::vector<RoadDraw> drawList;
+    const auto roads = graph.getAllRoads();
     drawList.reserve(roads.size());
 
     for (auto* road : roads) {
@@ -228,21 +196,13 @@ void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph&
 
         drawList.push_back(rd);
     }
+    return drawList;
+}
 
-    // Pass 1: neutral road bodies. (Blocked-lane fills and congestion tint
-    // moved to drawDynamicLayer() - they depend on live simulation state.)
-    for (const RoadDraw& rd : drawList) {
-        drawRoadStrip(
-            target,
-            rd.offsetA,
-            rd.offsetB,
-            rd.bodyColor,
-            rd.totalWidth);
-        rasterizeBodyToMask(rd.offsetA, rd.offsetB, rd.totalWidth,
-                            bodyMask, gridW, gridH, kBorderMaskCellSize);
-    }
-
-    // Pass 2: lane dividers and carriageway edges.
+void VisualizationEngine::drawLaneMarkings(
+    sf::RenderTarget& target,
+    const std::vector<RoadDraw>& drawList) const {
+    // Lane dividers and carriageway edges.
     for (const RoadDraw& rd : drawList) {
         Road* roadObj = rd.road;
         // Lane divider lines for multi-lane roads.
@@ -409,6 +369,50 @@ void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph&
                         0.12, rd.road)));
         }
     }
+}
+
+void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph& graph) const {
+    auto roads = graph.getAllRoads();
+    auto intersections = graph.getAllIntersections();
+
+    std::sort(intersections.begin(), intersections.end(), [](Intersection* lhs, Intersection* rhs) {
+        return lhs->getId() < rhs->getId();
+    });
+
+    drawSidewalks(target, graph);
+    // Driveways sit above the sidewalk but below the carriageway. Drawing
+    // them here lets the road surface cleanly mask their curb connection.
+    drawPOIDriveways(target, graph);
+
+    constexpr unsigned int kBorderMaskCellSize = 2; // 2x2 px cells
+    const sf::Vector2u targetSize = target.getSize();
+    const unsigned int gridW = (targetSize.x + kBorderMaskCellSize - 1u) / kBorderMaskCellSize;
+    const unsigned int gridH = (targetSize.y + kBorderMaskCellSize - 1u) / kBorderMaskCellSize;
+    std::vector<uint8_t> bodyMask(static_cast<std::size_t>(gridW) * static_cast<std::size_t>(gridH), 0u);
+
+    const std::vector<RoadDraw> drawList = buildRoadDrawList(graph);
+
+    // Pass 1: neutral road bodies. (Blocked-lane fills and congestion tint
+    // moved to drawDynamicLayer() - they depend on live simulation state.)
+    for (const RoadDraw& rd : drawList) {
+        drawRoadStrip(
+            target,
+            rd.offsetA,
+            rd.offsetB,
+            rd.bodyColor,
+            rd.totalWidth);
+        rasterizeBodyToMask(rd.offsetA, rd.offsetB, rd.totalWidth,
+                            bodyMask, gridW, gridH, kBorderMaskCellSize);
+    }
+
+    // Lane markings are intentionally NOT drawn here. They are drawn in
+    // drawDynamicLayer() after the heat-map overlay so the render order is:
+    //   1. gray road bodies
+    //   2. heat-map color block
+    //   3. lane markings
+    //   4. everything else
+    // This keeps the lane dividers, carriageway edges, and centreline
+    // visible on top of the congestion tint.
 
     // Pass 3: borders, skipping any chunk that lands on another road's body.
     for (const RoadDraw& rd : drawList) {
@@ -450,9 +454,13 @@ void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph&
 
 
 void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph& graph) const {
+    // Layer 2: heat-map color block drawn on top of the gray road bodies.
     drawRoadCongestionOverlay(target, graph);
     drawBlockedLaneFills(target, graph);
 
+    // Layer 3: intersection and roundabout heat-map tint. Drawn before the
+    // lane markings so the road lane markings render on top of the
+    // roundabout surface.
     auto intersections = graph.getAllIntersections();
     std::sort(intersections.begin(), intersections.end(), [](Intersection* lhs, Intersection* rhs) {
         return lhs->getId() < rhs->getId();
@@ -477,6 +485,11 @@ void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph
         }
     }
 
+    // Layer 4: lane markings drawn on top of the heat-map overlay and the
+    // intersection/roundabout tint so the white lane dividers, carriageway
+    // edges, and yellow centreline remain visible.
+    drawLaneMarkings(target, buildRoadDrawList(graph));
+
     drawTrafficLights(target, graph);
 
     // Road names drawn last so they appear on top of the heatmap overlay
@@ -493,7 +506,9 @@ void VisualizationEngine::drawRoadCongestionOverlay(sf::RenderTarget& target, co
         target.getView(),
         2.0f);
     for (Road* road : graph.getAllRoads()) {
-        if (road == nullptr || road->isBridge() || road->isTunnel()) {
+        // Bridges and tunnels both use the heat-map tint (a deep
+        // green-to-red gradient) just like ordinary roads.
+        if (road == nullptr) {
             continue;
         }
         auto* start = road->getStart();
@@ -648,6 +663,36 @@ sf::Color VisualizationEngine::colorForRoad(const Road* road) const {
         : occupancy;
 
     const float normalized = static_cast<float>(std::clamp(effectiveLoad, 0.0, 1.0));
+
+    if (road->isTunnel()) {
+        // Tunnels use a deep palette that tints the dark tunnel surface:
+        // deep green (free flow) → dark yellow (moderate) → deep red
+        // (heavy congestion), matching the tunnel's darker appearance.
+        const sf::Color deepGreen(0, 90, 45);
+        const sf::Color darkYellow(120, 100, 30);
+        const sf::Color deepRed(150, 30, 30);
+        if (normalized < 0.5f) {
+            return mixColor(
+                deepGreen, darkYellow, normalized * 2.0f);
+        }
+        return mixColor(
+            darkYellow, deepRed, (normalized - 0.5f) * 2.0f);
+    }
+
+    if (road->isBridge()) {
+        // Bridges use a deep palette that tints the blue bridge surface:
+        // deep blue-green (free flow) → dark yellow (moderate) → deep red
+        // (heavy congestion), matching the bridge's distinct appearance.
+        const sf::Color deepBlueGreen(0, 110, 130);
+        const sf::Color darkYellow(120, 100, 30);
+        const sf::Color deepRed(150, 30, 30);
+        if (normalized < 0.5f) {
+            return mixColor(
+                deepBlueGreen, darkYellow, normalized * 2.0f);
+        }
+        return mixColor(
+            darkYellow, deepRed, (normalized - 0.5f) * 2.0f);
+    }
 
     const sf::Color green(45, 190, 90);    // Free flow / 0 cars
     const sf::Color yellow(245, 190, 45);  // Moderate traffic

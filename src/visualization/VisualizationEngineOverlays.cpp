@@ -680,9 +680,6 @@ void VisualizationEngine::drawIntersectionNode(sf::RenderTarget& target, const I
 
     const sf::Vector2f point = worldToScreen(intersection->getX(), intersection->getY());
     if (intersection->isRoundabout()) {
-        if (tintByCongestion) {
-            return;
-        }
         const float metricScale = static_cast<float>(
             RoadGeometry::metresPerWorldUnit(*intersection));
         const float roadWidth = static_cast<float>(
@@ -695,8 +692,11 @@ void VisualizationEngine::drawIntersectionNode(sf::RenderTarget& target, const I
             std::max(1e-6f, metricScale) * scale_);
         const float outerRadius =
             circulationRadius + roadWidth * 0.5f;
+        // When tinting by congestion, the roundabout surface uses the
+        // averaged heat-map color of its connected roads. The direction
+        // arrows and centre image are drawn on top so they stay readable.
         const sf::Color roundaboutRoadColor =
-            getIntersectionBoxColor(intersection, /*tintByCongestion=*/false);
+            getIntersectionBoxColor(intersection, tintByCongestion);
 
         // Transition each physical road from its rectangular carriageway
         // into a wider mouth on the outer circle. The short flare starts
@@ -1091,8 +1091,10 @@ sf::Color VisualizationEngine::getIntersectionBoxColor(const Intersection* inter
 
     const auto accumulate = [&](const std::vector<Road*>& roads) {
         for (const Road* road : roads) {
-            if (road == nullptr || road->isBridge() || road->isTunnel()) {
-                continue; // these have their own distinct colors, not congestion-based
+            // Bridges and tunnels both participate in the heat-map tint
+            // like ordinary roads.
+            if (road == nullptr) {
+                continue;
             }
             const sf::Color c = colorForRoad(road);
             r += c.r;

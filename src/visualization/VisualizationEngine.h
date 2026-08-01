@@ -113,6 +113,25 @@ public:
     std::uint64_t getRevision() const;
 
 private:
+    struct RoadDraw {
+        Road* road;
+        sf::Vector2f offsetA;
+        sf::Vector2f offsetB;
+        float laneWidth;
+        float totalWidth;
+        int laneCount;
+        bool isBridge;
+        bool isTunnel;
+        sf::Color bodyColor;
+        bool hasBorder;
+        sf::Color borderColor;
+        float borderWidth;
+    };
+
+    std::vector<RoadDraw> buildRoadDrawList(const Graph& graph) const;
+    void drawLaneMarkings(sf::RenderTarget& target,
+                          const std::vector<RoadDraw>& drawList) const;
+
     static sf::Color mixColor(const sf::Color& a, const sf::Color& b, float t);
     static float distanceBetween(const sf::Vector2f& a, const sf::Vector2f& b);
 
