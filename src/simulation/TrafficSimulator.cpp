@@ -971,14 +971,6 @@ void TrafficSimulator::recalculateAllVehicleRoutes() {
             continue;
         }
 
-        // Do not attempt to reroute if the vehicle is in the middle of a junction.
-        // Doing so would fail and trigger a false 'red' failure warning, 
-        // even though the vehicle can just continue on its existing route.
-        if (v->isAwaitingIntersectionTransition()) {
-            failedRecalcIds.erase(v->getId());
-            continue;
-        }
-
         bool success = v->recalculateRoute(*graph, pathFindingStrategy);
         if (success) {
             failedRecalcIds.erase(v->getId());
