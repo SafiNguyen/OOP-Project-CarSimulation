@@ -106,8 +106,6 @@ private:
         std::shared_ptr<const JunctionConnector>,
         ConnectorKeyHash> connectorCache_;
 
-    uint64_t nextEntryId_ = 0;
-
     struct MovementGeometryCache {
         bool valid = false;
         std::uint64_t reservationRevision = 0;
@@ -119,6 +117,7 @@ private:
         bool canEnter = false;
     };
 
+    std::uint64_t nextEntryId_ = 0;
     std::uint64_t reservationRevision_ = 0;
     mutable MovementGeometryCache movementGeometryCache_;
 
