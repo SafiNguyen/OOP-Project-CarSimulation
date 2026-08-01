@@ -56,6 +56,9 @@ RoadAccessPath makeRoadAccessPath(
 Pose2D sampleRoadAccessPath(
     const RoadAccessPath& path,
     double normalizedProgress);
+double roadAccessPathProgressAt(
+    const RoadAccessPath& path,
+    Vec2 point);
 double stopLineProgressMetres(const Road& incomingRoad);
 Vec2 stopLineCentre(const Road& incomingRoad);
 

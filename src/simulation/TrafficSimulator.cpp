@@ -218,19 +218,7 @@ bool TrafficSimulator::tryActivateVehicle(
         }
         const Lane& lane =
             road->getLane(accessLane);
-        if (lane.isBlocked() ||
-            lane.getVehicleCount() >=
-                lane.getCapacity()) {
-            vehicle->setSpawnLifecycleState(
-                SpawnLifecycleState::
-                    WaitingForRoadGap);
-            return false;
-        }
-        Intersection* entrance =
-            road->getStart();
-        if (entrance != nullptr &&
-            entrance->isOutgoingLaneReserved(
-                road, accessLane)) {
+        if (lane.isBlocked()) {
             vehicle->setSpawnLifecycleState(
                 SpawnLifecycleState::
                     WaitingForRoadGap);
@@ -274,26 +262,11 @@ bool TrafficSimulator::tryActivateVehicle(
             }
         }
 
-        // Check clearance with vehicles already on the access lane.
-        for (Vehicle* laneVeh : lane.getVehicles()) {
-            if (!laneVeh) continue;
-            double dist = std::fabs(laneVeh->getProgressOnRoad() - spawnProgress);
-            double halfLengths = (laneVeh->getLength() + vehicle->getLength()) * 0.5;
-            double requiredGap = std::max(vehicle->getMinGap(), laneVeh->getMinGap());
-            if (laneVeh->getProgressOnRoad() < spawnProgress) {
-                requiredGap +=
-                    std::max(
-                        0.0,
-                        laneVeh->getCurrentSpeed()) *
-                    vehicle->getPoiAnimationDuration();
-            }
-            if (dist < halfLengths + requiredGap) {
-                vehicle->setSpawnLifecycleState(
-                    SpawnLifecycleState::
-                        WaitingForRoadGap);
-                return false;
-            }
-        }
+        // Road traffic does not prevent a POI vehicle from approaching its
+        // yield line. The vehicle waits outside the carriageway and performs
+        // the speed-, braking-, and TTC-aware gap check immediately before it
+        // commits to the lane. This avoids both invisible queued spawns and a
+        // gap becoming stale during the driveway animation.
 
         selectedLane = accessLane;
         if (accessSource != nullptr) {

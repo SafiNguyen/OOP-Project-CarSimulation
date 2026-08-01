@@ -14,6 +14,7 @@ class Graph;
 class PathFindingStrategy;
 class PointOfInterest;
 class SpawnPoint;
+enum class JunctionDecision;
 
 class Vehicle {
 public:
@@ -49,6 +50,7 @@ protected:
 
     // POI Mid-road merging state
     bool isMergingFromPOI = false;
+    PoiMergePhase poiMergePhase_ = PoiMergePhase::None;
     bool isEnteringPOI = false;
     const PointOfInterest* mergeSourcePOI_ = nullptr;
     double mergeProgressOffset = -1.0;
@@ -116,6 +118,7 @@ public:
     virtual double getMaxLateralAcceleration() const;
     virtual VehicleKind getVehicleKind() const;
     virtual bool hasTrafficPriority() const { return false; }
+    virtual bool canTurnRightOnRed() const { return false; }
     virtual bool canChangeLanes() const;
     virtual bool allowsDynamicRerouting() const { return true; }
     virtual bool allowsUTurn() const { return true; }
@@ -192,13 +195,25 @@ public:
     }
 
     bool getIsMergingFromPOI() const { return isMergingFromPOI; }
-    void setIsMergingFromPOI(bool merging) { isMergingFromPOI = merging; }
+    void setIsMergingFromPOI(bool merging) {
+        setMergingFromPOI(
+            merging,
+            mergeProgressOffset,
+            mergeLaneIndex);
+    }
     void setMergeSourcePOI(const PointOfInterest* poi) {
         mergeSourcePOI_ = poi;
     }
     
     double getPoiAnimationTimer() const { return poiAnimationTimer; }
     double getPoiAnimationDuration() const { return poiAnimationDuration; }
+    PoiMergePhase getPoiMergePhase() const {
+        return poiMergePhase_;
+    }
+    bool hasActiveMergeReservation() const {
+        return isMergingFromPOI &&
+               poiMergePhase_ == PoiMergePhase::Committed;
+    }
     void updatePoiAnimation(double dt);
 
     void setMergingFromPOI(bool merging, double offset = -1.0, int laneIdx = -1);
@@ -254,6 +269,15 @@ protected:
     LaneMapping getJunctionEntryLaneMapping() const;
 
 private:
+    double getPoiMergeYieldPathRatio() const;
+    double getPoiMergePhaseDuration(
+        PoiMergePhase phase) const;
+    bool canCommitPoiMerge() const;
+    JunctionDecision getJunctionDecision(
+        Intersection* intersection,
+        const LaneMapping& mapping,
+        Road* outgoingRoad) const;
+    int getRedLightCurbYieldLane() const;
     bool advanceToNextRoad();
     LaneMapping getUpcomingLaneMapping() const;
     bool beginJunctionTraversal(

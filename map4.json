@@ -865,12 +865,6 @@
             "allRedDuration": 1.5
         },
         {
-            "intersectionId": 2,
-            "greenDuration": 25.0,
-            "yellowDuration": 3.0,
-            "allRedDuration": 1.5
-        },
-        {
             "intersectionId": 3,
             "greenDuration": 25.0,
             "yellowDuration": 3.0,
@@ -916,12 +910,6 @@
             ]
         },
         {
-            "intersectionId": 9,
-            "greenDuration": 25.0,
-            "yellowDuration": 3.0,
-            "allRedDuration": 1.5
-        },
-        {
             "intersectionId": 10,
             "greenDuration": 25.0,
             "yellowDuration": 3.0,
@@ -962,12 +950,6 @@
         },
         {
             "intersectionId": 14,
-            "greenDuration": 25.0,
-            "yellowDuration": 3.0,
-            "allRedDuration": 1.5
-        },
-        {
-            "intersectionId": 16,
             "greenDuration": 25.0,
             "yellowDuration": 3.0,
             "allRedDuration": 1.5

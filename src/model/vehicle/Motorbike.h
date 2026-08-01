@@ -35,6 +35,7 @@ public:
     VehicleKind getVehicleKind() const override {
         return VehicleKind::Motorbike;
     }
+    bool canTurnRightOnRed() const override { return true; }
 
     double getLength() const override { return 2.0; }
     double getWidth() const override { return 0.8; }

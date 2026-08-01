@@ -129,6 +129,15 @@ bool usesDedicatedEdgeLane(MovementType movement) {
            movement == MovementType::UTurn;
 }
 
+double smoothStep(double value) {
+    const double ratio = std::clamp(value, 0.0, 1.0);
+    return ratio * ratio * (3.0 - 2.0 * ratio);
+}
+
+constexpr double POI_MERGE_YIELD_BUFFER_METRES = 0.5;
+constexpr double MIN_POI_MERGE_PHASE_SECONDS = 0.25;
+constexpr double RED_LIGHT_CURB_YIELD_DISTANCE_METRES = 45.0;
+
 } // namespace
 
 
@@ -154,7 +163,12 @@ Vehicle::~Vehicle() {
         reservedIntersection_ = nullptr;
     }
     if (currentRoad != nullptr) {
-        currentRoad->getLane(currentLaneIndex).removeVehicle(this);
+        if (isMergingFromPOI) {
+            currentRoad->removeMergingVehicle(this);
+        } else if (currentLaneIndex >= 0 &&
+                   currentLaneIndex < currentRoad->getLaneCount()) {
+            currentRoad->getLane(currentLaneIndex).removeVehicle(this);
+        }
         currentRoad = nullptr;
     }
 }
@@ -221,17 +235,16 @@ PauseReason Vehicle::getIntersectionControlReason() const {
         getJunctionEntryLaneMapping();
     Road* outgoingRoad = getNextRoad();
     const JunctionDecision movementDecision =
-        prioritizedEmergency
-            ? JunctionDecision::Proceed
-            : movementMapping.valid && outgoingRoad != nullptr
-            ? nextIntersection->getMovementDecision(
-                  currentRoad,
-                  currentLaneIndex,
-                  outgoingRoad,
-                  movementMapping.movement)
-            : (nextIntersection->mustStopForRoad(currentRoad)
-                   ? JunctionDecision::Stop
-                   : JunctionDecision::Proceed);
+        movementMapping.valid && outgoingRoad != nullptr
+            ? getJunctionDecision(
+                  nextIntersection,
+                  movementMapping,
+                  outgoingRoad)
+            : (prioritizedEmergency
+                   ? JunctionDecision::Proceed
+                   : nextIntersection->mustStopForRoad(currentRoad)
+                         ? JunctionDecision::Stop
+                         : JunctionDecision::Proceed);
     if (movementDecision == JunctionDecision::Stop) {
         return PauseReason::TrafficLight;
     }
@@ -394,10 +407,13 @@ bool Vehicle::setRouteAt(const std::vector<Road*>& route,
         reservedIntersection_ = nullptr;
     }
     if (currentRoad != nullptr &&
-        movementState_ != MovementState::TraversingJunction &&
-        currentLaneIndex >= 0 &&
-        currentLaneIndex < currentRoad->getLaneCount()) {
-        currentRoad->getLane(currentLaneIndex).removeVehicle(this);
+        movementState_ != MovementState::TraversingJunction) {
+        if (isMergingFromPOI) {
+            currentRoad->removeMergingVehicle(this);
+        } else if (currentLaneIndex >= 0 &&
+                   currentLaneIndex < currentRoad->getLaneCount()) {
+            currentRoad->getLane(currentLaneIndex).removeVehicle(this);
+        }
     }
     currentRoute = route;
     currentRouteIndex = 0;
@@ -429,6 +445,11 @@ bool Vehicle::setRouteAt(const std::vector<Road*>& route,
             
             if (isMergingFromPOI) {
                 currentRoad->addMergingVehicle(this);
+                poiMergePhase_ =
+                    PoiMergePhase::ApproachingYieldLine;
+                poiAnimationTimer =
+                    getPoiMergePhaseDuration(
+                        poiMergePhase_);
             } else {
                 currentRoad->getLane(currentLaneIndex).addVehicle(this);
                 spawnLifecycleState_ =
@@ -506,14 +527,6 @@ Pose2D Vehicle::getPose() const {
             ? mergeSourcePOI_
             : spawnPOI;
     if (isMergingFromPOI && mergeSource != nullptr) {
-        double linearRatio = 1.0;
-        if (poiAnimationDuration > 0) {
-            linearRatio = std::clamp(1.0 - (poiAnimationTimer / poiAnimationDuration), 0.0, 1.0);
-        }
-        // Accelerate while leaving the source, but sample the same
-        // right-angle access path that is rendered beneath the vehicle.
-        // The final sample is the exact centre of the configured lane.
-        double ratio = linearRatio * linearRatio;
         const RoadGeometry::RoadAccessPath accessPath =
             RoadGeometry::makeRoadAccessPath(
                 *currentRoad,
@@ -521,6 +534,30 @@ Pose2D Vehicle::getPose() const {
                 progressOnCurrentRoad,
                 {mergeSource->getX(),
                  mergeSource->getY()});
+        const double yieldRatio =
+            getPoiMergeYieldPathRatio();
+        double ratio = yieldRatio;
+        if (poiMergePhase_ ==
+            PoiMergePhase::ApproachingYieldLine) {
+            const double duration =
+                getPoiMergePhaseDuration(
+                    poiMergePhase_);
+            const double linearRatio = duration > 0.0
+                ? 1.0 - poiAnimationTimer / duration
+                : 1.0;
+            ratio = yieldRatio * smoothStep(linearRatio);
+        } else if (poiMergePhase_ ==
+                   PoiMergePhase::Committed) {
+            const double duration =
+                getPoiMergePhaseDuration(
+                    poiMergePhase_);
+            const double linearRatio = duration > 0.0
+                ? 1.0 - poiAnimationTimer / duration
+                : 1.0;
+            ratio = yieldRatio +
+                (1.0 - yieldRatio) *
+                    smoothStep(linearRatio);
+        }
         return RoadGeometry::sampleRoadAccessPath(
             accessPath, ratio);
     }
@@ -581,6 +618,93 @@ LaneMapping Vehicle::getJunctionEntryLaneMapping() const {
         true);
 }
 
+JunctionDecision Vehicle::getJunctionDecision(
+    Intersection* intersection,
+    const LaneMapping& mapping,
+    Road* outgoingRoad) const {
+    if (intersection == nullptr || currentRoad == nullptr ||
+        outgoingRoad == nullptr || !mapping.valid) {
+        return JunctionDecision::Stop;
+    }
+    if (intersection->isPrioritizedEmergencyVehicle(
+            getId(), currentRoad)) {
+        return JunctionDecision::Proceed;
+    }
+
+    const JunctionDecision decision =
+        intersection->getMovementDecision(
+            currentRoad,
+            mapping.incomingLane,
+            outgoingRoad,
+            mapping.movement);
+    if (decision == JunctionDecision::Yield &&
+        !canTurnRightOnRed()) {
+        return JunctionDecision::Stop;
+    }
+    return decision;
+}
+
+int Vehicle::getRedLightCurbYieldLane() const {
+    if (getVehicleKind() != VehicleKind::Car ||
+        currentRoad == nullptr || getNextRoad() == nullptr ||
+        movementState_ == MovementState::TraversingJunction ||
+        currentRoad->getLaneCount() <= 1) {
+        return -1;
+    }
+
+    Intersection* intersection = currentRoad->getEnd();
+    const TrafficLight* light = intersection != nullptr
+        ? intersection->getLightForIncomingRoad(currentRoad)
+        : nullptr;
+    if (intersection == nullptr || light == nullptr ||
+        light->getState() != LightState::RED ||
+        !intersection->allowsRightTurnOnRed()) {
+        return -1;
+    }
+
+    const double distanceToJunction =
+        currentRoad->getDistance() - progressOnCurrentRoad;
+    const double yieldDistance = std::max(
+        RED_LIGHT_CURB_YIELD_DISTANCE_METRES,
+        std::max(0.0, currentSpeed) *
+            (MIN_SIGNAL_LEAD_TIME_SECONDS + 1.0));
+    if (distanceToJunction > yieldDistance) {
+        return -1;
+    }
+
+    const auto outgoingRoads = intersection->getOutgoingRoads();
+    const bool hasRightTurnExit = std::any_of(
+        outgoingRoads.begin(),
+        outgoingRoads.end(),
+        [this, intersection](const Road* road) {
+            return road != nullptr &&
+                   road->getStart() == intersection &&
+                   TurnLanePolicy::classify(
+                       *currentRoad, *road) ==
+                       MovementType::Right;
+        });
+    if (!hasRightTurnExit) {
+        return -1;
+    }
+
+    const int curbLane = currentRoad->getCurbLaneIndex();
+    const int preferredLane = std::min(
+        currentLaneIndex, curbLane - 1);
+    for (int offset = 0; offset < curbLane; ++offset) {
+        const int lowerLane = preferredLane - offset;
+        if (lowerLane >= 0 &&
+            !currentRoad->getLane(lowerLane).isBlocked()) {
+            return lowerLane;
+        }
+        const int upperLane = preferredLane + offset;
+        if (offset > 0 && upperLane < curbLane &&
+            !currentRoad->getLane(upperLane).isBlocked()) {
+            return upperLane;
+        }
+    }
+    return -1;
+}
+
 bool Vehicle::beginJunctionTraversal(
     const LaneMapping& mapping,
     Intersection* intersection) {
@@ -613,14 +737,11 @@ bool Vehicle::beginJunctionTraversal(
     const double requiredGap =
         getMinGap() + currentSpeed * getTimeHeadway();
     const JunctionDecision decision =
-        intersection->isPrioritizedEmergencyVehicle(
-            getId(), currentRoad)
-            ? JunctionDecision::Proceed
-            : intersection->getMovementDecision(
-                  currentRoad,
-                  mapping.incomingLane,
-                  outgoing,
-                  mapping.movement);
+        getJunctionDecision(
+            intersection, mapping, outgoing);
+    if (decision == JunctionDecision::Stop) {
+        return false;
+    }
     const bool entered =
         decision == JunctionDecision::Yield
             ? intersection->tryEnterYieldingMovement(
@@ -831,9 +952,15 @@ void Vehicle::refreshTurnSignal() {
     if (laneChangeState_ != LaneChangeState::Idle &&
         currentRoad != nullptr &&
         laneChangeTargetLane_ != currentLaneIndex) {
-        turnSignal_ = laneChangeTargetLane_ > currentLaneIndex
-            ? TurnSignal::Right
-            : TurnSignal::Left;
+        const TurnSignal junctionIntent =
+            laneChangeReason_ == TurnSignalReason::Junction
+                ? deriveUpcomingJunctionSignal()
+                : TurnSignal::Off;
+        turnSignal_ = junctionIntent != TurnSignal::Off
+            ? junctionIntent
+            : (laneChangeTargetLane_ > currentLaneIndex
+                   ? TurnSignal::Right
+                   : TurnSignal::Left);
         turnSignalReason_ = laneChangeReason_;
         return;
     }
@@ -1077,66 +1204,59 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
     refreshTurnSignal();
 
     if (isMergingFromPOI) {
-        if (poiAnimationTimer > 0) {
-            updatePoiAnimation(dt);
-            // Xe đang chạy từ toà nhà ra mép đường, chưa check gap vội
-            return;
+        if (poiMergePhase_ == PoiMergePhase::None) {
+            poiMergePhase_ =
+                PoiMergePhase::ApproachingYieldLine;
+            poiAnimationTimer =
+                getPoiMergePhaseDuration(
+                    poiMergePhase_);
         }
 
-        if (mergeLaneIndex < 0 ||
-            mergeLaneIndex >=
-                currentRoad->getLaneCount()) {
-            return;
-        }
-        const Lane& mergeLane =
-            currentRoad->getLane(mergeLaneIndex);
-        if (mergeLane.isBlocked() ||
-            mergeLane.getVehicleCount() >=
-                mergeLane.getCapacity()) {
-            return;
-        }
-        Intersection* entrance =
-            currentRoad->getStart();
-        if (entrance != nullptr &&
-            entrance->isOutgoingLaneReserved(
-                currentRoad,
-                mergeLaneIndex)) {
-            return;
-        }
-
-        Vehicle* follower = currentRoad->findFollower(mergeLaneIndex, this);
-        Vehicle* leader = currentRoad->findLeader(mergeLaneIndex, this);
-        bool safeToMerge = true;
-        
-        if (follower != nullptr) {
-            double gapBehind = mergeProgressOffset - follower->getProgressOnRoad() - (getLength() + follower->getLength()) * 0.5;
-            double followerSpeed = follower->getCurrentSpeed();
-            double requiredGap = follower->getMinGap() + followerSpeed * LANE_CHANGE_REAR_SAFETY_TIME;
-            // Add a small epsilon to prevent floating point issues when follower stops exactly at requiredGap
-            if (gapBehind < requiredGap - 1e-4) {
-                safeToMerge = false;
+        if (poiMergePhase_ ==
+            PoiMergePhase::ApproachingYieldLine) {
+            updatePoiAnimation(nonNegativeDt);
+            if (poiAnimationTimer <= 0.0) {
+                poiMergePhase_ =
+                    PoiMergePhase::WaitingForGap;
             }
-        }
-        if (leader != nullptr) {
-            double gapAhead = leader->getProgressOnRoad() - mergeProgressOffset - (getLength() + leader->getLength()) * 0.5;
-            if (gapAhead < getMinGap() - 1e-4) {
-                safeToMerge = false;
-            }
+            return;
         }
 
-        if (safeToMerge) {
-            currentRoad->removeMergingVehicle(this);
-            currentRoad->getLane(mergeLaneIndex).addVehicle(this);
-            isMergingFromPOI = false;
-            currentLaneIndex = mergeLaneIndex;
-            progressOnCurrentRoad = mergeProgressOffset;
-            currentSpeed = 0.0;
-            releaseSpawnSlot();
-            spawnLifecycleState_ =
-                SpawnLifecycleState::Active;
-        } else {
-            return; // Wait for gap
+        if (poiMergePhase_ ==
+            PoiMergePhase::WaitingForGap) {
+            if (canCommitPoiMerge()) {
+                poiMergePhase_ =
+                    PoiMergePhase::Committed;
+                poiAnimationTimer =
+                    getPoiMergePhaseDuration(
+                        poiMergePhase_);
+            }
+            return;
         }
+
+        if (poiMergePhase_ != PoiMergePhase::Committed) {
+            return;
+        }
+
+        updatePoiAnimation(nonNegativeDt);
+        if (poiAnimationTimer > 0.0) {
+            return;
+        }
+
+        // The reservation was visible to followers throughout the crossing.
+        // Replace it atomically with normal lane membership so collision
+        // queries never lose sight of the vehicle for a frame.
+        Road* mergedRoad = currentRoad;
+        const int mergedLane = mergeLaneIndex;
+        const double mergedProgress = mergeProgressOffset;
+        setMergingFromPOI(false);
+        currentLaneIndex = mergedLane;
+        progressOnCurrentRoad = mergedProgress;
+        currentSpeed = 0.0;
+        mergedRoad->getLane(mergedLane).addVehicle(this);
+        releaseSpawnSlot();
+        spawnLifecycleState_ =
+            SpawnLifecycleState::Active;
     }
     
     if (targetPOI != nullptr && currentRoad == targetPOI->getConnectedRoad()) {
@@ -1226,6 +1346,15 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
             }
             clearPause();
         } else {
+            const int curbYieldLane =
+                getRedLightCurbYieldLane();
+            if (laneChangeCooldownTimer <= 0.0 &&
+                curbYieldLane >= 0 &&
+                curbYieldLane != currentLaneIndex) {
+                tryRequiredLaneChange(
+                    curbYieldLane,
+                    TurnSignalReason::Junction);
+            }
             const PauseReason currentControlReason =
                 getIntersectionControlReason();
             if (currentControlReason != PauseReason::None) {
@@ -1330,12 +1459,16 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
              distanceToJunction <=
                  getJunctionLanePreparationDistance());
         const int stopOrServiceLane = getRequiredLaneIndex();
+        const int redLightCurbYieldLane =
+            getRedLightCurbYieldLane();
         const int requiredLaneIndex =
             stopOrServiceLane >= 0
                 ? stopOrServiceLane
-                : (preparingForJunction
-                       ? upcomingMapping.incomingLane
-                       : -1);
+                : redLightCurbYieldLane >= 0
+                      ? redLightCurbYieldLane
+                      : (preparingForJunction
+                             ? upcomingMapping.incomingLane
+                             : -1);
         const bool clearingEmergencyLane =
             yielding && emergencyLaneToAvoid >= 0 &&
             currentLaneIndex == emergencyLaneToAvoid;
@@ -1708,18 +1841,153 @@ double Vehicle::getMiniGap() const { return 0.0; }
 double Vehicle::getMinGap() const { return getMiniGap(); }
 double Vehicle::getTimeHeadway() const { return 1.5; }
 
+double Vehicle::getPoiMergeYieldPathRatio() const {
+    const PointOfInterest* source =
+        mergeSourcePOI_ != nullptr
+            ? mergeSourcePOI_
+            : spawnPOI;
+    if (currentRoad == nullptr || source == nullptr ||
+        mergeLaneIndex < 0 ||
+        mergeLaneIndex >= currentRoad->getLaneCount()) {
+        return 0.5;
+    }
+
+    const RoadGeometry::RoadAccessPath accessPath =
+        RoadGeometry::makeRoadAccessPath(
+            *currentRoad,
+            mergeLaneIndex,
+            mergeProgressOffset,
+            {source->getX(), source->getY()});
+    const Vec2 inward = normalized(
+        accessPath.lanePose.position - accessPath.curb,
+        rightNormal(RoadGeometry::roadDirection(*currentRoad)));
+    const double centreClearanceWorld =
+        (getLength() * 0.5 +
+         POI_MERGE_YIELD_BUFFER_METRES) /
+        RoadGeometry::metresPerWorldUnit(*currentRoad);
+    const Vec2 yieldPosition =
+        accessPath.curb - inward * centreClearanceWorld;
+    return RoadGeometry::roadAccessPathProgressAt(
+        accessPath,
+        yieldPosition);
+}
+
+double Vehicle::getPoiMergePhaseDuration(
+    PoiMergePhase phase) const {
+    const double yieldRatio =
+        getPoiMergeYieldPathRatio();
+    if (phase == PoiMergePhase::ApproachingYieldLine) {
+        return std::max(
+            MIN_POI_MERGE_PHASE_SECONDS,
+            poiAnimationDuration * yieldRatio);
+    }
+    if (phase == PoiMergePhase::Committed) {
+        return std::max(
+            MIN_POI_MERGE_PHASE_SECONDS,
+            poiAnimationDuration * (1.0 - yieldRatio));
+    }
+    return 0.0;
+}
+
+bool Vehicle::canCommitPoiMerge() const {
+    if (currentRoad == nullptr ||
+        mergeLaneIndex < 0 ||
+        mergeLaneIndex >= currentRoad->getLaneCount()) {
+        return false;
+    }
+
+    const Lane& mergeLane =
+        currentRoad->getLane(mergeLaneIndex);
+    if (mergeLane.isBlocked() ||
+        mergeLane.getVehicleCount() >=
+            mergeLane.getCapacity()) {
+        return false;
+    }
+
+    Intersection* entrance = currentRoad->getStart();
+    if (entrance != nullptr &&
+        entrance->isOutgoingLaneReserved(
+            currentRoad,
+            mergeLaneIndex)) {
+        return false;
+    }
+
+    Vehicle* leader =
+        currentRoad->findLeader(
+            mergeLaneIndex, this);
+    if (leader != nullptr) {
+        const double frontGap =
+            leader->getProgressOnRoad() -
+            mergeProgressOffset -
+            combinedHalfLength(*this, *leader);
+        const double requiredFrontGap =
+            std::max(getMinGap(), leader->getMinGap());
+        if (frontGap + 1e-6 < requiredFrontGap) {
+            return false;
+        }
+    }
+
+    Vehicle* follower =
+        currentRoad->findFollower(
+            mergeLaneIndex, this);
+    if (follower == nullptr) {
+        return true;
+    }
+
+    const double rearGap =
+        mergeProgressOffset -
+        follower->getProgressOnRoad() -
+        combinedHalfLength(*this, *follower);
+    const double followerSpeed =
+        std::max(0.0, follower->getCurrentSpeed());
+    const double baseGap =
+        std::max(getMinGap(), follower->getMinGap());
+    const double reactionDistance =
+        followerSpeed * LANE_CHANGE_REACTION_TIME;
+    const double brakingDistance =
+        followerSpeed * followerSpeed /
+        (2.0 * std::max(
+            follower->getDeceleration(), 1e-6));
+    const double requiredRearGap =
+        baseGap + reactionDistance + brakingDistance;
+    if (rearGap + 1e-6 < requiredRearGap) {
+        return false;
+    }
+
+    if (followerSpeed > 1e-6 &&
+        rearGap / followerSpeed + 1e-9 <
+            LANE_CHANGE_REAR_SAFETY_TIME) {
+        return false;
+    }
+    return true;
+}
+
 void Vehicle::updatePoiAnimation(double dt) {
-    if (poiAnimationTimer > 0) poiAnimationTimer -= dt;
+    if (poiAnimationTimer > 0.0) {
+        poiAnimationTimer = std::max(
+            0.0,
+            poiAnimationTimer - std::max(0.0, dt));
+    }
 }
 
 void Vehicle::setMergingFromPOI(bool merging, double offset, int laneIdx) {
+    if (!merging && isMergingFromPOI && currentRoad != nullptr) {
+        currentRoad->removeMergingVehicle(this);
+    }
     isMergingFromPOI = merging;
     mergeProgressOffset = offset;
     mergeLaneIndex = laneIdx;
     if (merging) {
-        poiAnimationTimer = poiAnimationDuration;
+        poiMergePhase_ =
+            PoiMergePhase::ApproachingYieldLine;
+        poiAnimationTimer =
+            getPoiMergePhaseDuration(
+                poiMergePhase_);
         spawnLifecycleState_ =
             SpawnLifecycleState::Merging;
+    } else {
+        poiMergePhase_ = PoiMergePhase::None;
+        poiAnimationTimer = 0.0;
     }
 }
 
