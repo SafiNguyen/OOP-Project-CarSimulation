@@ -308,6 +308,18 @@ protected:
     LaneMapping getJunctionEntryLaneMapping() const;
 
 private:
+    void updateSimulationState(double dt);
+    bool handlePoiTransitions(double dt);
+    void updateCooldownTimers(double elapsedTime);
+    bool handlePausedState(double& remainingTime);
+    double computeTargetSpeed(double freeFlowSpeed,
+                              const LaneMapping& upcomingMapping,
+                              const LaneMapping& entryMapping,
+                              int& requiredLaneIndex,
+                              bool& hasRequiredLane,
+                              Vehicle*& leader,
+                              double& minGap,
+                              double& gapToLeader);
     double getPoiMergeYieldPathRatio() const;
     double getPoiMergePhaseDuration(
         PoiMergePhase phase) const;
