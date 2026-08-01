@@ -654,7 +654,10 @@ void drawSelectedVehicleRoute(sf::RenderWindow& window,
     };
 
     // Start from the vehicle's current position so the line begins at the
-    // vehicle rather than at the start of the road it is on.
+    // vehicle rather than at the start of the road it is on. However, when
+    // the vehicle is entering its POI/destination, its pose is on the
+    // driveway (off the road), so we should not start the line from there.
+    const bool isEnteringPOI = target->getIsEnteringPOI();
     const Pose2D vehiclePose = target->getPose();
     const Vec2 currentPosition = vehiclePose.position;
 
@@ -662,7 +665,8 @@ void drawSelectedVehicleRoute(sf::RenderWindow& window,
     // route line should start from the vehicle's position on the connector
     // path and follow the remaining curved path through the junction.
     bool startedOnJunction = false;
-    if (target->getMovementState() == MovementState::TraversingJunction) {
+    if (!isEnteringPOI &&
+        target->getMovementState() == MovementState::TraversingJunction) {
         Road* incomingRoad = target->getCurrentRoad();
         Road* outgoingRoad = target->getNextRoad();
         if (incomingRoad != nullptr && outgoingRoad != nullptr) {
@@ -723,12 +727,6 @@ void drawSelectedVehicleRoute(sf::RenderWindow& window,
         const Vec2 laneEnd =
             RoadGeometry::laneEndpoint(*road, lane, false);
 
-        // For the first road in the loop (when not starting on a junction),
-        // start from the vehicle's current position.
-        const Vec2 segmentStart =
-            (i == startIdx && !startedOnJunction)
-                ? currentPosition : laneStart;
-
         // If this is the last road and the vehicle has a target POI on it,
         // stop the line at the POI position instead of the end of the road.
         Vec2 segmentEnd = laneEnd;
@@ -737,6 +735,21 @@ void drawSelectedVehicleRoute(sf::RenderWindow& window,
             const Pose2D poiPose = RoadGeometry::sampleLane(
                 *road, lane, targetPOI->getProgressOffset());
             segmentEnd = poiPose.position;
+        }
+
+        // For the first road in the loop (when not starting on a junction),
+        // start from the vehicle's current position. However, when the
+        // vehicle is entering its POI/destination, its pose is on the
+        // driveway (off the road), so start from the POI position on the
+        // road instead to avoid a weird connection back to the road.
+        Vec2 segmentStart = laneStart;
+        if (i == startIdx && !startedOnJunction) {
+            if (isEnteringPOI && targetPOI != nullptr &&
+                targetPOI->getConnectedRoad() == road) {
+                segmentStart = segmentEnd;
+            } else {
+                segmentStart = currentPosition;
+            }
         }
 
         appendSegment(segmentStart, segmentEnd);
