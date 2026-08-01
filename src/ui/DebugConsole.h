@@ -189,8 +189,7 @@ private:
     std::string pendingMapPath_;
 
     // Startup is deliberately two-stage: lock the demand size, then start.
-    // Once locked, the value is reused by map reload/reset and cannot be
-    // changed for the lifetime of this application session.
+    // Loading a new map clears the lock so the next run can be reconfigured.
     int simulationVehicleCountInput_ = 0;
     int lockedSimulationVehicleCount_ = 0;
     bool simulationVehicleCountLocked_ = false;

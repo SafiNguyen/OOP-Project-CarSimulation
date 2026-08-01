@@ -134,9 +134,24 @@ double smoothStep(double value) {
     return ratio * ratio * (3.0 - 2.0 * ratio);
 }
 
+double laneChangeLeanDirection(int targetLaneIndex, int currentLaneIndex) {
+    if (targetLaneIndex == currentLaneIndex) {
+        return 0.0;
+    }
+    return targetLaneIndex > currentLaneIndex ? 1.0 : -1.0;
+}
+
+double laneChangeLeanMagnitude(double progressRatio) {
+    constexpr double PI = 3.14159265358979323846;
+    constexpr double MAX_LANE_CHANGE_TILT_RADIANS = 0.12;
+    return MAX_LANE_CHANGE_TILT_RADIANS * std::sin(PI * std::clamp(progressRatio, 0.0, 1.0));
+}
+
 constexpr double POI_MERGE_YIELD_BUFFER_METRES = 0.5;
 constexpr double MIN_POI_MERGE_PHASE_SECONDS = 0.25;
 constexpr double RED_LIGHT_CURB_YIELD_DISTANCE_METRES = 45.0;
+constexpr double LANE_CHANGE_POSE_TRANSITION_SECONDS = 0.35;
+constexpr double UTURN_POSE_TRANSITION_SECONDS = 0.7;
 
 } // namespace
 
@@ -515,6 +530,44 @@ Pose2D Vehicle::getPose() const {
         return activeConnector_->sampleByDistance(
             junctionProgressMetres_);
     }
+    if (poseTransitionTimer_ > 0.0 &&
+        poseTransitionDuration_ > 0.0) {
+        const double linearRatio = 1.0 -
+            std::clamp(
+                poseTransitionTimer_ / poseTransitionDuration_,
+                0.0,
+                1.0);
+        const double easedRatio = smoothStep(linearRatio);
+        const Pose2D fromPose = poseTransitionFrom_;
+        const Pose2D toPose = poseTransitionTo_;
+        const double headingDelta = std::remainder(
+            toPose.headingRadians - fromPose.headingRadians,
+            2.0 * 3.14159265358979323846);
+        Pose2D pose;
+        pose.position = {
+            fromPose.position.x +
+                (toPose.position.x - fromPose.position.x) * easedRatio,
+            fromPose.position.y +
+                (toPose.position.y - fromPose.position.y) * easedRatio
+        };
+        pose.headingRadians = fromPose.headingRadians +
+            headingDelta * easedRatio;
+        if (poseTransitionDuration_ <=
+            LANE_CHANGE_POSE_TRANSITION_SECONDS + 1e-9) {
+            const Vec2 transitionDelta =
+                toPose.position - fromPose.position;
+            const Vec2 forwardDirection{
+                std::cos(fromPose.headingRadians),
+                std::sin(fromPose.headingRadians)};
+            const double leanDirection =
+                dot(transitionDelta, rightNormal(forwardDirection)) >= 0.0
+                    ? 1.0
+                    : -1.0;
+            pose.headingRadians += leanDirection *
+                laneChangeLeanMagnitude(easedRatio);
+        }
+        return pose;
+    }
     if (currentRoad == nullptr) {
         return {};
     }
@@ -584,7 +637,24 @@ Pose2D Vehicle::getPose() const {
         }
     }
 
-    return roadPose;
+    Pose2D pose = roadPose;
+    if (laneChangeState_ != LaneChangeState::Idle &&
+        laneChangeTargetLane_ != currentLaneIndex) {
+        const double signalLeadTime = hasTrafficPriority()
+            ? PRIORITY_SIGNAL_LEAD_TIME_SECONDS
+            : MIN_SIGNAL_LEAD_TIME_SECONDS;
+        const double signalRatio = laneChangeState_ == LaneChangeState::Signaling
+            ? smoothStep(signalLeadTime > 0.0
+                ? laneChangeSignalElapsedSeconds_ / signalLeadTime
+                : 1.0)
+            : 1.0;
+        pose.headingRadians +=
+            laneChangeLeanDirection(
+                laneChangeTargetLane_, currentLaneIndex) *
+            laneChangeLeanMagnitude(signalRatio);
+    }
+
+    return pose;
 }
 
 LaneMapping Vehicle::getUpcomingLaneMapping() const {
@@ -924,6 +994,16 @@ bool Vehicle::requestLaneChange(
     return true;
 }
 
+void Vehicle::startPoseTransition(
+    const Pose2D& fromPose,
+    const Pose2D& toPose,
+    double durationSeconds) {
+    poseTransitionFrom_ = fromPose;
+    poseTransitionTo_ = toPose;
+    poseTransitionDuration_ = std::max(0.0, durationSeconds);
+    poseTransitionTimer_ = poseTransitionDuration_;
+}
+
 void Vehicle::clearLaneChangeIntent() {
     laneChangeState_ = LaneChangeState::Idle;
     laneChangeTargetLane_ = -1;
@@ -1033,8 +1113,20 @@ bool Vehicle::tryRequiredLaneChange(
     }
 
     currentRoad->getLane(currentLaneIndex).removeVehicle(this);
+    const Pose2D fromPose = RoadGeometry::sampleLane(
+        *currentRoad,
+        currentLaneIndex,
+        progressOnCurrentRoad);
+    const Pose2D toPose = RoadGeometry::sampleLane(
+        *currentRoad,
+        adjacentLane,
+        progressOnCurrentRoad);
     currentLaneIndex = adjacentLane;
     currentRoad->getLane(currentLaneIndex).addVehicle(this);
+    startPoseTransition(
+        fromPose,
+        toPose,
+        LANE_CHANGE_POSE_TRANSITION_SECONDS);
     if (currentLaneIndex == requiredLaneIndex) {
         clearLaneChangeIntent();
         laneChangeCooldownTimer = hasTrafficPriority()
@@ -1131,8 +1223,20 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
         }
         laneChangeState_ = LaneChangeState::WaitingForGap;
         currentRoad->getLane(currentLaneIndex).removeVehicle(this);
+        const Pose2D fromPose = RoadGeometry::sampleLane(
+            *currentRoad,
+            currentLaneIndex,
+            progressOnCurrentRoad);
+        const Pose2D toPose = RoadGeometry::sampleLane(
+            *currentRoad,
+            bestCandidate.laneIndex,
+            progressOnCurrentRoad);
         currentLaneIndex = bestCandidate.laneIndex;
         currentRoad->getLane(currentLaneIndex).addVehicle(this);
+        startPoseTransition(
+            fromPose,
+            toPose,
+            LANE_CHANGE_POSE_TRANSITION_SECONDS);
         clearLaneChangeIntent();
         refreshTurnSignal();
         laneChangeCooldownTimer = hasTrafficPriority()
@@ -1171,8 +1275,20 @@ void Vehicle::tryYieldLaneChange() {
         }
         laneChangeState_ = LaneChangeState::WaitingForGap;
         currentRoad->getLane(currentLaneIndex).removeVehicle(this);
+        const Pose2D fromPose = RoadGeometry::sampleLane(
+            *currentRoad,
+            currentLaneIndex,
+            progressOnCurrentRoad);
+        const Pose2D toPose = RoadGeometry::sampleLane(
+            *currentRoad,
+            bestCandidate.laneIndex,
+            progressOnCurrentRoad);
         currentLaneIndex = bestCandidate.laneIndex;
         currentRoad->getLane(currentLaneIndex).addVehicle(this);
+        startPoseTransition(
+            fromPose,
+            toPose,
+            LANE_CHANGE_POSE_TRANSITION_SECONDS);
         clearLaneChangeIntent();
         refreshTurnSignal();
         laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN * 0.5;
@@ -1200,6 +1316,11 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
     simulationTimeSeconds_ += nonNegativeDt;
     if (laneChangeState_ != LaneChangeState::Idle) {
         laneChangeSignalElapsedSeconds_ += nonNegativeDt;
+    }
+    if (poseTransitionTimer_ > 0.0) {
+        poseTransitionTimer_ = std::max(
+            0.0,
+            poseTransitionTimer_ - nonNegativeDt);
     }
     refreshTurnSignal();
 
@@ -1783,6 +1904,8 @@ bool Vehicle::performUTurn(const Graph& graph, PathFindingStrategy* strategy) {
         return false;
     }
 
+    const Pose2D fromPose = getPose();
+
     PathResult result = strategy->findPath(graph, startId, destination->getId());
     if (!result.found) {
         return false;
@@ -1802,6 +1925,15 @@ bool Vehicle::performUTurn(const Graph& graph, PathFindingStrategy* strategy) {
 
     currentSpeed = 0.0;
     clearPause();
+
+    const Pose2D toPose = RoadGeometry::sampleLane(
+        *currentRoad,
+        currentLaneIndex,
+        progressOnCurrentRoad);
+    startPoseTransition(
+        fromPose,
+        toPose,
+        UTURN_POSE_TRANSITION_SECONDS);
 
     std::vector<Road*> newRoute;
     for (int i = 0; i < currentRouteIndex; ++i) {

@@ -56,6 +56,14 @@ void DebugConsole::onMapChanged() {
     spawnEndId_ = -1;
     spawnMessage_.clear();
     accidentRoadIdx_ = -1;
+    simulationVehicleCountInput_ = std::clamp(
+        lockedSimulationVehicleCount_,
+        MINIMUM_SIMULATION_VEHICLES,
+        MAXIMUM_SIMULATION_VEHICLES);
+    simulationVehicleCountLocked_ = false;
+    simulationStarted_ = false;
+    simulationSetupMessage_ =
+        "Map loaded. Adjust the vehicle count and lock it again before starting.";
     snapshotDirty_ = true;
     mapPathBufferInitialized_ = false;
 }
@@ -133,8 +141,8 @@ void DebugConsole::drawSimulationSetupPanel(
 
     ImGui::TextWrapped(
         "Choose the total number of routed vehicle trips. Locking the "
-        "value is permanent for this application session; Start creates "
-        "the simulation with that demand.");
+        "value starts the simulation with that demand, and loading a new "
+        "map clears the lock so you can pick a new count.");
     ImGui::Spacing();
 
     ImGui::BeginDisabled(simulationVehicleCountLocked_);

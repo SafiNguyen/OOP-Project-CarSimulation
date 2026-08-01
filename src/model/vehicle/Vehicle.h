@@ -82,6 +82,11 @@ protected:
     double yieldCooldownTimer = 0.0;    
     int emergencyLaneToAvoid = -1;          // lane index to avoid when yielding to an ambulance
 
+    Pose2D poseTransitionFrom_{};
+    Pose2D poseTransitionTo_{};
+    double poseTransitionTimer_ = 0.0;
+    double poseTransitionDuration_ = 0.0;
+
     double stuckTimer = 0.0;
     double patienceThreshold = 5.0;
     double uTurnCooldownTimer = 0.0;
@@ -294,6 +299,9 @@ private:
     void clearLaneChangeIntent();
     void refreshTurnSignal();
     TurnSignal deriveUpcomingJunctionSignal() const;
+    void startPoseTransition(const Pose2D& fromPose,
+                             const Pose2D& toPose,
+                             double durationSeconds);
     void tryLaneChange(double freeFlowSpeedHint);
     void tryYieldLaneChange(); 
 };

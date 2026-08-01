@@ -368,7 +368,6 @@ void DebugConsole::completePendingMapLoad(
         std::unique_ptr<TrafficSimulator>& simulator,
         std::string& mapPathInput,
         const std::string& loadError) {
-    const bool restartSimulation = simulationStarted_;
     const bool useDemo = pendingDemoLoad_;
     const std::string requestedPath = pendingMapPath_;
     mapLoadPending_ = false;
@@ -378,35 +377,17 @@ void DebugConsole::completePendingMapLoad(
     loadAndRefresh_(useDemo ? "" : requestedPath);
     onMapChanged();
 
-    std::string restartError;
-    if (restartSimulation &&
-        !createConfiguredSimulation(
-            simulator, restartError)) {
-        simulationStarted_ = false;
-        simulationSetupMessage_ =
-            "Map loaded, but the simulation could not restart: " +
-            restartError;
-        setNotice(
-            NoticeTone::ERROR,
-            simulationSetupMessage_);
-        return;
-    }
-
     if (useDemo) {
         mapPathInput.clear();
         lastLoadFailed_ = false;
         setNotice(
             NoticeTone::SUCCESS,
-            restartSimulation
-                ? "Built-in demo map loaded and simulation restarted."
-                : "Built-in demo map loaded. Configure and start the simulation.");
+            "Built-in demo map loaded. Adjust the vehicle count and start the simulation.");
     } else if (loadError.empty()) {
         lastLoadFailed_ = false;
         setNotice(
             NoticeTone::SUCCESS,
-            restartSimulation
-                ? "Map loaded and simulation restarted."
-                : "Map loaded. Configure and start the simulation.");
+            "Map loaded. Adjust the vehicle count and start the simulation.");
     } else {
         lastLoadFailed_ = true;
         setNotice(NoticeTone::ERROR,
