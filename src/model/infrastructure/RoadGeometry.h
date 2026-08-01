@@ -18,8 +18,6 @@ struct RoadAccessPath {
 constexpr double LANE_WIDTH_METRES = 3.5;
 constexpr double MEDIAN_GAP_METRES = 0.5;
 constexpr double STOP_LINE_SETBACK_METRES = 1.5;
-// Wide enough for two pedestrians to pass and remain legible in the
-// full-map visualization while still representing a realistic urban curb.
 constexpr double SIDEWALK_WIDTH_METRES = 5.0;
 constexpr double SIDEWALK_CURB_WIDTH_METRES = 0.35;
 
@@ -58,6 +56,9 @@ RoadAccessPath makeRoadAccessPath(
 Pose2D sampleRoadAccessPath(
     const RoadAccessPath& path,
     double normalizedProgress);
+double roadAccessPathProgressAt(
+    const RoadAccessPath& path,
+    Vec2 point);
 double stopLineProgressMetres(const Road& incomingRoad);
 Vec2 stopLineCentre(const Road& incomingRoad);
 

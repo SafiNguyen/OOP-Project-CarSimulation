@@ -57,6 +57,20 @@ const char* spawnStateLabel(
     }
     return "Unknown";
 }
+
+const char* poiMergePhaseLabel(PoiMergePhase phase) {
+    switch (phase) {
+        case PoiMergePhase::ApproachingYieldLine:
+            return "Approaching road yield line";
+        case PoiMergePhase::WaitingForGap:
+            return "Waiting for a safe merge gap";
+        case PoiMergePhase::Committed:
+            return "Merging into lane";
+        case PoiMergePhase::None:
+            return "Merging from origin";
+    }
+    return "Merging from origin";
+}
 }
 
 void VehicleInspector::tryPickVehicle(TrafficSimulator* simulator,
@@ -142,9 +156,6 @@ void VehicleInspector::draw(TrafficSimulator* simulator, const VisualizationEngi
             const char* reasonStr = "Unknown";
             switch (vehicle->getPauseReason()) {
                 case PauseReason::TrafficLight:  reasonStr = "Waiting at red light"; break;
-                case PauseReason::PedestrianCrossing:
-                    reasonStr = "Waiting for pedestrians";
-                    break;
                 case PauseReason::Intersection:  reasonStr = "Waiting for intersection slot"; break;
                 case PauseReason::BusStop:       reasonStr = "Dwelling at bus stop"; break;
                 default: break;
@@ -155,9 +166,8 @@ void VehicleInspector::draw(TrafficSimulator* simulator, const VisualizationEngi
             ImGui::TextColored(
                 ImVec4(0.95f, 0.75f, 0.3f, 1.0f),
                 "Status: %s",
-                spawnStateLabel(
-                    vehicle->
-                        getSpawnLifecycleState()));
+                poiMergePhaseLabel(
+                    vehicle->getPoiMergePhase()));
         } else {
             ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Status: Moving");
         }

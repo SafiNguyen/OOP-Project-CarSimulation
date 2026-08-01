@@ -136,10 +136,18 @@ void DebugConsole::drawTopHud(sf::RenderWindow& window,
             }
 
             ImGui::TableNextColumn();
-            if (!simulator) {
+            if (mapLoadPending_) {
                 statusPill("LOADING", UiTheme::AccentStrong);
             } else if (lastLoadFailed_) {
                 statusPill("ERROR", UiTheme::Error);
+            } else if (!simulator) {
+                statusPill(
+                    simulationVehicleCountLocked_
+                        ? "READY"
+                        : "SETUP",
+                    simulationVehicleCountLocked_
+                        ? UiTheme::AccentStrong
+                        : UiTheme::Warning);
             } else if (simulator->isPaused()) {
                 statusPill("PAUSED", UiTheme::Warning);
             } else {
@@ -360,6 +368,7 @@ void DebugConsole::completePendingMapLoad(
         std::unique_ptr<TrafficSimulator>& simulator,
         std::string& mapPathInput,
         const std::string& loadError) {
+    const bool restartSimulation = simulationStarted_;
     const bool useDemo = pendingDemoLoad_;
     const std::string requestedPath = pendingMapPath_;
     mapLoadPending_ = false;
@@ -367,16 +376,37 @@ void DebugConsole::completePendingMapLoad(
     pendingMapPath_.clear();
 
     loadAndRefresh_(useDemo ? "" : requestedPath);
-    simulator = resetSimulation_();
     onMapChanged();
+
+    std::string restartError;
+    if (restartSimulation &&
+        !createConfiguredSimulation(
+            simulator, restartError)) {
+        simulationStarted_ = false;
+        simulationSetupMessage_ =
+            "Map loaded, but the simulation could not restart: " +
+            restartError;
+        setNotice(
+            NoticeTone::ERROR,
+            simulationSetupMessage_);
+        return;
+    }
 
     if (useDemo) {
         mapPathInput.clear();
         lastLoadFailed_ = false;
-        setNotice(NoticeTone::SUCCESS, "Built-in demo map loaded.");
+        setNotice(
+            NoticeTone::SUCCESS,
+            restartSimulation
+                ? "Built-in demo map loaded and simulation restarted."
+                : "Built-in demo map loaded. Configure and start the simulation.");
     } else if (loadError.empty()) {
         lastLoadFailed_ = false;
-        setNotice(NoticeTone::SUCCESS, "Map loaded successfully.");
+        setNotice(
+            NoticeTone::SUCCESS,
+            restartSimulation
+                ? "Map loaded and simulation restarted."
+                : "Map loaded. Configure and start the simulation.");
     } else {
         lastLoadFailed_ = true;
         setNotice(NoticeTone::ERROR,

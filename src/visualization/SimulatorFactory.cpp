@@ -18,17 +18,11 @@
 #include "Bus.h"
 #include "BusService.h"
 #include "BusStop.h"
-#include "Crosswalk.h"
-#include "Pedestrian.h"
-#include "PedestrianRoute.h"
 #include "simulation/BusTripPlanner.h"
 #include "simulation/TrafficSimulator.h"
 #include "simulation/VehicleSpawnPolicy.h"
 
 namespace {
-
-constexpr int DEMO_VEHICLE_COUNT = 1000;
-
 constexpr double FIRST_BUS_DEPARTURE_SECONDS = 5.0;
 constexpr double NETWORK_BUS_DEPARTURE_INTERVAL_SECONDS = 4.0;
 constexpr double FIRST_GENERAL_VEHICLE_DEPARTURE_SECONDS = 1.0;
@@ -51,7 +45,7 @@ std::size_t recommendedActiveVehicleLimit(
         }
     }
 
-    // The demo still owns all 1000 requested trips, but releases only a
+    // The demo owns every requested trip, but releases only a
     // readable amount of simultaneous traffic for the map's lane count.
     // Permit a denser steady state while keeping the cap proportional to the
     // amount of road space available on each map.
@@ -63,7 +57,10 @@ std::size_t recommendedActiveVehicleLimit(
 
 } // namespace
 
-std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingStrategy* strategy) {
+std::unique_ptr<TrafficSimulator> createDemoSimulator(
+    Graph& graph,
+    PathFindingStrategy* strategy,
+    int vehicleCount) {
     auto simulator = std::make_unique<TrafficSimulator>(&graph, strategy);
     simulator->setMaximumActiveVehicles(
         recommendedActiveVehicleLimit(graph));
@@ -106,8 +103,10 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingS
             return lhs->getId() < rhs->getId();
         });
 
+    const int requestedVehicleCount =
+        std::max(0, vehicleCount);
     int firstGenericVehicleId = 0;
-    int genericVehicleCount = DEMO_VEHICLE_COUNT;
+    int genericVehicleCount = requestedVehicleCount;
     if (!busServices.empty()) {
         if (busStops.empty()) {
             throw std::runtime_error(
@@ -116,7 +115,7 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingS
         }
         const int transitBusCount =
             spawnPolicy.transitBusCount(
-                DEMO_VEHICLE_COUNT);
+                requestedVehicleCount);
         std::vector<int> fleetOrdinals(
             busServices.size(), 0);
         std::set<std::vector<int>>
@@ -202,7 +201,7 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingS
         }
         firstGenericVehicleId = transitBusCount;
         genericVehicleCount =
-            DEMO_VEHICLE_COUNT - transitBusCount;
+            requestedVehicleCount - transitBusCount;
     }
 
     std::unordered_map<const PointOfInterest*, double>
@@ -344,39 +343,5 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(Graph& graph, PathFindingS
         }
     }
 
-    int pedestrianId = 100000;
-    for (Crosswalk* crosswalk :
-         graph.getAllCrosswalks()) {
-        if (crosswalk == nullptr) continue;
-        constexpr int PEDESTRIANS_PER_CROSSWALK = 2;
-        for (int index = 0;
-             index < PEDESTRIANS_PER_CROSSWALK;
-             ++index) {
-            const CrossingDirection direction =
-                index % 2 == 0
-                    ? CrossingDirection::SideAToB
-                    : CrossingDirection::SideBToA;
-            const double approachDistance =
-                10.0 +
-                static_cast<double>(index) * 8.0;
-            const double departureDistance =
-                30.0 +
-                static_cast<double>(index % 4) * 7.0;
-            auto route = buildCrosswalkJourney(
-                *crosswalk,
-                direction,
-                approachDistance,
-                departureDistance);
-            if (route.empty()) continue;
-            const double speed =
-                1.25 +
-                static_cast<double>(index % 5) * 0.05;
-            simulator->addPedestrian(
-                std::make_unique<Pedestrian>(
-                    pedestrianId++,
-                    speed,
-                    std::move(route)));
-        }
-    }
     return simulator;
 }

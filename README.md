@@ -128,57 +128,13 @@ after an entry receives green.
 
 `allowRightTurnOnRed` is optional and defaults to `true`. A right-turning
 vehicle first stops at the stop line for at least 0.5 simulation seconds, then
-yields to active pedestrian phases, green-priority approaches, junction
-reservations and unavailable outgoing space. Setting it to `false` retains the
-ordinary red-light stop rule.
+yields to green-priority approaches, junction reservations and unavailable
+outgoing space. Setting it to `false` retains the ordinary red-light stop rule.
 
 Vehicles expose a model-owned left/right turn signal. Junction signals are
 derived from `TurnLanePolicy`; lane changes signal for at least one simulation
 second before committing. The renderer draws deterministic amber rear lamps
 in vehicle-local coordinates, independently of emergency red/blue lighting.
-
-## Pedestrians and signalized crosswalks
-
-Pedestrians are independent simulation agents rather than `Vehicle`
-subclasses. A pedestrian follows a route made from model-space sidewalk and
-crosswalk segments, using the state sequence `Walking -> WaitingToCross ->
-Crossing -> Walking -> Arrived`. `TrafficSimulator` owns active/completed
-pedestrians, while `Graph` owns static `Crosswalk` infrastructure.
-
-Crosswalk requests join the intersection's shared signal controller. When a
-request has waited long enough, the sequence becomes `GREEN -> YELLOW ->
-ALL_RED -> PEDESTRIAN_WALK -> PEDESTRIAN_CLEARANCE -> GREEN`. All vehicle
-heads remain red during the pedestrian stages, new junction reservations are
-rejected, and green is held if a slow pedestrian still occupies the crossing.
-Pedestrians arriving during clearance wait for the next cycle.
-
-Crosswalks are optional and backward-compatible:
-
-```json
-{
-  "crosswalks": [
-    {
-      "id": 301,
-      "intersectionId": 2,
-      "incomingRoadId": 101,
-      "enabled": true,
-      "width": 3.0,
-      "minimumWait": 3.0,
-      "walkDuration": 4.0,
-      "designWalkingSpeed": 1.2,
-      "clearanceBuffer": 1.0
-    }
-  ]
-}
-```
-
-The incoming road must end at the configured signalized intersection. When a
-reverse direction exists, one crossing spans the paired physical road without
-duplicate rendering. `RoadGeometry` derives sidewalk centres, zebra geometry
-and an upstream stop line in metres; roads without crosswalks retain their
-previous stop-line behavior. The deterministic demo factory creates a small
-number of pedestrians with visible sidewalk approach and departure segments
-for every configured crosswalk.
 
 ## Build Instructions
 

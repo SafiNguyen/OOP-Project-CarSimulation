@@ -409,10 +409,6 @@ int renderSnapshot(const std::string& mapPath,
         VehicleSprite sprite(vehicle, &visualization);
         sprite.draw(target);
     }
-    drawPedestrians(
-        target,
-        visualization,
-        *simulator);
     target.display();
     if (!target.getTexture().copyToImage().saveToFile(
             options.outputPath)) {
@@ -545,22 +541,30 @@ int main(int argc, char** argv) {
     ctx.mapPathInput = path.empty() ? "map.json" : path;
     visualization.setHeatMapEnabled(ctx.heatMapEnabled);
 
-    std::function<std::unique_ptr<TrafficSimulator>()> resetSimulation;
+    std::function<std::unique_ptr<TrafficSimulator>(int)>
+        resetSimulation;
 
     DebugConsole debugConsole(
         graph, visualization,
         [&](const std::string& requestedPath) { loadAndRefresh(ctx, requestedPath); },
-        [&]() { return resetSimulation(); },
+        [&](int vehicleCount) {
+            return resetSimulation(vehicleCount);
+        },
         [&]() { clampViewToMap(ctx); },
         openMapFileDialog);
 
-    resetSimulation = [&]() {
-        return createDemoSimulator(graph, debugConsole.getSelectedStrategy());
+    resetSimulation = [&](int vehicleCount) {
+        return createDemoSimulator(
+            graph,
+            debugConsole.getSelectedStrategy(),
+            vehicleCount);
     };
 
     loadAndRefresh(ctx, path);
 
-    std::unique_ptr<TrafficSimulator> simulator = resetSimulation();
+    // Vehicle demand is created only after the Debug Console locks the count
+    // and the user explicitly presses Start Simulation.
+    std::unique_ptr<TrafficSimulator> simulator;
     StatsPanel statsPanel;
     VehicleInspector vehicleInspector;
 

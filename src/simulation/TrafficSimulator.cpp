@@ -4,8 +4,6 @@
 #include "Lane.h"
 #include "Vehicle.h"
 #include "Intersection.h"
-#include "Crosswalk.h"
-#include "Pedestrian.h"
 #include "Bus.h"
 #include "PointOfInterest.h"
 #include "algorithm/PathFindingStrategy.h"
@@ -31,8 +29,6 @@ TrafficSimulator::TrafficSimulator(Graph* graph, PathFindingStrategy* strategy)
 }
 
 TrafficSimulator::~TrafficSimulator() {
-    pedestrians_.clear();
-    finishedPedestrians_.clear();
     eventManager.reset();
     statisticsManager.reset();
     for (Vehicle* v : vehicles) {
@@ -70,31 +66,6 @@ void TrafficSimulator::pruneMergingIndex(Road* road)
 
     if (vehicles.empty())
         mergingFromPOIByRoad_.erase(it);
-}
-
-bool TrafficSimulator::addPedestrian(
-    std::unique_ptr<Pedestrian> pedestrian) {
-    if (pedestrian == nullptr ||
-        !pedestrian->isValid()) {
-        return false;
-    }
-    const int id = pedestrian->getId();
-    const auto hasId =
-        [id](const auto& pedestrians) {
-            return std::any_of(
-                pedestrians.begin(),
-                pedestrians.end(),
-                [id](const auto& candidate) {
-                    return candidate != nullptr &&
-                           candidate->getId() == id;
-                });
-        };
-    if (hasId(pedestrians_) ||
-        hasId(finishedPedestrians_)) {
-        return false;
-    }
-    pedestrians_.push_back(std::move(pedestrian));
-    return true;
 }
 
 bool TrafficSimulator::tryActivateVehicle(
@@ -247,19 +218,7 @@ bool TrafficSimulator::tryActivateVehicle(
         }
         const Lane& lane =
             road->getLane(accessLane);
-        if (lane.isBlocked() ||
-            lane.getVehicleCount() >=
-                lane.getCapacity()) {
-            vehicle->setSpawnLifecycleState(
-                SpawnLifecycleState::
-                    WaitingForRoadGap);
-            return false;
-        }
-        Intersection* entrance =
-            road->getStart();
-        if (entrance != nullptr &&
-            entrance->isOutgoingLaneReserved(
-                road, accessLane)) {
+        if (lane.isBlocked()) {
             vehicle->setSpawnLifecycleState(
                 SpawnLifecycleState::
                     WaitingForRoadGap);
@@ -303,26 +262,11 @@ bool TrafficSimulator::tryActivateVehicle(
             }
         }
 
-        // Check clearance with vehicles already on the access lane.
-        for (Vehicle* laneVeh : lane.getVehicles()) {
-            if (!laneVeh) continue;
-            double dist = std::fabs(laneVeh->getProgressOnRoad() - spawnProgress);
-            double halfLengths = (laneVeh->getLength() + vehicle->getLength()) * 0.5;
-            double requiredGap = std::max(vehicle->getMinGap(), laneVeh->getMinGap());
-            if (laneVeh->getProgressOnRoad() < spawnProgress) {
-                requiredGap +=
-                    std::max(
-                        0.0,
-                        laneVeh->getCurrentSpeed()) *
-                    vehicle->getPoiAnimationDuration();
-            }
-            if (dist < halfLengths + requiredGap) {
-                vehicle->setSpawnLifecycleState(
-                    SpawnLifecycleState::
-                        WaitingForRoadGap);
-                return false;
-            }
-        }
+        // Road traffic does not prevent a POI vehicle from approaching its
+        // yield line. The vehicle waits outside the carriageway and performs
+        // the speed-, braking-, and TTC-aware gap check immediately before it
+        // commits to the lane. This avoids both invisible queued spawns and a
+        // gap becoming stale during the driveway animation.
 
         selectedLane = accessLane;
         if (accessSource != nullptr) {
@@ -855,25 +799,6 @@ bool TrafficSimulator::addVehicleWithFixedRoute(
     }
 }
 
-void TrafficSimulator::removeFinishedPedestrians() {
-    for (auto it = pedestrians_.begin();
-         it != pedestrians_.end();) {
-        if (*it != nullptr &&
-            (*it)->hasArrived()) {
-            if (statisticsManager) {
-                statisticsManager->
-                    markPedestrianCompleted(
-                        (*it)->getId());
-            }
-            finishedPedestrians_.push_back(
-                std::move(*it));
-            it = pedestrians_.erase(it);
-        } else {
-            ++it;
-        }
-    }
-}
-
 void TrafficSimulator::triggerEvent(std::unique_ptr<TrafficEvent> event) {
     if (eventManager) {
          eventManager->triggerEvent(std::move(event));
@@ -889,7 +814,6 @@ void TrafficSimulator::update(double dt) {
     static double trafficLightTime = 0.0;
     static double eventTime = 0.0;
     static double vehicleTime = 0.0;
-    static double pedestrianTime = 0.0;
     static double removeTime = 0.0;
     static double totalTime = 0.0;
 
@@ -926,10 +850,6 @@ void TrafficSimulator::update(double dt) {
                 auto start = std::chrono::high_resolution_clock::now();
                 for (Intersection* intersection : graph->getAllIntersections()) {
                     intersection->updateTrafficLights(step);
-                }
-                for (Crosswalk* crosswalk : graph->getAllCrosswalks()) {
-                    if (crosswalk)
-                        crosswalk->grantEligiblePedestrians();
                 }
                 auto end = std::chrono::high_resolution_clock::now();
                 trafficLightTime += std::chrono::duration<double, std::micro>(end - start).count();
@@ -989,27 +909,7 @@ void TrafficSimulator::update(double dt) {
 
         {
             auto start = std::chrono::high_resolution_clock::now();
-            for (const auto& pedestrian : pedestrians_) {
-                if (pedestrian) {
-                    pedestrian->update(step);
-
-                    if (statisticsManager) {
-                        statisticsManager->recordPedestrianTravel(
-                            pedestrian->getId(),
-                            pedestrian->getState(),
-                            step);
-                    }
-                }
-            }
-            auto end = std::chrono::high_resolution_clock::now();
-            pedestrianTime += std::chrono::duration<double, std::micro>(end - start).count();
-        }
-
-
-        {
-            auto start = std::chrono::high_resolution_clock::now();
             removeFinishedVehicles();
-            removeFinishedPedestrians();
             auto end = std::chrono::high_resolution_clock::now();
             removeTime += std::chrono::duration<double, std::micro>(end - start).count();
         }
@@ -1097,36 +997,6 @@ double TrafficSimulator::getSpeedMultiplier() const { return speedMultiplier; }
 
 const std::vector<Vehicle*>& TrafficSimulator::getVehicles() const { return vehicles; }
 const std::vector<Vehicle*>& TrafficSimulator::getFinishedVehicles() const { return finishedVehicles; }
-const std::vector<std::unique_ptr<Pedestrian>>&
-TrafficSimulator::getPedestrians() const {
-    return pedestrians_;
-}
-const std::vector<std::unique_ptr<Pedestrian>>&
-TrafficSimulator::getFinishedPedestrians() const {
-    return finishedPedestrians_;
-}
-std::size_t
-TrafficSimulator::getWaitingPedestrianCount() const {
-    return static_cast<std::size_t>(std::count_if(
-        pedestrians_.begin(),
-        pedestrians_.end(),
-        [](const auto& pedestrian) {
-            return pedestrian != nullptr &&
-                   pedestrian->getState() ==
-                       PedestrianState::WaitingToCross;
-        }));
-}
-std::size_t
-TrafficSimulator::getCrossingPedestrianCount() const {
-    return static_cast<std::size_t>(std::count_if(
-        pedestrians_.begin(),
-        pedestrians_.end(),
-        [](const auto& pedestrian) {
-            return pedestrian != nullptr &&
-                   pedestrian->getState() ==
-                       PedestrianState::Crossing;
-        }));
-}
 std::size_t TrafficSimulator::getPendingVehicleCount() const {
     return pendingVehicles.size();
 }

@@ -13,7 +13,6 @@
 #include "AppContext.h"
 #include "Intersection.h"
 #include "Road.h"
-#include "Pedestrian.h"
 #include "Vehicle.h"
 #include "simulation/StatisticsManager.h"
 #include "simulation/TrafficSimulator.h"
@@ -28,7 +27,7 @@
 namespace {
 
 constexpr float kVehicleOutlinePixels = 0.55f;
-constexpr int kPedestrianDiscSegments = 10;
+constexpr int kDiscSegments = 10;
 constexpr float kTurnSignalRadiusPixels = 1.8f;
 constexpr float kTurnSignalHaloPixels = 0.6f;
 const sf::Color kTurnSignalAmber(255, 165, 0);
@@ -153,14 +152,14 @@ void appendDisc(std::vector<sf::Vertex>& vertices,
                 sf::Color color) {
     constexpr float tau = 6.28318530718f;
     for (int segment = 0;
-         segment < kPedestrianDiscSegments;
+         segment < kDiscSegments;
          ++segment) {
         const float angleA =
             tau * static_cast<float>(segment) /
-            static_cast<float>(kPedestrianDiscSegments);
+            static_cast<float>(kDiscSegments);
         const float angleB =
             tau * static_cast<float>(segment + 1) /
-            static_cast<float>(kPedestrianDiscSegments);
+            static_cast<float>(kDiscSegments);
         vertices.emplace_back(center, color);
         vertices.emplace_back(
             center +
@@ -253,7 +252,7 @@ void drawActiveVehicles(sf::RenderWindow& window,
     const std::size_t requiredSignalVertices =
         simulator.getVehicles().size() *
         static_cast<std::size_t>(
-            kPedestrianDiscSegments * 6);
+            kDiscSegments * 6);
     if (turnSignalVertices.capacity() <
         requiredSignalVertices) {
         turnSignalVertices.reserve(
@@ -486,7 +485,8 @@ void drawParkedVehicles(sf::RenderWindow& window, const VisualizationEngine& vis
         window.draw(box);
 
         // Batch all parked vehicles into one submission. This matters late in
-        // a run, when the completed-trip list can contain all 1000 vehicles.
+        // a run, when the completed-trip list can contain thousands of
+        // vehicles from a large configured simulation.
         for (size_t i = 0; i < list.size(); ++i) {
             int col = i % cols;
             int row = i / cols;
@@ -631,107 +631,6 @@ void drawSelectedVehicleRoute(sf::RenderWindow& window,
 
 } // namespace
 
-void drawPedestrians(
-    sf::RenderTarget& target,
-    const VisualizationEngine& visualization,
-    const TrafficSimulator& simulator) {
-    static std::vector<sf::Vertex> pedestrianTriangles;
-    static std::vector<sf::Vertex> directionLines;
-    pedestrianTriangles.clear();
-    directionLines.clear();
-    const ViewportBounds viewportBounds(target.getView());
-    const std::size_t pedestrianCount =
-        simulator.getPedestrians().size();
-    const std::size_t requiredTriangleVertices =
-        pedestrianCount *
-        static_cast<std::size_t>(
-            kPedestrianDiscSegments * 6);
-    if (pedestrianTriangles.capacity() <
-        requiredTriangleVertices) {
-        pedestrianTriangles.reserve(
-            requiredTriangleVertices);
-    }
-    if (directionLines.capacity() <
-        pedestrianCount * 2u) {
-        directionLines.reserve(
-            pedestrianCount * 2u);
-    }
-
-    for (const auto& ownedPedestrian :
-         simulator.getPedestrians()) {
-        const Pedestrian* pedestrian =
-            ownedPedestrian.get();
-        if (pedestrian == nullptr ||
-            pedestrian->hasArrived()) {
-            continue;
-        }
-
-        const Pose2D pose = pedestrian->getPose();
-        const sf::Vector2f position =
-            visualization.worldToScreen(
-                pose.position.x,
-                pose.position.y);
-        constexpr float maximumPedestrianRadius = 7.0f;
-        if (!viewportBounds.containsPoint(
-                position,
-                maximumPedestrianRadius)) {
-            continue;
-        }
-        const Road* referenceRoad =
-            pedestrian->getReferenceRoad();
-        const float radius = std::clamp(
-            visualization.metresToScreenPixels(
-                0.32,
-                referenceRoad),
-            3.0f,
-            6.0f);
-        sf::Color color(70, 175, 235);
-        if (pedestrian->getState() ==
-            PedestrianState::WaitingToCross) {
-            color = sf::Color(245, 170, 45);
-        } else if (pedestrian->getState() ==
-                   PedestrianState::Crossing) {
-            color = sf::Color(65, 220, 115);
-        }
-
-        appendDisc(
-            pedestrianTriangles,
-            position,
-            radius + 1.0f,
-            sf::Color(20, 24, 28));
-        appendDisc(
-            pedestrianTriangles,
-            position,
-            radius,
-            color);
-
-        const sf::Vector2f facing(
-            static_cast<float>(
-                std::cos(pose.headingRadians)),
-            static_cast<float>(
-                -std::sin(pose.headingRadians)));
-        directionLines.emplace_back(
-            position,
-            sf::Color(25, 28, 32));
-        directionLines.emplace_back(
-            position + facing * radius,
-            sf::Color(25, 28, 32));
-    }
-
-    if (!pedestrianTriangles.empty()) {
-        target.draw(
-            pedestrianTriangles.data(),
-            pedestrianTriangles.size(),
-            sf::Triangles);
-    }
-    if (!directionLines.empty()) {
-        target.draw(
-            directionLines.data(),
-            directionLines.size(),
-            sf::Lines);
-    }
-}
-
 void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
                   std::unique_ptr<TrafficSimulator>& simulator, StatsPanel& statsPanel,
                   VehicleInspector& vehicleInspector, float dt) {
@@ -753,10 +652,6 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
         drawSelectedVehicleRoute(window, ctx.visualization, *simulator, vehicleInspector);
         drawActiveVehicles(
             window, ctx.visualization, *simulator, ctx.view);
-        drawPedestrians(
-            window,
-            ctx.visualization,
-            *simulator);
         debugConsole.drawFailedRecalcMarkers(window, simulator.get(), ctx.visualization);
         drawSelectedVehicleHighlight(window, ctx.visualization, *simulator, vehicleInspector);
         if (ctx.showParkedVehicles) {

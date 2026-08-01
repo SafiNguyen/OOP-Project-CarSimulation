@@ -33,13 +33,29 @@ inline VehicleScreenSize getVehicleVisualScreenSize(
     const VisualizationEngine& visualization) {
     VehicleScreenSize size =
         getVehicleScreenSize(vehicle, visualization);
+    if (size.lengthPixels <= 0.0f) {
+        return size;
+    }
+    const Road* road = vehicle.getCurrentRoad();
+    if (road == nullptr) {
+        return size;
+    }
+
     float minimumLength = 14.0f;
+    double visualLengthMetres = vehicle.getLength();
+    double visualWidthMetres = vehicle.getWidth();
+    double visualGapMetres = vehicle.getMinGap();
+    constexpr double CAR_VISUAL_LENGTH_METRES = 4.5;
+    constexpr double CAR_VISUAL_WIDTH_METRES = 1.8;
+    constexpr double CAR_VISUAL_GAP_METRES = 3.0;
     switch (vehicle.getVehicleKind()) {
         case VehicleKind::Bus:
             minimumLength = 20.0f;
             break;
         case VehicleKind::Motorbike:
-            minimumLength = 11.0f;
+            visualLengthMetres = CAR_VISUAL_LENGTH_METRES;
+            visualWidthMetres = CAR_VISUAL_WIDTH_METRES;
+            visualGapMetres = CAR_VISUAL_GAP_METRES;
             break;
         case VehicleKind::Emergency:
             minimumLength = 17.0f;
@@ -49,15 +65,24 @@ inline VehicleScreenSize getVehicleVisualScreenSize(
             break;
     }
 
-    // Keep the physical aspect ratio while guaranteeing that detailed
-    // top-down art remains legible on a full-map view. This is visual only;
-    // collision, following distance and lane occupancy retain real sizes.
-    const float scale =
-        size.lengthPixels > 0.0f
-            ? std::max(
-                  1.0f,
-                  minimumLength / size.lengthPixels)
-            : 1.0f;
+    size = {
+        visualization.metresToScreenPixels(
+            visualLengthMetres, road),
+        visualization.metresToScreenPixels(
+            visualWidthMetres, road)
+    };
+    constexpr double MAX_GAP_VISUALIZATION_SHARE = 0.5;
+    const float maximumLength =
+        visualization.metresToScreenPixels(
+            visualLengthMetres +
+                visualGapMetres *
+                    MAX_GAP_VISUALIZATION_SHARE,
+            road);
+    const float targetLength = std::clamp(
+        minimumLength,
+        size.lengthPixels,
+        std::max(size.lengthPixels, maximumLength));
+    const float scale = targetLength / size.lengthPixels;
     size.lengthPixels *= scale;
     size.widthPixels *= scale;
     return size;

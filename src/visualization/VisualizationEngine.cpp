@@ -443,7 +443,6 @@ void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph&
         drawIntersectionNode(target, intersection, /*tintByCongestion=*/false);
     }
 
-    drawCrosswalkStripes(target, graph);
     drawBusStops(target, graph);
     drawBusStations(target, graph);
     drawPOIs(target, graph);
@@ -478,7 +477,6 @@ void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph
         }
     }
 
-    drawCrosswalkSignals(target, graph);
     drawTrafficLights(target, graph);
 
     // Road names drawn last so they appear on top of the heatmap overlay

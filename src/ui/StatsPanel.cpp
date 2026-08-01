@@ -57,36 +57,6 @@ void StatsPanel::drawOverview(const StatisticsSummary& summary) {
         ImGui::TableNextColumn();
         statCard("##recalc_card", "ROUTE RECALCULATIONS",
                  std::to_string(summary.totalRecalculations), UiTheme::Warning);
-        ImGui::TableNextColumn();
-        statCard(
-            "##ped_active_card",
-            "ACTIVE PEDESTRIANS",
-            std::to_string(
-                summary.activePedestrians));
-        ImGui::TableNextColumn();
-        statCard(
-            "##ped_waiting_card",
-            "WAITING / CROSSING",
-            std::to_string(
-                summary.waitingPedestrians) +
-                " / " +
-                std::to_string(
-                    summary.crossingPedestrians),
-            UiTheme::Warning);
-        ImGui::TableNextColumn();
-        statCard(
-            "##ped_completed_card",
-            "PEDESTRIAN TRIPS",
-            std::to_string(
-                summary.completedPedestrianTrips),
-            UiTheme::Success);
-        ImGui::TableNextColumn();
-        metricCard(
-            "##ped_wait_card",
-            "AVG CROSSING WAIT",
-            "%.1f s",
-            summary.
-                averagePedestrianWaitSeconds);
         ImGui::EndTable();
     }
 }

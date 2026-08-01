@@ -14,6 +14,7 @@ class Graph;
 class PathFindingStrategy;
 class PointOfInterest;
 class SpawnPoint;
+enum class JunctionDecision;
 
 class Vehicle {
 public:
@@ -33,7 +34,8 @@ public:
     static constexpr double EMERGENCY_JUNCTION_CAUTION_DISTANCE = 45.0;
     static constexpr double EMERGENCY_JUNCTION_YIELD_SPEED_FACTOR = 0.25;
     static constexpr double MIN_SIGNAL_LEAD_TIME_SECONDS = 1.0;
-    static constexpr double RIGHT_ON_RED_MIN_STOP_SECONDS = 0.5;
+    static constexpr double PRIORITY_SIGNAL_LEAD_TIME_SECONDS = 0.25;
+    static constexpr double PRIORITY_LANE_CHANGE_COOLDOWN = 0.5;
     static constexpr double TURN_SIGNAL_BLINK_PERIOD_SECONDS = 1.0;
 
 protected:
@@ -48,6 +50,7 @@ protected:
 
     // POI Mid-road merging state
     bool isMergingFromPOI = false;
+    PoiMergePhase poiMergePhase_ = PoiMergePhase::None;
     bool isEnteringPOI = false;
     const PointOfInterest* mergeSourcePOI_ = nullptr;
     double mergeProgressOffset = -1.0;
@@ -89,7 +92,6 @@ protected:
     int laneChangeTargetLane_ = -1;
     TurnSignalReason laneChangeReason_ = TurnSignalReason::None;
     double laneChangeSignalElapsedSeconds_ = 0.0;
-    double rightOnRedStoppedSeconds_ = 0.0;
     double simulationTimeSeconds_ = 0.0;
     
     double recalculateTimer = 10.0 + static_cast<double>(std::rand() % 50) / 10.0; // 10-15s initial spread
@@ -115,6 +117,8 @@ public:
     virtual double getDeceleration() const;
     virtual double getMaxLateralAcceleration() const;
     virtual VehicleKind getVehicleKind() const;
+    virtual bool hasTrafficPriority() const { return false; }
+    virtual bool canTurnRightOnRed() const { return false; }
     virtual bool canChangeLanes() const;
     virtual bool allowsDynamicRerouting() const { return true; }
     virtual bool allowsUTurn() const { return true; }
@@ -140,7 +144,6 @@ public:
     virtual bool shouldPauseAt(double currentPos,
                                 double projectedPos,
                                 double& pausePos);
-    virtual bool mustStopForTrafficLight(Intersection* nextIntersection) const;
     virtual void onPauseStarted() {}
     virtual PauseUpdateResult updatePause(double availableTime);
     bool isStuckInJam(int depth = 0) const;
@@ -192,13 +195,25 @@ public:
     }
 
     bool getIsMergingFromPOI() const { return isMergingFromPOI; }
-    void setIsMergingFromPOI(bool merging) { isMergingFromPOI = merging; }
+    void setIsMergingFromPOI(bool merging) {
+        setMergingFromPOI(
+            merging,
+            mergeProgressOffset,
+            mergeLaneIndex);
+    }
     void setMergeSourcePOI(const PointOfInterest* poi) {
         mergeSourcePOI_ = poi;
     }
     
     double getPoiAnimationTimer() const { return poiAnimationTimer; }
     double getPoiAnimationDuration() const { return poiAnimationDuration; }
+    PoiMergePhase getPoiMergePhase() const {
+        return poiMergePhase_;
+    }
+    bool hasActiveMergeReservation() const {
+        return isMergingFromPOI &&
+               poiMergePhase_ == PoiMergePhase::Committed;
+    }
     void updatePoiAnimation(double dt);
 
     void setMergingFromPOI(bool merging, double offset = -1.0, int laneIdx = -1);
@@ -246,9 +261,23 @@ protected:
         return freeFlowSpeed *
                EMERGENCY_JUNCTION_YIELD_SPEED_FACTOR;
     }
+    virtual bool shouldBypassQueueBeforeJunction(
+        const LaneMapping& preferredMapping) const {
+        (void)preferredMapping;
+        return false;
+    }
     LaneMapping getJunctionEntryLaneMapping() const;
 
 private:
+    double getPoiMergeYieldPathRatio() const;
+    double getPoiMergePhaseDuration(
+        PoiMergePhase phase) const;
+    bool canCommitPoiMerge() const;
+    JunctionDecision getJunctionDecision(
+        Intersection* intersection,
+        const LaneMapping& mapping,
+        Road* outgoingRoad) const;
+    int getRedLightCurbYieldLane() const;
     bool advanceToNextRoad();
     LaneMapping getUpcomingLaneMapping() const;
     bool beginJunctionTraversal(
@@ -265,7 +294,6 @@ private:
     void clearLaneChangeIntent();
     void refreshTurnSignal();
     TurnSignal deriveUpcomingJunctionSignal() const;
-    bool isRightTurnOnRedYield() const;
     void tryLaneChange(double freeFlowSpeedHint);
     void tryYieldLaneChange(); 
 };

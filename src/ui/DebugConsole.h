@@ -44,7 +44,8 @@ public:
     // concerns (file dialog, populating the demo graph, etc). requestedPath
     // empty means "load the demo map".
     using LoadMapFn = std::function<void(const std::string& requestedPath)>;
-    using ResetSimulationFn = std::function<std::unique_ptr<TrafficSimulator>()>;
+    using ResetSimulationFn =
+        std::function<std::unique_ptr<TrafficSimulator>(int vehicleCount)>;
     using ClampViewFn = std::function<void()>;
     // Opens a native "pick a file" dialog. Returns true and fills
     // selectedPath if the user picked one; returns false (dialog
@@ -157,6 +158,11 @@ private:
     void drawAccidentPanel(std::unique_ptr<TrafficSimulator>& simulator);
     void drawAlgorithmPanel(std::unique_ptr<TrafficSimulator>& simulator);
     void drawTrafficLightPanel();
+    void drawSimulationSetupPanel(
+        std::unique_ptr<TrafficSimulator>& simulator);
+    bool createConfiguredSimulation(
+        std::unique_ptr<TrafficSimulator>& simulator,
+        std::string& errorMessage);
     PathFindingStrategy* currentStrategy();
 
     Graph& graph_;
@@ -167,9 +173,9 @@ private:
     FileDialogFn openFileDialog_;
 
     PickTarget pickTarget_ = PickTarget::NONE;
-    DrawerTab activeTab_ = DrawerTab::OVERVIEW;
-    bool drawerOpen_ = false;
-    bool drawerTabSelectionPending_ = false;
+    DrawerTab activeTab_ = DrawerTab::SIMULATION;
+    bool drawerOpen_ = true;
+    bool drawerTabSelectionPending_ = true;
     bool lastLoadFailed_ = false;
     bool loadStatusInitialized_ = false;
     float smoothedFps_ = 60.0f;
@@ -181,6 +187,15 @@ private:
     bool mapLoadPending_ = false;
     bool pendingDemoLoad_ = false;
     std::string pendingMapPath_;
+
+    // Startup is deliberately two-stage: lock the demand size, then start.
+    // Once locked, the value is reused by map reload/reset and cannot be
+    // changed for the lifetime of this application session.
+    int simulationVehicleCountInput_ = 0;
+    int lockedSimulationVehicleCount_ = 0;
+    bool simulationVehicleCountLocked_ = false;
+    bool simulationStarted_ = false;
+    std::string simulationSetupMessage_;
 
     // Task 4a: Add Road panel state
     int addRoadStartId_ = -1;

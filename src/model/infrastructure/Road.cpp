@@ -145,15 +145,24 @@ Vehicle* Road::findLeader(int laneIndex, const Vehicle* self) const {
             leader = candidate;
         }
     }
-    if (self->getIsMergingFromPOI()) {
-        for (Vehicle* candidate : mergingVehicles) {
-            if (candidate == self) continue;
-            if (candidate->getMergeLaneIndex() != laneIndex) continue;
-            const double candidateProgress = candidate->getMergeProgressOffset();
-            if ((candidateProgress > selfProgress || (candidateProgress == selfProgress && candidate->getId() < self->getId())) && candidateProgress < bestProgress) {
-                bestProgress = candidateProgress;
-                leader = candidate;
-            }
+    // A committed POI merge owns a temporary slot in this lane even though
+    // its centre is still travelling across the driveway. Exposing that slot
+    // here makes ordinary followers brake for it and makes target-lane checks
+    // reject manoeuvres through it.
+    for (Vehicle* candidate : mergingVehicles) {
+        if (candidate == nullptr || candidate == self ||
+            !candidate->hasActiveMergeReservation() ||
+            candidate->getMergeLaneIndex() != laneIndex) {
+            continue;
+        }
+        const double candidateProgress =
+            candidate->getMergeProgressOffset();
+        if ((candidateProgress > selfProgress ||
+             (candidateProgress == selfProgress &&
+              candidate->getId() < self->getId())) &&
+            candidateProgress < bestProgress) {
+            bestProgress = candidateProgress;
+            leader = candidate;
         }
     }
 
@@ -182,15 +191,20 @@ Vehicle* Road::findFollower(int laneIndex, const Vehicle* self) const {
             follower = candidate;
         }
     }
-    if (self->getIsMergingFromPOI()) {
-        for (Vehicle* candidate : mergingVehicles) {
-            if (candidate == self) continue;
-            if (candidate->getMergeLaneIndex() != laneIndex) continue;
-            const double candidateProgress = candidate->getMergeProgressOffset();
-            if ((candidateProgress < selfProgress || (candidateProgress == selfProgress && candidate->getId() > self->getId())) && candidateProgress > bestProgress) {
-                bestProgress = candidateProgress;
-                follower = candidate;
-            }
+    for (Vehicle* candidate : mergingVehicles) {
+        if (candidate == nullptr || candidate == self ||
+            !candidate->hasActiveMergeReservation() ||
+            candidate->getMergeLaneIndex() != laneIndex) {
+            continue;
+        }
+        const double candidateProgress =
+            candidate->getMergeProgressOffset();
+        if ((candidateProgress < selfProgress ||
+             (candidateProgress == selfProgress &&
+              candidate->getId() > self->getId())) &&
+            candidateProgress > bestProgress) {
+            bestProgress = candidateProgress;
+            follower = candidate;
         }
     }
 
@@ -208,6 +222,19 @@ Vehicle* Road::getFirstVehicleInLane(int laneIndex) const {
 
     for (Vehicle* candidate : lane.getVehicles()) {
         const double p = candidate->getProgressOnRoad();
+        if (p < bestProgress) {
+            bestProgress = p;
+            first = candidate;
+        }
+    }
+
+    for (Vehicle* candidate : mergingVehicles) {
+        if (candidate == nullptr ||
+            !candidate->hasActiveMergeReservation() ||
+            candidate->getMergeLaneIndex() != laneIndex) {
+            continue;
+        }
+        const double p = candidate->getMergeProgressOffset();
         if (p < bestProgress) {
             bestProgress = p;
             first = candidate;

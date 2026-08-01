@@ -4,7 +4,6 @@
 enum class PauseReason {
     None,
     TrafficLight,
-    PedestrianCrossing,
     Intersection,
     BusStop
 };
@@ -49,6 +48,17 @@ enum class SpawnLifecycleState {
     WaitingForRoadGap,
     Merging,
     Active
+};
+
+// A POI departure is deliberately split around the road-edge yield line.
+// Vehicles do not reserve traffic space while they are still on the private
+// driveway. Once committed, the reservation is visible to normal car-following
+// and lane-change queries until the vehicle becomes a regular lane occupant.
+enum class PoiMergePhase {
+    None,
+    ApproachingYieldLine,
+    WaitingForGap,
+    Committed
 };
 
 struct PauseUpdateResult {

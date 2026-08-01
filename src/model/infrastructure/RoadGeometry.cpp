@@ -5,7 +5,6 @@
 #include <limits>
 
 #include "Intersection.h"
-#include "Crosswalk.h"
 #include "Road.h"
 
 namespace RoadGeometry {
@@ -335,18 +334,35 @@ Pose2D sampleRoadAccessPath(
     return pose;
 }
 
-double stopLineProgressMetres(const Road& incomingRoad) {
-    const Intersection* intersection =
-        incomingRoad.getEnd();
-    if (intersection != nullptr) {
-        const Crosswalk* crosswalk =
-            intersection->getCrosswalkForIncomingRoad(
-                &incomingRoad);
-        if (crosswalk != nullptr) {
-            return crosswalk->
-                getStopLineProgressMetres();
-        }
+double roadAccessPathProgressAt(
+    const RoadAccessPath& path,
+    Vec2 point) {
+    const double firstLength =
+        distance(path.source, path.corner);
+    const double secondLength =
+        distance(path.corner, path.lanePose.position);
+    const double totalLength = firstLength + secondLength;
+    if (totalLength <= MIN_GEOMETRY_LENGTH) {
+        return 1.0;
     }
+
+    // Access-path landmarks after the corner (the curb and lane centre) lie
+    // on the same straight segment. Projection keeps this helper robust to
+    // small map-coordinate inaccuracies.
+    const Vec2 secondDirection = normalized(
+        path.lanePose.position - path.corner,
+        {1.0, 0.0});
+    const double projectedSecondDistance = std::clamp(
+        dot(point - path.corner, secondDirection),
+        0.0,
+        secondLength);
+    return std::clamp(
+        (firstLength + projectedSecondDistance) / totalLength,
+        0.0,
+        1.0);
+}
+
+double stopLineProgressMetres(const Road& incomingRoad) {
     return std::max(
         0.0,
         incomingRoad.getDistance() - STOP_LINE_SETBACK_METRES);

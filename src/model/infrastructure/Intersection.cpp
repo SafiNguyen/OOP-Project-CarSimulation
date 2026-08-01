@@ -1,5 +1,4 @@
 #include "Intersection.h"
-#include "Crosswalk.h"
 #include "Road.h" 
 #include "TrafficLight.h"
 #include "LaneMapping.h"
@@ -228,7 +227,6 @@ void Intersection::removeIncomingRoad(Road* road) {
     incomingRoads.erase(std::remove(incomingRoads.begin(),
                         incomingRoads.end(), road), incomingRoads.end());
     trafficLights.erase(road->getId());
-    explicitSignalPlan_ = false;
     rebuildPhaseGroups();
     invalidateConnectorCache();
 }
@@ -255,7 +253,6 @@ void Intersection::registerIncomingLight(Road* road) {
         greenDurationSeconds_ + yellowDurationSeconds_ +
             allRedDurationSeconds_,
         LightState::RED);
-    explicitSignalPlan_ = false;
     rebuildPhaseGroups();
 }
 
@@ -274,10 +271,9 @@ bool Intersection::configureTrafficSignals(
     }
     if (!std::isfinite(greenDuration) || greenDuration <= 0.0 ||
         !std::isfinite(yellowDuration) || yellowDuration <= 0.0 ||
-        !std::isfinite(allRedDuration) || allRedDuration < 0.0) {
+        !std::isfinite(allRedDuration) || allRedDuration <= 0.0) {
         return fail(
-            "green/yellow durations must be positive and all-red "
-            "duration must be non-negative.");
+            "green, yellow and all-red durations must be positive.");
     }
 
     std::unordered_set<int> configuredRoadIds;
@@ -316,14 +312,10 @@ bool Intersection::configureTrafficSignals(
 
     greenDurationSeconds_ = greenDuration;
     yellowDurationSeconds_ = yellowDuration;
-    allRedDurationSeconds_ =
-        phases.size() > 1 ? allRedDuration : 0.0;
+    allRedDurationSeconds_ = allRedDuration;
     phaseGroups = phases;
     trafficLights.clear();
-    const double maximumRedDuration =
-        static_cast<double>(phaseGroups.size()) *
-        (greenDurationSeconds_ + yellowDurationSeconds_ +
-         allRedDurationSeconds_);
+    const double redDuration = nominalRedDuration();
     for (const auto& phase : phaseGroups) {
         for (Road* road : phase) {
             trafficLights.emplace(
@@ -332,11 +324,10 @@ bool Intersection::configureTrafficSignals(
                     road->getId(),
                     greenDurationSeconds_,
                     yellowDurationSeconds_,
-                    maximumRedDuration,
+                    redDuration,
                     LightState::RED));
         }
     }
-    explicitSignalPlan_ = true;
     resetSignalCycle();
     return true;
 }
@@ -356,10 +347,9 @@ bool Intersection::configureTrafficSignalsAutomatically(
     }
     if (!std::isfinite(greenDuration) || greenDuration <= 0.0 ||
         !std::isfinite(yellowDuration) || yellowDuration <= 0.0 ||
-        !std::isfinite(allRedDuration) || allRedDuration < 0.0) {
+        !std::isfinite(allRedDuration) || allRedDuration <= 0.0) {
         return fail(
-            "green/yellow durations must be positive and all-red "
-            "duration must be non-negative.");
+            "green, yellow and all-red durations must be positive.");
     }
 
     greenDurationSeconds_ = greenDuration;
@@ -379,7 +369,6 @@ bool Intersection::configureTrafficSignalsAutomatically(
                 LightState::RED));
     }
 
-    explicitSignalPlan_ = false;
     rebuildPhaseGroups();
     if (phaseGroups.empty()) {
         trafficLights.clear();
@@ -387,21 +376,12 @@ bool Intersection::configureTrafficSignalsAutomatically(
             "automatic signal plan could not form a phase group.");
     }
 
-    const double maximumRedDuration =
-        static_cast<double>(phaseGroups.size()) *
-        (greenDurationSeconds_ + yellowDurationSeconds_ +
-         allRedDurationSeconds_);
-    for (auto& entry : trafficLights) {
-        entry.second->setDurations(
-            greenDurationSeconds_,
-            yellowDurationSeconds_,
-            maximumRedDuration);
-    }
     synchronizeSignalHeads();
     return true;
 }
 
-TrafficLight* Intersection::getLightForIncomingRoad(int roadId) const {
+TrafficLight* Intersection::getMutableLightForIncomingRoad(
+    int roadId) {
     auto it = trafficLights.find(roadId);
     if (it != trafficLights.end()) {
         return it->second.get();
@@ -409,64 +389,23 @@ TrafficLight* Intersection::getLightForIncomingRoad(int roadId) const {
     return nullptr;
 }
  
-TrafficLight* Intersection::getLightForIncomingRoad(const Road* road) const {
-    if (road == nullptr) return nullptr;
-    return getLightForIncomingRoad(road->getId());
+const TrafficLight* Intersection::getLightForIncomingRoad(
+    int roadId) const {
+    auto it = trafficLights.find(roadId);
+    return it != trafficLights.end()
+        ? it->second.get()
+        : nullptr;
 }
 
-void Intersection::registerCrosswalk(Crosswalk* crosswalk) {
-    if (crosswalk == nullptr ||
-        crosswalk->getIntersection() != this ||
-        crosswalk->getIncomingRoad() == nullptr ||
-        crosswalk->getIncomingRoad()->getEnd() != this ||
-        std::find(
-            crosswalks_.begin(),
-            crosswalks_.end(),
-            crosswalk) != crosswalks_.end()) {
-        return;
-    }
-    crosswalks_.push_back(crosswalk);
-}
-
-void Intersection::unregisterCrosswalk(
-    Crosswalk* crosswalk) {
-    if (crosswalk == nullptr) return;
-    crosswalk->synchronizeSignalState(
-        PedestrianSignalState::DontWalk);
-    crosswalks_.erase(
-        std::remove(
-            crosswalks_.begin(),
-            crosswalks_.end(),
-            crosswalk),
-        crosswalks_.end());
-    pedestrianPhasePending_ =
-        hasEligiblePedestrianRequest();
-}
-
-const std::vector<Crosswalk*>&
-Intersection::getCrosswalks() const {
-    return crosswalks_;
-}
-
-Crosswalk* Intersection::getCrosswalkForIncomingRoad(
+const TrafficLight* Intersection::getLightForIncomingRoad(
     const Road* road) const {
     if (road == nullptr) return nullptr;
-    const auto found = std::find_if(
-        crosswalks_.begin(),
-        crosswalks_.end(),
-        [road](const Crosswalk* crosswalk) {
-            return crosswalk != nullptr &&
-                   crosswalk->getIncomingRoad() == road;
-        });
-    return found != crosswalks_.end()
-        ? *found
-        : nullptr;
+    return getLightForIncomingRoad(road->getId());
 }
 
 void Intersection::unregisterIncomingLight(Road* road) {
     if (road == nullptr) return;
     trafficLights.erase(road->getId());
-    explicitSignalPlan_ = false;
     rebuildPhaseGroups();
 }
 
@@ -527,10 +466,13 @@ void Intersection::rebuildPhaseGroups() {
 
         phaseGroups.push_back(std::move(group));
     }
-    allRedDurationSeconds_ =
-        phaseGroups.size() > 1
-            ? std::max(0.0, allRedDurationSeconds_)
-            : 0.0;
+    const double redDuration = nominalRedDuration();
+    for (auto& entry : trafficLights) {
+        entry.second->setDurations(
+            greenDurationSeconds_,
+            yellowDurationSeconds_,
+            redDuration);
+    }
     resetSignalCycle();
 }
 
@@ -539,159 +481,24 @@ void Intersection::resetSignalCycle() {
     signalStage_ = SignalStage::GREEN;
     stageRemainingSeconds_ =
         phaseGroups.empty() ? 0.0 : greenDurationSeconds_;
-    preemptedRoad_ = nullptr;
-    preemptionHoldSeconds_ = 0.0;
-    extendedGreenForPreemption_ = false;
     emergencyApproach_ = {};
     emergencyPriorityRemainingSeconds_ = 0.0;
-    pedestrianPhasePending_ = false;
-    for (Crosswalk* crosswalk : crosswalks_) {
-        if (crosswalk != nullptr) {
-            crosswalk->synchronizeSignalState(
-                PedestrianSignalState::DontWalk);
-        }
-    }
     synchronizeSignalHeads();
 }
 
-bool Intersection::hasEligiblePedestrianRequest() const {
-    return std::any_of(
-        crosswalks_.begin(),
-        crosswalks_.end(),
-        [](const Crosswalk* crosswalk) {
-            return crosswalk != nullptr &&
-                   crosswalk->hasEligibleRequest();
-        });
-}
-
-bool Intersection::hasOccupiedCrosswalk() const {
-    return std::any_of(
-        crosswalks_.begin(),
-        crosswalks_.end(),
-        [](const Crosswalk* crosswalk) {
-            return crosswalk != nullptr &&
-                   crosswalk->isOccupied();
-        });
-}
-
-bool Intersection::hasIntersectionOccupants() const {
-    return !occupants_.empty();
-}
-
-double Intersection::pedestrianWalkDuration() const {
-    double duration = 0.0;
-    for (const Crosswalk* crosswalk : crosswalks_) {
-        if (crosswalk != nullptr &&
-            (crosswalk->getSignalState() ==
-                 PedestrianSignalState::Walk ||
-             crosswalk->hasEligibleRequest())) {
-            duration = std::max(
-                duration,
-                crosswalk->getTiming().
-                    walkDurationSeconds);
-        }
-    }
-    return duration;
-}
-
-double Intersection::pedestrianClearanceDuration() const {
-    double duration = 0.0;
-    for (const Crosswalk* crosswalk : crosswalks_) {
-        if (crosswalk != nullptr &&
-            (crosswalk->getSignalState() ==
-                 PedestrianSignalState::Walk ||
-             crosswalk->getSignalState() ==
-                 PedestrianSignalState::Clearance)) {
-            duration = std::max(
-                duration,
-                crosswalk->
-                    getClearanceDurationSeconds());
-        }
-    }
-    return duration;
-}
-
-void Intersection::beginPedestrianWalk() {
-    for (Crosswalk* crosswalk : crosswalks_) {
-        if (crosswalk == nullptr) continue;
-        crosswalk->synchronizeSignalState(
-            crosswalk->hasEligibleRequest()
-                ? PedestrianSignalState::Walk
-                : PedestrianSignalState::DontWalk);
-    }
-    signalStage_ = SignalStage::PEDESTRIAN_WALK;
-    stageRemainingSeconds_ =
-        std::max(0.01, pedestrianWalkDuration());
-    pedestrianPhasePending_ = false;
-}
-
-void Intersection::beginPedestrianClearance() {
-    for (Crosswalk* crosswalk : crosswalks_) {
-        if (crosswalk != nullptr &&
-            crosswalk->getSignalState() ==
-                PedestrianSignalState::Walk) {
-            crosswalk->synchronizeSignalState(
-                PedestrianSignalState::Clearance);
-        }
-    }
-    signalStage_ =
-        SignalStage::PEDESTRIAN_CLEARANCE;
-    stageRemainingSeconds_ = std::max(
-        0.0,
-        pedestrianClearanceDuration());
-}
-
-void Intersection::endPedestrianPhase() {
-    for (Crosswalk* crosswalk : crosswalks_) {
-        if (crosswalk != nullptr) {
-            crosswalk->synchronizeSignalState(
-                PedestrianSignalState::DontWalk);
-        }
-    }
-}
-
-std::size_t Intersection::phaseIndexForRoad(
-    const Road* road) const {
-    if (road == nullptr) return phaseGroups.size();
-    for (std::size_t index = 0;
-         index < phaseGroups.size();
-         ++index) {
-        if (std::find(
-                phaseGroups[index].begin(),
-                phaseGroups[index].end(),
-                road) != phaseGroups[index].end()) {
-            return index;
-        }
-    }
-    return phaseGroups.size();
+double Intersection::nominalRedDuration() const {
+    if (phaseGroups.empty()) return allRedDurationSeconds_;
+    const double otherPhaseCount =
+        static_cast<double>(phaseGroups.size() - 1u);
+    return static_cast<double>(phaseGroups.size()) *
+               allRedDurationSeconds_ +
+           otherPhaseCount *
+               (greenDurationSeconds_ + yellowDurationSeconds_);
 }
 
 std::size_t Intersection::nextScheduledPhase() const {
     if (phaseGroups.empty()) return 0;
-    const std::size_t preempted =
-        phaseIndexForRoad(preemptedRoad_);
-    if (preempted < phaseGroups.size()) {
-        return preempted;
-    }
     return (activePhaseGroup + 1) % phaseGroups.size();
-}
-
-bool Intersection::hasConflictingReservationForPhase(
-    std::size_t phaseIndex) const {
-    if (phaseIndex >= phaseGroups.size()) return true;
-    for (const auto& entry : occupants_) {
-        const Road* occupiedFrom = entry.second.fromRoad;
-        if (occupiedFrom == nullptr) return true;
-        // Roads without a traffic light are not part of any phase group,
-        // so they should not block the signal cycle.
-        if (getLightForIncomingRoad(occupiedFrom) == nullptr) {
-            continue;
-        }
-        if (phaseIndexForRoad(occupiedFrom) != phaseIndex) {
-            return true;
-        }
-    }
-    return false;
 }
 
 void Intersection::synchronizeSignalHeads() {
@@ -713,14 +520,6 @@ void Intersection::synchronizeSignalHeads() {
                         allRedDurationSeconds_;
                     break;
                 case SignalStage::ALL_RED:
-                    remaining = stageRemainingSeconds_;
-                    break;
-                case SignalStage::PEDESTRIAN_WALK:
-                    remaining =
-                        stageRemainingSeconds_ +
-                        pedestrianClearanceDuration();
-                    break;
-                case SignalStage::PEDESTRIAN_CLEARANCE:
                     remaining = stageRemainingSeconds_;
                     break;
             }
@@ -749,16 +548,10 @@ void Intersection::synchronizeSignalHeads() {
                    signalStage_ == SignalStage::YELLOW) {
             state = LightState::YELLOW;
             remaining = stageRemainingSeconds_;
-        } else if (phaseIndex == activePhaseGroup &&
-                   signalStage_ == SignalStage::ALL_RED) {
-            // When stuck in ALL_RED (e.g. waiting for a conflicting
-            // reservation to clear), show the actual retry countdown
-            // instead of the full cycle time until the next green.
-            state = LightState::RED;
-            remaining = stageRemainingSeconds_;
         }
         for (Road* road : phaseGroups[phaseIndex]) {
-            TrafficLight* light = getLightForIncomingRoad(road);
+            TrafficLight* light =
+                getMutableLightForIncomingRoad(road->getId());
             if (light != nullptr) {
                 light->synchronize(state, remaining);
             }
@@ -788,58 +581,6 @@ void Intersection::updateTrafficLights(double dt) {
         return;
     }
 
-    // Stuck detection: if the signal stays in the same stage for too long
-    // without the countdown changing, force-advance to the next stage.
-    constexpr double STUCK_TIMEOUT_SECONDS = 10.0;
-    if (signalStage_ == stuckLastStage_ &&
-        std::fabs(stageRemainingSeconds_ - stuckLastRemaining_) < 1e-6) {
-        stuckTimer_ += dt;
-        if (stuckTimer_ >= STUCK_TIMEOUT_SECONDS) {
-            std::cout << "[TL] Intersection " << id
-                      << " FORCE-ADVANCE from stage="
-                      << static_cast<int>(signalStage_)
-                      << " remaining=" << stageRemainingSeconds_
-                      << " (stuck " << stuckTimer_ << "s)"
-                      << std::endl;
-            stageRemainingSeconds_ = 0.0;
-            stuckTimer_ = 0.0;
-            if (signalStage_ ==
-                    SignalStage::PEDESTRIAN_CLEARANCE) {
-                endPedestrianPhase();
-                activePhaseGroup = nextScheduledPhase();
-                signalStage_ = SignalStage::GREEN;
-                stageRemainingSeconds_ =
-                    std::max(
-                        greenDurationSeconds_,
-                        preemptionHoldSeconds_);
-                preemptedRoad_ = nullptr;
-                preemptionHoldSeconds_ = 0.0;
-                extendedGreenForPreemption_ = false;
-            }
-        }
-    } else {
-        stuckLastStage_ = signalStage_;
-        stuckLastRemaining_ = stageRemainingSeconds_;
-        stuckTimer_ = 0.0;
-    }
-
-    if (signalStage_ !=
-            SignalStage::PEDESTRIAN_WALK &&
-        signalStage_ !=
-            SignalStage::PEDESTRIAN_CLEARANCE &&
-        hasEligiblePedestrianRequest()) {
-        const bool newlyPending =
-            !pedestrianPhasePending_;
-        pedestrianPhasePending_ = true;
-        if (newlyPending &&
-            signalStage_ == SignalStage::ALL_RED &&
-            !hasActiveEmergencyPriority()) {
-            stageRemainingSeconds_ = std::max(
-                stageRemainingSeconds_,
-                1.5);
-        }
-    }
-
     double remainingDt = dt;
     constexpr double epsilon = 1e-9;
     while (remainingDt > epsilon) {
@@ -856,55 +597,17 @@ void Intersection::updateTrafficLights(double dt) {
 
         if (signalStage_ == SignalStage::GREEN) {
             signalStage_ = SignalStage::YELLOW;
-            extendedGreenForPreemption_ = false;
             stageRemainingSeconds_ =
                 yellowDurationSeconds_;
         } else if (signalStage_ == SignalStage::YELLOW) {
             signalStage_ = SignalStage::ALL_RED;
-            stageRemainingSeconds_ =
-                pedestrianPhasePending_ &&
-                        !hasActiveEmergencyPriority()
-                    ? std::max(
-                          allRedDurationSeconds_,
-                          1.5)
-                    : allRedDurationSeconds_;
-        } else if (signalStage_ == SignalStage::ALL_RED) {
-            if (pedestrianPhasePending_ &&
-                !hasActiveEmergencyPriority()) {
-                beginPedestrianWalk();
-                continue;
-            }
-            const std::size_t nextPhase =
-                nextScheduledPhase();
-            activePhaseGroup = nextPhase;
-            signalStage_ = SignalStage::GREEN;
-            stageRemainingSeconds_ =
-                std::max(
-                    greenDurationSeconds_,
-                    preemptionHoldSeconds_);
-            preemptedRoad_ = nullptr;
-            preemptionHoldSeconds_ = 0.0;
-        } else if (
-            signalStage_ ==
-            SignalStage::PEDESTRIAN_WALK) {
-            beginPedestrianClearance();
+            stageRemainingSeconds_ = allRedDurationSeconds_;
         } else {
-            if (hasOccupiedCrosswalk()) {
-                // Retry clearance periodically instead of freezing at 0.
-                stageRemainingSeconds_ = 0.25;
-                break;
-            }
-            endPedestrianPhase();
             const std::size_t nextPhase =
                 nextScheduledPhase();
             activePhaseGroup = nextPhase;
             signalStage_ = SignalStage::GREEN;
-            stageRemainingSeconds_ =
-                std::max(
-                    greenDurationSeconds_,
-                    preemptionHoldSeconds_);
-            preemptedRoad_ = nullptr;
-            preemptionHoldSeconds_ = 0.0;
+            stageRemainingSeconds_ = greenDurationSeconds_;
         }
     }
     synchronizeSignalHeads();
@@ -913,9 +616,6 @@ void Intersection::updateTrafficLights(double dt) {
 void Intersection::clearEmergencyPriority() {
     emergencyApproach_ = {};
     emergencyPriorityRemainingSeconds_ = 0.0;
-    preemptedRoad_ = nullptr;
-    preemptionHoldSeconds_ = 0.0;
-    extendedGreenForPreemption_ = false;
 }
 
 void Intersection::updateEmergencyPriority(double dt) {
@@ -943,33 +643,10 @@ bool Intersection::isPrioritizedEmergencyVehicle(
     const Road* incomingRoad) const {
     return hasActiveEmergencyPriority() &&
            emergencyApproach_.vehicleId == vehicleId &&
-           emergencyApproach_.incomingRoad == incomingRoad;
+           emergencyApproach_.path.incomingRoad == incomingRoad;
 }
 
-const EmergencyApproach*
-Intersection::getEmergencyApproach() const {
-    return hasActiveEmergencyPriority()
-        ? &emergencyApproach_
-        : nullptr;
-}
-
-bool Intersection::isEmergencyPathClear(
-    int vehicleId) const {
-    if (!hasActiveEmergencyPriority() ||
-        emergencyApproach_.vehicleId != vehicleId) {
-        return false;
-    }
-    return std::all_of(
-        crosswalks_.begin(),
-        crosswalks_.end(),
-        [this](const Crosswalk* crosswalk) {
-            return crosswalk == nullptr ||
-                   crosswalk->isEmergencyPathClear(
-                       emergencyApproach_);
-        });
-}
-
-void Intersection::requestEmergencyPreemption(
+void Intersection::requestEmergencyPriority(
     int vehicleId,
     const Road* incomingRoad,
     int incomingLane,
@@ -1000,77 +677,49 @@ void Intersection::requestEmergencyPreemption(
         outgoingLane < outgoingRoad->getLaneCount();
     emergencyApproach_ = {
         vehicleId,
-        incomingRoad,
-        incomingLane,
-        validOutgoing ? outgoingRoad : nullptr,
-        validOutgoing ? outgoingLane : -1,
-        vehicleWidthMetres
+        {
+            incomingRoad,
+            incomingLane,
+            validOutgoing ? outgoingRoad : nullptr,
+            validOutgoing ? outgoingLane : -1,
+            vehicleWidthMetres
+        }
     };
     emergencyPriorityRemainingSeconds_ =
         std::max(
             emergencyPriorityRemainingSeconds_,
             holdDuration);
-
-    if (getLightForIncomingRoad(incomingRoad) == nullptr) {
-        return;
-    }
-
-    const std::size_t requestedPhase =
-        phaseIndexForRoad(incomingRoad);
-    if (requestedPhase >= phaseGroups.size()) return;
-
-    preemptionHoldSeconds_ =
-        std::max(preemptionHoldSeconds_, holdDuration);
-    if (requestedPhase == activePhaseGroup &&
-        signalStage_ == SignalStage::GREEN) {
-        if (!extendedGreenForPreemption_) {
-            stageRemainingSeconds_ =
-                std::max(stageRemainingSeconds_, holdDuration);
-            extendedGreenForPreemption_ = true;
-        }
-        preemptedRoad_ = nullptr;
-        synchronizeSignalHeads();
-        return;
-    }
-
-    preemptedRoad_ = incomingRoad;
-    if (signalStage_ == SignalStage::GREEN) {
-        signalStage_ = SignalStage::YELLOW;
-        stageRemainingSeconds_ = yellowDurationSeconds_;
-    }
-    synchronizeSignalHeads();
+    // Emergency priority affects right-of-way and junction reservations, not
+    // the fixed signal clock.
 }
 
-bool Intersection::mustStopForRoad(const Road *road) const{
-    TrafficLight* light = getLightForIncomingRoad(road);
-    //không có đèn -> mặc định ko bắt dừng
+bool Intersection::mustStopForRoad(const Road* road) const {
+    const TrafficLight* light = getLightForIncomingRoad(road);
+    // Unsignalized approaches are not controlled by this signal plan.
     return (light != nullptr) && light->mustStop();
 }
 
 JunctionDecision Intersection::getMovementDecision(
     const Road* incomingRoad,
+    int incomingLane,
     const Road* outgoingRoad,
     MovementType movement) const {
     if (incomingRoad == nullptr || outgoingRoad == nullptr ||
         incomingRoad->getEnd() != this ||
-        outgoingRoad->getStart() != this) {
+        outgoingRoad->getStart() != this ||
+        incomingLane < 0 ||
+        incomingLane >= incomingRoad->getLaneCount()) {
         return JunctionDecision::Stop;
     }
-    if (!mustStopForRoad(incomingRoad)) {
+    const TrafficLight* light =
+        getLightForIncomingRoad(incomingRoad);
+    if (light == nullptr || light->getState() == LightState::GREEN) {
         return JunctionDecision::Proceed;
     }
     if (!allowRightTurnOnRed_ ||
+        light->getState() != LightState::RED ||
         movement != MovementType::Right ||
-        signalStage_ == SignalStage::PEDESTRIAN_WALK ||
-        signalStage_ == SignalStage::PEDESTRIAN_CLEARANCE ||
-        std::any_of(
-            crosswalks_.begin(),
-            crosswalks_.end(),
-            [](const Crosswalk* crosswalk) {
-                return crosswalk != nullptr &&
-                       crosswalk->getSignalState() !=
-                           PedestrianSignalState::DontWalk;
-            })) {
+        !incomingRoad->isCurbLane(incomingLane)) {
         return JunctionDecision::Stop;
     }
     return JunctionDecision::Yield;
@@ -1233,20 +882,8 @@ bool Intersection::canEnter(int vehicleId, const Road* fromRoad) const {
             vehicleId, fromRoad);
     if (hasActiveEmergencyPriority() &&
         !prioritizedEmergency &&
-        fromRoad != emergencyApproach_.incomingRoad) {
+        fromRoad != emergencyApproach_.path.incomingRoad) {
         return false;
-    }
-    if (prioritizedEmergency &&
-        !isEmergencyPathClear(vehicleId)) {
-        return false;
-    }
-    if (signalStage_ ==
-            SignalStage::PEDESTRIAN_WALK ||
-        signalStage_ ==
-            SignalStage::PEDESTRIAN_CLEARANCE) {
-        if (!prioritizedEmergency) {
-            return false;
-        }
     }
     for (const auto& occupant : occupants_) {
         if (!areRoadsInSamePhase(
@@ -1263,7 +900,11 @@ bool Intersection::canEnterMovement(
     double requiredGapMetres,
     double vehicleLengthMetres,
     double vehicleWidthMetres) const {
-    if (connector == nullptr || !canEnter(vehicleId, connector->getIncomingRoad())) {
+    if (connector == nullptr) {
+        return false;
+    }
+    const Road* incomingRoad = connector->getIncomingRoad();
+    if (!canEnter(vehicleId, incomingRoad)) {
         return false;
     }
 
@@ -1366,7 +1007,8 @@ bool Intersection::canEnterMovement(
                     if (candidateEntryId < path.entryId) {
                         continue; // Candidate entered first, ignore overlap
                     }
-                    return false; // Paths overlap, must yield
+                    return cacheGeometryResult(
+                        false); // Paths overlap, must yield
                 }
             }
         }
@@ -1383,6 +1025,7 @@ bool Intersection::canEnterYieldingMovement(
     if (connector == nullptr ||
         getMovementDecision(
             connector->getIncomingRoad(),
+            connector->getIncomingLane(),
             connector->getOutgoingRoad(),
             connector->getMovementType()) !=
             JunctionDecision::Yield ||
@@ -1407,7 +1050,7 @@ bool Intersection::tryEnter(int vehicleId, const Road* fromRoad) {
     }
     occupants_.emplace(
         vehicleId,
-    Reservation{fromRoad, nullptr, 0.0, 4.5, 1.8, ++nextEntryId_});
+        Reservation{fromRoad, nullptr, 0.0, 4.5, 1.8, ++nextEntryId_});
     markReservationStateChanged();
     return true;
 }
@@ -1526,8 +1169,18 @@ double Intersection::limitTraversalAdvance(
     }
 
     const double metricScale =
-    RoadGeometry::metresPerWorldUnit(*this);
-    std::vector<OrientedVehicleBounds> occupantBounds;
+        RoadGeometry::metresPerWorldUnit(*this);
+    uint64_t candidateEntryId = std::numeric_limits<uint64_t>::max();
+    auto candIt = occupants_.find(vehicleId);
+    if (candIt != occupants_.end()) {
+        candidateEntryId = candIt->second.entryId;
+    }
+
+    struct OccupantBounds {
+        OrientedVehicleBounds bounds;
+        uint64_t entryId = 0;
+    };
+    std::vector<OccupantBounds> occupantBounds;
     occupantBounds.reserve(occupants_.size() - 1);
     for (const auto& entry : occupants_) {
         if (entry.first == vehicleId) continue;
@@ -1535,13 +1188,15 @@ double Intersection::limitTraversalAdvance(
         if (reservation.connector == nullptr) {
             return 0.0;
         }
-        occupantBounds.push_back(makeVehicleBounds(
-            reservation.connector->sampleByDistance(
-                reservation.progressMetres),
-            metricScale,
-            reservation.vehicleLengthMetres,
-            reservation.vehicleWidthMetres,
-            clearanceMetres));
+        occupantBounds.push_back(OccupantBounds{
+            makeVehicleBounds(
+                reservation.connector->sampleByDistance(
+                    reservation.progressMetres),
+                metricScale,
+                reservation.vehicleLengthMetres,
+                reservation.vehicleWidthMetres,
+                clearanceMetres),
+            reservation.entryId});
     }
 
     const auto isSafeAt = [&](double progressMetres) {
@@ -1552,8 +1207,11 @@ double Intersection::limitTraversalAdvance(
                 vehicleLengthMetres,
                 vehicleWidthMetres,
                 clearanceMetres);
-        for (const OrientedVehicleBounds& other : occupantBounds) {
-            if (boundsOverlap(candidate, other)) {
+        for (const OccupantBounds& other : occupantBounds) {
+            if (boundsOverlap(candidate, other.bounds)) {
+                if (candidateEntryId < other.entryId) {
+                    continue; // Candidate entered first, ignore overlap
+                }
                 return false;
             }
         }

@@ -24,7 +24,6 @@
 #include "Destination.h"
 #include "BusStop.h"
 #include "BusService.h"
-#include "Crosswalk.h"
 #include "common/Units.h"
 
 using nlohmann::json;
@@ -618,11 +617,11 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 				!std::isfinite(yellowDuration) ||
 				yellowDuration <= 0.0 ||
 				!std::isfinite(allRedDuration) ||
-				allRedDuration < 0.0) {
+				allRedDuration <= 0.0) {
 				if (error) {
 					*error = signalContext +
-						": greenDuration and yellowDuration must be "
-						"positive; allRedDuration must be non-negative.";
+						": greenDuration, yellowDuration and "
+						"allRedDuration must be positive.";
 				}
 				return false;
 			}
@@ -711,200 +710,6 @@ bool loadGraphFromJsonString(const std::string& jsonText, Graph& graph, std::str
 					&planError)) {
 				if (error) {
 					*error = signalContext + ": " + planError;
-				}
-				return false;
-			}
-		}
-	}
-
-	// --- Parse signalized pedestrian crossings (optional) ---
-	if (root.contains("crosswalks")) {
-		if (!root.at("crosswalks").is_array()) {
-			if (error) {
-				*error =
-					"Invalid 'crosswalks': expected an array.";
-			}
-			return false;
-		}
-
-		std::unordered_set<int> crosswalkIds;
-		const auto& items = root.at("crosswalks");
-		for (std::size_t index = 0;
-			 index < items.size();
-			 ++index) {
-			const auto& item = items.at(index);
-			const std::string context =
-				"Crosswalk at index " +
-				std::to_string(index);
-			if (!item.is_object()) {
-				if (error) {
-					*error = context +
-						": expected a JSON object.";
-				}
-				return false;
-			}
-
-			int crosswalkId = 0;
-			int intersectionId = 0;
-			int incomingRoadId = 0;
-			bool enabled = true;
-			double width =
-				Crosswalk::DEFAULT_WIDTH_METRES;
-			CrosswalkTiming timing;
-			std::string localError;
-			if (!getInt(
-					item, "id", crosswalkId, localError) ||
-				!getInt(
-					item,
-					"intersectionId",
-					intersectionId,
-					localError) ||
-				!getInt(
-					item,
-					"incomingRoadId",
-					incomingRoadId,
-					localError) ||
-				!getBoolOptional(
-					item,
-					"enabled",
-					enabled,
-					localError) ||
-				!getDoubleOptional(
-					item, "width", width, localError) ||
-				!getDoubleOptional(
-					item,
-					"minimumWait",
-					timing.minimumWaitSeconds,
-					localError) ||
-				!getDoubleOptional(
-					item,
-					"walkDuration",
-					timing.walkDurationSeconds,
-					localError) ||
-				!getDoubleOptional(
-					item,
-					"designWalkingSpeed",
-					timing.
-						designWalkingSpeedMetresPerSecond,
-					localError) ||
-				!getDoubleOptional(
-					item,
-					"clearanceBuffer",
-					timing.clearanceBufferSeconds,
-					localError)) {
-				if (error) {
-					*error = context + ": " + localError;
-				}
-				return false;
-			}
-
-			const std::string crosswalkContext =
-				"Crosswalk " +
-				std::to_string(crosswalkId) +
-				" at index " +
-				std::to_string(index);
-			if (!crosswalkIds.insert(
-					crosswalkId).second) {
-				if (error) {
-					*error = crosswalkContext +
-						": duplicate crosswalk id.";
-				}
-				return false;
-			}
-			if (!enabled) continue;
-
-			Intersection* intersection =
-				graph.getIntersection(intersectionId);
-			Road* incomingRoad =
-				graph.getRoad(incomingRoadId);
-			if (intersection == nullptr) {
-				if (error) {
-					*error = crosswalkContext +
-						": intersectionId " +
-						std::to_string(intersectionId) +
-						" does not exist.";
-				}
-				return false;
-			}
-			if (incomingRoad == nullptr) {
-				if (error) {
-					*error = crosswalkContext +
-						": incomingRoadId " +
-						std::to_string(incomingRoadId) +
-						" does not exist.";
-				}
-				return false;
-			}
-			if (incomingRoad->getEnd() != intersection) {
-				if (error) {
-					*error = crosswalkContext +
-						": incoming road does not end at "
-						"the configured intersection.";
-				}
-				return false;
-			}
-			if (!intersection->hasTrafficLights()) {
-				if (error) {
-					*error = crosswalkContext +
-						": intersection must have a traffic "
-						"signal plan.";
-				}
-				return false;
-			}
-
-			const bool validTiming =
-				std::isfinite(
-					timing.minimumWaitSeconds) &&
-				timing.minimumWaitSeconds >= 0.0 &&
-				std::isfinite(
-					timing.walkDurationSeconds) &&
-				timing.walkDurationSeconds > 0.0 &&
-				std::isfinite(
-					timing.
-						designWalkingSpeedMetresPerSecond) &&
-				timing.
-					designWalkingSpeedMetresPerSecond >
-					0.0 &&
-				std::isfinite(
-					timing.clearanceBufferSeconds) &&
-				timing.clearanceBufferSeconds >= 0.0;
-			if (!std::isfinite(width) ||
-				width <= 0.0 ||
-				!validTiming) {
-				if (error) {
-					*error = crosswalkContext +
-						": width, walkDuration and "
-						"designWalkingSpeed must be positive; "
-						"minimumWait and clearanceBuffer must "
-						"be non-negative.";
-				}
-				return false;
-			}
-			if (incomingRoad->getDistance() <=
-				width +
-					Crosswalk::JUNCTION_EDGE_GAP_METRES +
-					Crosswalk::STOP_LINE_GAP_METRES) {
-				if (error) {
-					*error = crosswalkContext +
-						": incoming road is too short for "
-						"the crossing and upstream stop line.";
-				}
-				return false;
-			}
-
-			auto crosswalk =
-				std::make_unique<Crosswalk>(
-					crosswalkId,
-					intersection,
-					incomingRoad,
-					width,
-					timing);
-			if (!graph.addCrosswalk(
-					std::move(crosswalk))) {
-				if (error) {
-					*error = crosswalkContext +
-						": duplicate physical approach or "
-						"invalid graph ownership.";
 				}
 				return false;
 			}
