@@ -246,6 +246,33 @@ void drawSevenSegmentNumber(
 
 } // namespace
 
+std::string VisualizationEngine::getPointOfInterestDisplayName(
+    const Graph& graph,
+    const PointOfInterest* poi) const {
+    if (poi == nullptr) {
+        return "Unknown POI";
+    }
+    if (poi->getType() != POIType::RESIDENTIAL_AREA) {
+        return poi->getName();
+    }
+
+    std::size_t residenceIndex = 0;
+    for (const PointOfInterest* candidate :
+         graph.getAllPOIs()) {
+        if (candidate == nullptr ||
+            candidate->getType() !=
+                POIType::RESIDENTIAL_AREA) {
+            continue;
+        }
+        if (candidate == poi) {
+            return "Residence " +
+                   residenceSuffix(residenceIndex);
+        }
+        ++residenceIndex;
+    }
+    return poi->getName();
+}
+
 void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& graph) const {
     for (const Road* road : graph.getAllRoads()) {
         if (road == nullptr || road->getStart() == nullptr || road->getEnd() == nullptr) {
@@ -1210,7 +1237,6 @@ void VisualizationEngine::drawPOIDriveways(
 
 void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph) const {
     const auto& pois = graph.getAllPOIs();
-    std::size_t residenceIndex = 0;
     for (const auto* poi : pois) {
         if (!poi) continue;
         sf::Vector2f pos = worldToScreen(poi->getX(), poi->getY());
@@ -1234,18 +1260,61 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
         if (font_) {
             sf::Text text;
             text.setFont(*font_);
-            if (poi->getType() == POIType::RESIDENTIAL_AREA) {
-                text.setString(
-                    "Residence " +
-                    residenceSuffix(residenceIndex++));
-            } else {
-                text.setString(poi->getName());
-            }
+            text.setString(
+                getPointOfInterestDisplayName(
+                    graph, poi));
             text.setCharacterSize(10);
             text.setFillColor(sf::Color::White);
             text.setOutlineColor(sf::Color::Black);
             text.setOutlineThickness(1.0f);
-            text.setPosition(pos.x + 8.0f, pos.y - 6.0f);
+            sf::Vector2f roadAnchor = pos;
+            if (const Road* road =
+                    poi->getConnectedRoad()) {
+                const int accessLane =
+                    poi->getAccessLaneIndex() >= 0
+                        ? poi->getAccessLaneIndex()
+                        : road->getCurbLaneIndex();
+                const auto accessPath =
+                    RoadGeometry::makeRoadAccessPath(
+                        *road,
+                        accessLane,
+                        poi->getProgressOffset(),
+                        {poi->getX(), poi->getY()});
+                roadAnchor = worldToScreen(
+                    accessPath.curb.x,
+                    accessPath.curb.y);
+            }
+            sf::Vector2f labelDirection =
+                pos - roadAnchor;
+            if (poi->isLabelOnLeft()) {
+                labelDirection = {-1.0f, 0.0f};
+            }
+
+            constexpr float labelGap = 8.0f;
+            const sf::FloatRect bounds =
+                text.getLocalBounds();
+            sf::Vector2f labelPosition;
+            if (std::fabs(labelDirection.x) >=
+                std::fabs(labelDirection.y)) {
+                labelPosition.x =
+                    labelDirection.x < 0.0f
+                        ? pos.x - labelGap -
+                              bounds.left - bounds.width
+                        : pos.x + labelGap - bounds.left;
+                labelPosition.y =
+                    pos.y - bounds.top -
+                    bounds.height * 0.5f;
+            } else {
+                labelPosition.x =
+                    pos.x - bounds.left -
+                    bounds.width * 0.5f;
+                labelPosition.y =
+                    labelDirection.y < 0.0f
+                        ? pos.y - labelGap -
+                              bounds.top - bounds.height
+                        : pos.y + labelGap - bounds.top;
+            }
+            text.setPosition(labelPosition);
             target.draw(text);
         }
     }
