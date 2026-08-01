@@ -18,7 +18,7 @@ enum class JunctionDecision;
 
 class Vehicle {
 public:
-    static constexpr double LANE_CHANGE_COOLDOWN = 3.0;
+    static constexpr double LANE_CHANGE_COOLDOWN = 8.0;
     static constexpr double LANE_CHANGE_GAP_IMPROVEMENT_FACTOR = 1.3;
     static constexpr double LANE_CHANGE_REAR_SAFETY_TIME = 2.0;
     static constexpr double LANE_CHANGE_FRONT_SAFETY_TIME = 1.5;

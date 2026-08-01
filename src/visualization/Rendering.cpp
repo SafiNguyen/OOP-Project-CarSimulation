@@ -12,7 +12,11 @@
 
 #include "AppContext.h"
 #include "Intersection.h"
+#include "JunctionConnector.h"
+#include "LaneMapping.h"
+#include "PointOfInterest.h"
 #include "Road.h"
+#include "RoadGeometry.h"
 #include "Vehicle.h"
 #include "simulation/StatisticsManager.h"
 #include "simulation/TrafficSimulator.h"
@@ -602,26 +606,181 @@ void drawSelectedVehicleRoute(sf::RenderWindow& window,
     const float thickness = 6.0f;
     const sf::Color color(0, 255, 255, 120); // Cyan semi-transparent
 
-    for (size_t i = currentIdx; i < route.size(); ++i) {
-        const Road* road = route[i];
-        if (road == nullptr || road->getStart() == nullptr || road->getEnd() == nullptr) {
-            continue;
-        }
+    // The route line is drawn inside the lane the vehicle will actually
+    // drive in, not down the middle of the road. Start from the vehicle's
+    // current lane and propagate the lane through each junction using the
+    // same lane-mapping rules the vehicle follows when navigating.
+    int currentLaneIndex = target->getCurrentLaneIndex();
+    if (currentLaneIndex < 0) currentLaneIndex = 0;
 
-        sf::Vector2f startPos = visualization.worldToScreen(road->getStart()->getX(), road->getStart()->getY());
-        sf::Vector2f endPos = visualization.worldToScreen(road->getEnd()->getX(), road->getEnd()->getY());
-
+    // Helper to append a quad for a segment between two world points.
+    auto appendSegment = [&](const Vec2& a, const Vec2& b) {
+        sf::Vector2f startPos =
+            visualization.worldToScreen(a.x, a.y);
+        sf::Vector2f endPos =
+            visualization.worldToScreen(b.x, b.y);
         sf::Vector2f dir = endPos - startPos;
         float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
-        if (len < 0.1f) continue;
+        if (len < 0.1f) return;
         dir /= len;
         sf::Vector2f normal(-dir.y, dir.x);
         sf::Vector2f offset = normal * (thickness * 0.5f);
-
         routeVertices.emplace_back(startPos - offset, color);
         routeVertices.emplace_back(startPos + offset, color);
         routeVertices.emplace_back(endPos + offset, color);
         routeVertices.emplace_back(endPos - offset, color);
+    };
+
+    // Helper to append a polyline through a junction connector path so the
+    // route line follows the actual curved path through intersections and
+    // roundabouts instead of jumping straight across the junction.
+    auto appendConnectorPath = [&](const JunctionConnector& connector) {
+        const double pathLength = connector.getLength();
+        if (pathLength <= 0.0) return;
+        constexpr int kSamples = 16;
+        Vec2 prevPoint;
+        bool hasPrev = false;
+        for (int s = 0; s <= kSamples; ++s) {
+            const double dist =
+                pathLength * static_cast<double>(s) /
+                static_cast<double>(kSamples);
+            const Pose2D pose = connector.sampleByDistance(dist);
+            if (hasPrev) {
+                appendSegment(prevPoint, pose.position);
+            }
+            prevPoint = pose.position;
+            hasPrev = true;
+        }
+    };
+
+    // Start from the vehicle's current position so the line begins at the
+    // vehicle rather than at the start of the road it is on. However, when
+    // the vehicle is entering its POI/destination, its pose is on the
+    // driveway (off the road), so we should not start the line from there.
+    const bool isEnteringPOI = target->getIsEnteringPOI();
+    const Pose2D vehiclePose = target->getPose();
+    const Vec2 currentPosition = vehiclePose.position;
+
+    // If the vehicle is currently traversing a junction or roundabout, the
+    // route line should start from the vehicle's position on the connector
+    // path and follow the remaining curved path through the junction.
+    bool startedOnJunction = false;
+    if (!isEnteringPOI &&
+        target->getMovementState() == MovementState::TraversingJunction) {
+        Road* incomingRoad = target->getCurrentRoad();
+        Road* outgoingRoad = target->getNextRoad();
+        if (incomingRoad != nullptr && outgoingRoad != nullptr) {
+            Intersection* intersection = incomingRoad->getEnd();
+            if (intersection != nullptr) {
+                auto connector = intersection->getConnector(
+                    incomingRoad,
+                    target->getIncomingLaneIndex(),
+                    outgoingRoad,
+                    target->getOutgoingLaneIndex());
+                if (connector != nullptr) {
+                    const double junctionProgress =
+                        target->getJunctionProgress();
+                    const double pathLength = connector->getLength();
+                    if (junctionProgress < pathLength) {
+                        constexpr int kSamples = 16;
+                        Vec2 prevPoint = currentPosition;
+                        for (int s = 1; s <= kSamples; ++s) {
+                            const double dist = junctionProgress +
+                                (pathLength - junctionProgress) *
+                                static_cast<double>(s) /
+                                static_cast<double>(kSamples);
+                            const Pose2D pose =
+                                connector->sampleByDistance(dist);
+                            appendSegment(prevPoint, pose.position);
+                            prevPoint = pose.position;
+                        }
+                    }
+                    currentLaneIndex = target->getOutgoingLaneIndex();
+                    startedOnJunction = true;
+                }
+            }
+        }
+    }
+
+    // The outgoing road is at currentIdx + 1 when starting on a junction.
+    const size_t startIdx = startedOnJunction
+        ? static_cast<size_t>(currentIdx) + 1
+        : static_cast<size_t>(currentIdx);
+
+    const PointOfInterest* targetPOI = target->getTargetPOI();
+
+    for (size_t i = startIdx; i < route.size(); ++i) {
+        const Road* road = route[i];
+        if (road == nullptr) continue;
+
+        const int laneCount = road->getLaneCount();
+        if (laneCount < 1) continue;
+
+        const int lane = std::clamp(currentLaneIndex, 0, laneCount - 1);
+
+        // Sample the lane endpoints (already trimmed to the junction
+        // boundary) instead of the raw intersection centres, so each segment
+        // sits within the lane geometry - offset from the road median on
+        // two-way carriageways and from the centre on multi-lane roads.
+        const Vec2 laneStart =
+            RoadGeometry::laneEndpoint(*road, lane, true);
+        const Vec2 laneEnd =
+            RoadGeometry::laneEndpoint(*road, lane, false);
+
+        // If this is the last road and the vehicle has a target POI on it,
+        // stop the line at the POI position instead of the end of the road.
+        Vec2 segmentEnd = laneEnd;
+        if (i == route.size() - 1 && targetPOI != nullptr &&
+            targetPOI->getConnectedRoad() == road) {
+            const Pose2D poiPose = RoadGeometry::sampleLane(
+                *road, lane, targetPOI->getProgressOffset());
+            segmentEnd = poiPose.position;
+        }
+
+        // For the first road in the loop (when not starting on a junction),
+        // start from the vehicle's current position. However, when the
+        // vehicle is entering its POI/destination, its pose is on the
+        // driveway (off the road), so start from the POI position on the
+        // road instead to avoid a weird connection back to the road.
+        Vec2 segmentStart = laneStart;
+        if (i == startIdx && !startedOnJunction) {
+            if (isEnteringPOI && targetPOI != nullptr &&
+                targetPOI->getConnectedRoad() == road) {
+                segmentStart = segmentEnd;
+            } else {
+                segmentStart = currentPosition;
+            }
+        }
+
+        appendSegment(segmentStart, segmentEnd);
+
+        // Determine which lane the vehicle will use on the next road and
+        // draw the junction connector path through the intersection or
+        // roundabout so the route line follows the actual curved path.
+        if (i + 1 < route.size()) {
+            const Road* nextRoad = route[i + 1];
+            if (nextRoad != nullptr) {
+                const LaneMapping mapping =
+                    TurnLanePolicy::mapFromCurrentLane(
+                        *road, lane, *nextRoad);
+                if (mapping.valid) {
+                    Intersection* intersection = road->getEnd();
+                    if (intersection != nullptr) {
+                        auto connector = intersection->getConnector(
+                            road,
+                            mapping.incomingLane,
+                            nextRoad,
+                            mapping.outgoingLane);
+                        if (connector != nullptr) {
+                            appendConnectorPath(*connector);
+                        }
+                    }
+                    currentLaneIndex = mapping.outgoingLane;
+                } else {
+                    currentLaneIndex = 0;
+                }
+            }
+        }
     }
 
     if (!routeVertices.empty()) {

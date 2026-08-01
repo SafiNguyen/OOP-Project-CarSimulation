@@ -222,14 +222,23 @@ bool Vehicle::hasReachedDestination() const {
     if (targetPOI != nullptr && currentRoad == targetPOI->getConnectedRoad()) {
         if (currentRouteIndex == static_cast<int>(currentRoute.size()) - 1) {
             if (progressOnCurrentRoad >= targetPOI->getProgressOffset()) {
-                if (isEnteringPOI) {
-                    return poiAnimationTimer <= 0.0;
+                int targetLane = targetPOI->getAccessLaneIndex();
+                if (targetLane < 0) targetLane = currentRoad->getCurbLaneIndex();
+                if (currentLaneIndex == targetLane) {
+                    if (isEnteringPOI) {
+                        return poiAnimationTimer <= 0.0;
+                    }
                 }
                 return false;
             }
         }
     }
-    return routeAssigned && currentRoad == nullptr && currentRouteIndex >= static_cast<int>(currentRoute.size());
+    // If we missed it entirely and have no more road, we MUST vanish, otherwise we leak.
+    if (routeAssigned && currentRoad == nullptr && currentRouteIndex >= static_cast<int>(currentRoute.size())) {
+        return true;
+    }
+
+    return false;
 }
 
 PauseReason Vehicle::getIntersectionControlReason() const {
@@ -1319,8 +1328,11 @@ int Vehicle::getRequiredLaneIndex() const {
         return -1;
     }
 
-    const int accessLane =
+    int accessLane =
         targetPOI->getAccessLaneIndex();
+    if (accessLane < 0) {
+        accessLane = currentRoad->getCurbLaneIndex();
+    }
     if (accessLane < 0 ||
         accessLane >= currentRoad->getLaneCount()) {
         return -1;
@@ -1406,13 +1418,11 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
     
     if (targetPOI != nullptr && currentRoad == targetPOI->getConnectedRoad()) {
         if (currentRouteIndex == static_cast<int>(currentRoute.size()) - 1) {
-            const int accessLane =
-                targetPOI->getAccessLaneIndex();
-            const bool alignedWithAccess =
-                accessLane < 0 ||
-                currentLaneIndex == accessLane;
+            const int targetLane =
+                Vehicle::getRequiredLaneIndex();
             if (!isEnteringPOI &&
-                alignedWithAccess &&
+                targetLane >= 0 &&
+                currentLaneIndex == targetLane &&
                 progressOnCurrentRoad >=
                     targetPOI->getProgressOffset()) {
                 setEnteringPOI(true);
@@ -1591,28 +1601,53 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
             currentRoad == targetPOI->getConnectedRoad() &&
             currentRouteIndex ==
                 static_cast<int>(currentRoute.size()) - 1) {
-            const double distToPOI =
+            const int targetLane =
+                Vehicle::getRequiredLaneIndex();
+            const double distanceToPOI =
                 targetPOI->getProgressOffset() -
                 progressOnCurrentRoad;
-            const int accessLane =
-                targetPOI->getAccessLaneIndex();
-            const bool requiresLaneChange =
-                accessLane >= 0 &&
-                currentLaneIndex != accessLane;
-            if (distToPOI > 0.0) {
-                const double stoppingDistance =
-                    (currentSpeed * currentSpeed) /
-                    (2.0 * std::max(
-                         getDeceleration(),
-                         1e-6));
-                const double safetyBuffer = 3.0; // metres
-                if (distToPOI <= stoppingDistance + safetyBuffer) {
-                    targetSpeed = requiresLaneChange
-                        ? 0.0
-                        : std::min(targetSpeed, 2.0);
+            if (targetLane >= 0 &&
+                currentLaneIndex != targetLane) {
+                // We are in the wrong lane. We must change lanes BEFORE reaching the POI.
+                // Pick a point 25 meters before the POI to stop and wait for a clear gap.
+                const double waitPoint = std::max(
+                    0.0,
+                    targetPOI->getProgressOffset() - 25.0);
+                const double distanceToWaitPoint =
+                    waitPoint - progressOnCurrentRoad;
+
+                if (distanceToWaitPoint <= 0.0) {
+                    targetSpeed = 0.0;
+                    currentSpeed = 0.0;
+                } else {
+                    const double stoppingDistance =
+                        (currentSpeed * currentSpeed) /
+                        (2.0 * std::max(
+                             getDeceleration(),
+                             1e-6));
+                    constexpr double safetyBuffer = 3.0;
+                    if (distanceToWaitPoint <=
+                        stoppingDistance + safetyBuffer) {
+                        targetSpeed = 0.0;
+                    }
                 }
-            } else if (requiresLaneChange) {
-                targetSpeed = 0.0;
+            } else if (targetLane >= 0) {
+                if (distanceToPOI > 0.0) {
+                    const double stoppingDistance =
+                        (currentSpeed * currentSpeed) /
+                        (2.0 * std::max(
+                             getDeceleration(),
+                             1e-6));
+                    constexpr double safetyBuffer = 3.0;
+                    if (distanceToPOI <=
+                        stoppingDistance + safetyBuffer) {
+                        targetSpeed = std::min(targetSpeed, 2.0); // Decelerate to 2 m/s before turning into POI
+                    }
+                } else {
+                    targetSpeed = 0.0;
+                    currentSpeed = 0.0;
+                    progressOnCurrentRoad = targetPOI->getProgressOffset();
+                }
             }
         }
         
@@ -1698,6 +1733,10 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                 getLanePreparationSpeedLimit(freeFlowSpeed),
                 0.0,
                 freeFlowSpeed));
+
+        if (laneChangeState_ != LaneChangeState::Idle) {
+            targetSpeed *= 0.85; // Giảm tốc độ khi đổi lane
+        }
 
         Vehicle* leader = currentRoad->findLeader(currentLaneIndex, this);
         double minGap = getMinGap();
@@ -1787,7 +1826,9 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                 if (follower != nullptr) {
                     const double gapBehind =
                         bumperGap(*follower, *this);
-                    if (gapBehind < 5.0 && follower->getCurrentSpeed() > 0.01) {
+                    if (follower->getCurrentSpeed() <= 0.01) {
+                        safeToUTurn = true; // Xe sau dung yen thi cho phep u-turn
+                    } else if (gapBehind < 5.0 && follower->getCurrentSpeed() > 0.01) {
                         safeToUTurn = false;
                     } else if (gapBehind < 1.0) { // they are very close, still unsafe
                         safeToUTurn = false;
@@ -1798,6 +1839,7 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                     if (performUTurn(*graph, strategy)) {
                         stuckTimer = 0.0;
                         uTurnCooldownTimer = 30.0; // 30s cooldown
+                        laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN;
                     } else {
                         // If U-turn failed (e.g. no path), wait longer
                         patienceThreshold += 2.0; 
@@ -1887,6 +1929,16 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                 if (reservedIntersection_ != nullptr) {
                     reservedIntersection_->exit(getId());
                     reservedIntersection_ = nullptr;
+                }
+
+                // If we reached the end of our route but haven't entered the target POI, we missed it!
+                if (targetPOI != nullptr && !hasReachedDestination()) {
+                    if (graph != nullptr && strategy != nullptr && performUTurn(*graph, strategy)) {
+                        stuckTimer = 0.0;
+                        uTurnCooldownTimer = 30.0;
+                        laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN;
+                        continue;
+                    }
                 }
 
                 if (!advanceToNextRoad() || hasReachedDestination()) {

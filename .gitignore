@@ -15,7 +15,6 @@ CMakeFiles/
 .vscode/
 .agent
 
-
 # Prerequisites
 *.d
 
@@ -48,3 +47,5 @@ CMakeFiles/
 *.exe
 *.out
 *.app
+
+imgui.ini

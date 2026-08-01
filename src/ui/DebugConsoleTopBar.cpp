@@ -305,24 +305,13 @@ void DebugConsole::drawBottomDock(sf::RenderWindow& window,
                 visualization_.setHeatMapEnabled(heatMapEnabled);
             }
             UiTheme::tooltip("Toggle traffic-density heatmap");
-            next();
 
-            if (UiTheme::toggleButton("dock_parked", "Parked", showParkedVehicles, buttonSize)) {
-                showParkedVehicles = !showParkedVehicles;
-            }
-            UiTheme::tooltip("Toggle completed vehicles near destinations");
             next();
         } else {
             // narrow mode: no Map button
         }
 
-        if (UiTheme::selectionButton(narrow ? "Tools" : "Road Tools",
-                                     drawerOpen_ && activeTab_ == DrawerTab::ROAD_TOOLS,
-                                     buttonSize)) {
-            openDrawer(DrawerTab::ROAD_TOOLS);
-        }
-        UiTheme::tooltip("Open road creation tools");
-        next();
+
 
         if (narrow) {
             if (UiTheme::selectionButton("Debug",

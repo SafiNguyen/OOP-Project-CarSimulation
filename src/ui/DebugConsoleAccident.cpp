@@ -21,7 +21,9 @@ void DebugConsole::drawAccidentPanel(std::unique_ptr<TrafficSimulator>& simulato
 
     std::string previewRoad = "Random road";
     if (accidentRoadIdx_ >= 0 && accidentRoadIdx_ < static_cast<int>(roadsSnapshot_.size())) {
-        previewRoad = "Road #" + std::to_string(roadsSnapshot_[accidentRoadIdx_]->getId());
+        Road* r = roadsSnapshot_[accidentRoadIdx_];
+        previewRoad = "Road " + (r->getName().empty() ? ("#" + std::to_string(r->getId())) : r->getName())
+            + " (" + std::to_string(r->getStart()->getId()) + "->" + std::to_string(r->getEnd()->getId()) + ")";
     }
     if (ImGui::BeginCombo("Road", previewRoad.c_str())) {
         bool randomSelected = (accidentRoadIdx_ < 0);
@@ -30,9 +32,9 @@ void DebugConsole::drawAccidentPanel(std::unique_ptr<TrafficSimulator>& simulato
         }
         for (int i = 0; i < static_cast<int>(roadsSnapshot_.size()); ++i) {
             bool selected = (accidentRoadIdx_ == i);
-            std::string label = "Road #" + std::to_string(roadsSnapshot_[i]->getId())
-                + " (" + std::to_string(roadsSnapshot_[i]->getStart()->getId())
-                + " -> " + std::to_string(roadsSnapshot_[i]->getEnd()->getId()) + ")";
+            Road* r = roadsSnapshot_[i];
+            std::string label = "Road " + (r->getName().empty() ? ("#" + std::to_string(r->getId())) : r->getName())
+                + " (" + std::to_string(r->getStart()->getId()) + "->" + std::to_string(r->getEnd()->getId()) + ")";
             if (ImGui::Selectable(label.c_str(), selected)) {
                 accidentRoadIdx_ = i;
             }

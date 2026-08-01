@@ -6,12 +6,14 @@
 
 #include "DebugConsoleInternal.h"
 #include "Intersection.h"
+#include "model/infrastructure/PointOfInterest.h"
+#include "model/infrastructure/SpawnPoint.h"
 #include "Vehicle.h"
 #include "model/vehicle/VehicleFactory.h"
 #include "simulation/TrafficSimulator.h"
 #include "UiTheme.h"
 
-using debugconsole_detail::intersectionLabel;
+using debugconsole_detail::poiLabel;
 using debugconsole_detail::nextFreeVehicleId;
 
 void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simulator) {
@@ -19,13 +21,34 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
         return;
     }
 
+    const char* vehicleTypeNames[4] = { "Car", "Bus", "Motorbike", "Emergency Vehicle" };
+    if (ImGui::Combo("Vehicle type", &spawnVehicleTypeIdx_, vehicleTypeNames, 4)) {
+        if (spawnVehicleTypeIdx_ == 3) { // Emergency
+            for (auto* poi : poisSnapshot_) {
+                if (poi->getType() == POIType::HOSPITAL) {
+                    spawnStartId_ = poi->getId();
+                    break;
+                }
+            }
+        }
+    }
+
     {
         std::string previewStart = spawnStartId_ >= 0 ? ("#" + std::to_string(spawnStartId_)) : "(none)";
+        if (spawnStartId_ >= 0) {
+            auto it = std::find_if(poisSnapshot_.begin(), poisSnapshot_.end(),
+                [this](PointOfInterest* p) { return p->getId() == spawnStartId_; });
+            if (it != poisSnapshot_.end()) {
+                previewStart = poiLabel(*it);
+            }
+        }
+
         if (ImGui::BeginCombo("Start##spawn", previewStart.c_str())) {
-            for (Intersection* it : intersectionsSnapshot_) {
-                bool selected = (it->getId() == spawnStartId_);
-                if (ImGui::Selectable(intersectionLabel(it).c_str(), selected)) {
-                    spawnStartId_ = it->getId();
+            for (PointOfInterest* poi : poisSnapshot_) {
+                if (spawnVehicleTypeIdx_ == 1 && poi->getType() != POIType::BUS_STATION) continue;
+                bool selected = (poi->getId() == spawnStartId_);
+                if (ImGui::Selectable(poiLabel(poi).c_str(), selected)) {
+                    spawnStartId_ = poi->getId();
                 }
             }
             ImGui::EndCombo();
@@ -38,15 +61,24 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
             pickTarget_ == PickTarget::SPAWN_START)) {
         pickTarget_ = (pickTarget_ == PickTarget::SPAWN_START) ? PickTarget::NONE : PickTarget::SPAWN_START;
     }
-    UiTheme::tooltip("Pick the spawn intersection directly on the map");
+    UiTheme::tooltip("Pick the spawn POI directly on the map");
 
     {
         std::string previewEnd = spawnEndId_ >= 0 ? ("#" + std::to_string(spawnEndId_)) : "(none)";
+        if (spawnEndId_ >= 0) {
+            auto it = std::find_if(poisSnapshot_.begin(), poisSnapshot_.end(),
+                [this](PointOfInterest* p) { return p->getId() == spawnEndId_; });
+            if (it != poisSnapshot_.end()) {
+                previewEnd = poiLabel(*it);
+            }
+        }
+
         if (ImGui::BeginCombo("Destination##spawn", previewEnd.c_str())) {
-            for (Intersection* it : intersectionsSnapshot_) {
-                bool selected = (it->getId() == spawnEndId_);
-                if (ImGui::Selectable(intersectionLabel(it).c_str(), selected)) {
-                    spawnEndId_ = it->getId();
+            for (PointOfInterest* poi : poisSnapshot_) {
+                if (spawnVehicleTypeIdx_ == 1 && poi->getType() != POIType::BUS_STATION) continue;
+                bool selected = (poi->getId() == spawnEndId_);
+                if (ImGui::Selectable(poiLabel(poi).c_str(), selected)) {
+                    spawnEndId_ = poi->getId();
                 }
             }
             ImGui::EndCombo();
@@ -59,30 +91,34 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
             pickTarget_ == PickTarget::SPAWN_END)) {
         pickTarget_ = (pickTarget_ == PickTarget::SPAWN_END) ? PickTarget::NONE : PickTarget::SPAWN_END;
     }
-    UiTheme::tooltip("Pick the destination intersection directly on the map");
+    UiTheme::tooltip("Pick the destination POI directly on the map");
 
-    const char* vehicleTypeNames[4] = { "Car", "Bus", "Motorbike", "Emergency Vehicle" };
-    ImGui::Combo("Vehicle type", &spawnVehicleTypeIdx_, vehicleTypeNames, 4);
     ImGui::InputFloat("Base speed", &spawnVehicleSpeed_);
     spawnVehicleSpeed_ = std::max(1.0f, spawnVehicleSpeed_);
     ImGui::InputInt("Count to spawn", &spawnVehicleCount_);
     if (spawnVehicleCount_ < 1) spawnVehicleCount_ = 1;
 
-    Intersection* selectedStart = graph_.getIntersection(spawnStartId_);
-    Intersection* selectedEnd = graph_.getIntersection(spawnEndId_);
-    const bool canSpawn = simulator && selectedStart != nullptr
-        && selectedEnd != nullptr && selectedStart != selectedEnd;
+    PointOfInterest* startPoi = graph_.getPOI(spawnStartId_);
+    if (!startPoi) startPoi = graph_.getBusStation(spawnStartId_);
+    
+    PointOfInterest* endPoi = graph_.getPOI(spawnEndId_);
+    if (!endPoi) endPoi = graph_.getBusStation(spawnEndId_);
+
+    Intersection* selectedStart = startPoi ? startPoi->getNearestIntersection() : nullptr;
+    Intersection* selectedEnd = endPoi ? endPoi->getNearestIntersection() : nullptr;
+    
+    const bool canSpawn = simulator && startPoi != nullptr
+        && endPoi != nullptr && selectedStart != nullptr && selectedEnd != nullptr && startPoi != endPoi;
+        
     ImGui::BeginDisabled(!canSpawn);
     if (UiTheme::actionButton("Spawn Vehicle", ImVec2(142.0f, 36.0f))) {
         spawnMessage_.clear();
-        Intersection* start = graph_.getIntersection(spawnStartId_);
-        Intersection* end = graph_.getIntersection(spawnEndId_);
         if (!simulator) {
             spawnMessage_ = "No active simulation.";
-        } else if (start == nullptr || end == nullptr) {
+        } else if (startPoi == nullptr || endPoi == nullptr) {
             spawnMessage_ =
-                "Pick both a start and a destination intersection first.";
-        } else if (start == end) {
+                "Pick both a start and a destination POI first.";
+        } else if (startPoi == endPoi) {
             spawnMessage_ = "Start and destination must be different.";
         } else {
             int successCount = 0;
@@ -100,7 +136,11 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
                     kind = VehicleKind::Emergency;
                 }
                 v = VehicleFactory::createVehicle(
-                    kind, newId, spawnVehicleSpeed_, start, end);
+                    kind, newId, spawnVehicleSpeed_, selectedStart, selectedEnd);
+                if (v) {
+                    v->setSpawnPOI(startPoi);
+                    v->setTargetPOI(endPoi);
+                }
                 if (simulator->addVehicle(v)) {
                     successCount++;
                 }
@@ -119,7 +159,7 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
     }
     ImGui::EndDisabled();
     if (!canSpawn) {
-        UiTheme::tooltip("Select two different intersections and keep a simulation active");
+        UiTheme::tooltip("Select two different POIs and keep a simulation active");
     }
     if (!spawnMessage_.empty()) {
         const bool success =
