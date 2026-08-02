@@ -114,10 +114,6 @@ public:
     }
     Road* getDepartureRoad() const { return departureRoad_; }
     Road* getArrivalRoad() const { return arrivalRoad_; }
-    bool usesSharedAccessRoad() const {
-        return departureRoad_ != nullptr &&
-               arrivalRoad_ == departureRoad_;
-    }
     bool isConfiguredTransitStation() const {
         return !code_.empty() &&
                getAccessIntersection() != nullptr &&

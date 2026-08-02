@@ -108,8 +108,6 @@ BusTripPlanner::buildRandomPlan(
         service.getOriginStation().getDepartureRoad();
     Road* arrivalRoad =
         service.getDestinationStation().getArrivalRoad();
-    const BusStation& destinationStation =
-        service.getDestinationStation();
     if (departureRoad == nullptr ||
         arrivalRoad == nullptr ||
         !std::isfinite(scheduledDepartureTime) ||
@@ -120,14 +118,7 @@ BusTripPlanner::buildRandomPlan(
     std::vector<const BusStop*> candidates;
     std::unordered_set<int> seenStopIds;
     for (const BusStop* stop : availableStops) {
-        const bool beyondDestinationAccess =
-            destinationStation.usesSharedAccessRoad() &&
-            stop != nullptr &&
-            stop->getRoad() == arrivalRoad &&
-            stop->getPositionOnRoad() >=
-                destinationStation.getProgressOffset();
         if (isValidStopCandidate(graph, stop) &&
-            !beyondDestinationAccess &&
             seenStopIds.insert(stop->getId()).second) {
             candidates.push_back(stop);
         }

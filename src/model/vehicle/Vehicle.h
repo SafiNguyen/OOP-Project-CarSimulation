@@ -9,6 +9,12 @@
 #include "JunctionConnector.h"
 #include "VehicleTypes.h"
 #include "simulation/SnapshotTypes.h"
+#include "components/VehicleDynamics.h"
+#include "components/CarFollowingModel.h"
+#include "components/LaneChangePolicy.h"
+#include "components/JunctionTraversalState.h"
+#include "components/RouteFollower.h"
+#include "components/VehicleBehavior.h"
 
 class Intersection;
 class Road;
@@ -19,6 +25,13 @@ class SpawnPoint;
 enum class JunctionDecision;
 
 class Vehicle {
+    friend class VehicleDynamics;
+    friend class CarFollowingModel;
+    friend class LaneChangePolicy;
+    friend class JunctionTraversalState;
+    friend class RouteFollower;
+    friend class VehicleBehavior;
+
 public:
     static constexpr double LANE_CHANGE_COOLDOWN = 8.0;
     static constexpr double LANE_CHANGE_GAP_IMPROVEMENT_FACTOR = 1.3;
@@ -45,7 +58,7 @@ protected:
     double baseSpeed; // m/s
     Intersection* spawnPoint;
     PointOfInterest* spawnPOI = nullptr;
-    const PointOfInterest* targetPOI = nullptr; // optional POI destination
+    PointOfInterest* targetPOI = nullptr; // optional POI destination
     const SpawnPoint* reservedSpawnPoint_ = nullptr;
     SpawnLifecycleState spawnLifecycleState_ =
         SpawnLifecycleState::Scheduled;
@@ -111,6 +124,14 @@ protected:
     
     double poiAnimationTimer = 2.0;
     double poiAnimationDuration = 2.0;
+
+    // Helper components for behavior decomposition.
+    VehicleDynamics vehicleDynamics;
+    CarFollowingModel carFollowingModel;
+    LaneChangePolicy laneChangePolicy;
+    JunctionTraversalState junctionTraversalState;
+    RouteFollower routeFollower;
+    VehicleBehavior vehicleBehavior;
 
 public:
     Vehicle(int id, double speed, Intersection* start, Intersection* dest);
@@ -201,8 +222,8 @@ public:
     // --- POI support ---
     PointOfInterest* getSpawnPOI() const { return spawnPOI; }
     void setSpawnPOI(PointOfInterest* poi) { spawnPOI = poi; }
-    const PointOfInterest* getTargetPOI() const { return targetPOI; }
-    void setTargetPOI(const PointOfInterest* poi) { targetPOI = poi; }
+    PointOfInterest* getTargetPOI() const { return targetPOI; }
+    void setTargetPOI(PointOfInterest* poi) { targetPOI = poi; }
     bool tryReserveSpawnSlot();
     void releaseSpawnSlot();
     bool hasSpawnSlotReservation() const {
@@ -291,6 +312,18 @@ protected:
     LaneMapping getJunctionEntryLaneMapping() const;
 
 private:
+    void updateSimulationState(double dt);
+    bool handlePoiTransitions(double dt);
+    void updateCooldownTimers(double elapsedTime);
+    bool handlePausedState(double& remainingTime);
+    double computeTargetSpeed(double freeFlowSpeed,
+                              const LaneMapping& upcomingMapping,
+                              const LaneMapping& entryMapping,
+                              int& requiredLaneIndex,
+                              bool& hasRequiredLane,
+                              Vehicle*& leader,
+                              double& minGap,
+                              double& gapToLeader);
     double getPoiMergeYieldPathRatio() const;
     double getPoiMergePhaseDuration(
         PoiMergePhase phase) const;
