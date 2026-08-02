@@ -471,7 +471,9 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
             } else {
                 stuckTimer = 0.0;
             }
-            if (allowsUTurn() &&
+
+            bool isWaitingForPOI = (targetPOI != nullptr && currentRoad == targetPOI->getConnectedRoad() && currentRouteIndex == static_cast<int>(currentRoute.size()) - 1);
+            if (!isWaitingForPOI && allowsUTurn() &&
                 stuckTimer > patienceThreshold &&
                 graph != nullptr && strategy != nullptr) {
                 // Check if it's safe to U-turn (no vehicle closely behind)
