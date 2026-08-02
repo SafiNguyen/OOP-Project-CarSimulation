@@ -9,6 +9,9 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <queue>
+#include <string>
+#include "Roundabout.h"
 
 namespace {
 constexpr double PI = 3.14159265358979323846;
@@ -792,9 +795,9 @@ std::shared_ptr<const JunctionConnector> Intersection::createConnector(
     double movementFactor = 0.75;
     switch (movement) {
         case MovementType::Straight: movementFactor = 0.45; break;
-        case MovementType::Right: movementFactor = 0.60; break;
-        case MovementType::Left: movementFactor = 0.85; break;
-        case MovementType::UTurn: movementFactor = 1.15; break;
+        case MovementType::Right: movementFactor = 0.35 + (0.15 * incomingLane); break;
+        case MovementType::Left: movementFactor = 0.85 + (0.35 * incomingLane); break;
+        case MovementType::UTurn: movementFactor = 0.75 + (0.45 * incomingLane); break;
     }
     const double scale =
         RoadGeometry::metresPerWorldUnit(*this);
@@ -969,7 +972,8 @@ bool Intersection::canEnterMovement(
         if (entry.first == vehicleId) continue;
         const Reservation& res = entry.second;
         if (res.connector == nullptr) continue;
-        if (connectorsPreserveLaneOrder(
+        if (connector->getIncomingRoad() == res.connector->getIncomingRoad() ||
+            connectorsPreserveLaneOrder(
                 *connector, *res.connector) ||
             oppositeApproachMovementsAreNonCrossing(
                 *connector, *res.connector)) {
@@ -1180,6 +1184,8 @@ double Intersection::limitTraversalAdvance(
     struct OccupantBounds {
         OrientedVehicleBounds bounds;
         uint64_t entryId = 0;
+        const JunctionConnector* connector = nullptr;
+        int vehicleId = -1;
     };
     std::vector<OccupantBounds> occupantBounds;
     occupantBounds.reserve(occupants_.size() - 1);
@@ -1197,7 +1203,22 @@ double Intersection::limitTraversalAdvance(
                 reservation.vehicleLengthMetres,
                 reservation.vehicleWidthMetres,
                 clearanceMetres),
-            reservation.entryId});
+            reservation.entryId,
+            reservation.connector.get(),
+            entry.first});
+    }
+
+    bool alreadyOverlapsEV = false;
+    for (const OccupantBounds& other : occupantBounds) {
+        if (other.vehicleId == emergencyApproach_.vehicleId) {
+            OrientedVehicleBounds myBounds = makeVehicleBounds(
+                connector->sampleByDistance(currentProgressMetres),
+                metricScale, vehicleLengthMetres, vehicleWidthMetres, clearanceMetres);
+            if (boundsOverlap(myBounds, other.bounds)) {
+                alreadyOverlapsEV = true;
+                break;
+            }
+        }
     }
 
     const auto isSafeAt = [&](double progressMetres) {
@@ -1210,6 +1231,28 @@ double Intersection::limitTraversalAdvance(
                 clearanceMetres);
         for (const OccupantBounds& other : occupantBounds) {
             if (boundsOverlap(candidate, other.bounds)) {
+                if (dynamic_cast<const Roundabout*>(this) != nullptr && 
+                    connector->getIncomingRoad() == other.connector->getIncomingRoad()) {
+                    int myLane = connector->getIncomingLane();
+                    int otherLane = other.connector->getIncomingLane();
+                    if (myLane < otherLane) {
+                        return false; // I am on the left, I yield to the right
+                    } else if (myLane > otherLane) {
+                        continue; // I am on the right, I go first
+                    }
+                }
+                
+                if (other.vehicleId == emergencyApproach_.vehicleId) {
+                    if (alreadyOverlapsEV) {
+                        continue; // Already overlapping EV, must move to clear the way!
+                    } else {
+                        return false; // Yield to emergency vehicle
+                    }
+                }
+                if (vehicleId == emergencyApproach_.vehicleId) {
+                    return false; // Candidate is emergency vehicle, stop to avoid collision
+                }
+
                 if (candidateEntryId < other.entryId) {
                     continue; // Candidate entered first, ignore overlap
                 }
@@ -1323,7 +1366,9 @@ bool Intersection::isOutgoingLaneReserved(
 }
 
 void Intersection::exit(int vehicleId) {
-    if (occupants_.erase(vehicleId) > 0) {
+    auto found = occupants_.find(vehicleId);
+    if (found != occupants_.end()) {
+        occupants_.erase(found);
         markReservationStateChanged();
     }
     if (hasActiveEmergencyPriority() &&

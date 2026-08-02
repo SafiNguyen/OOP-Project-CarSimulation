@@ -174,6 +174,9 @@ public:
         return laneChangeState_;
     }
     bool isTurnSignalBlinkOn() const;
+    bool isTransitioningPose() const {
+        return poseTransitionDuration_ > 0.0 && poseTransitionTimer_ < poseTransitionDuration_;
+    }
     double getSimulationTimeSeconds() const {
         return simulationTimeSeconds_;
     }

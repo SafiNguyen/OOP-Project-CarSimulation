@@ -96,7 +96,7 @@ private:
     // --- Intersection-box reservation (prevents multiple vehicles from
     // different roads overlapping inside the junction at the same time,
     // independent of the traffic-light phase groups above) ---
-    int capacity_ = 1;
+    int capacity_ = 20;
 
 protected:
     std::unordered_map<int, Reservation> occupants_;
@@ -298,6 +298,8 @@ public:
     void exit(int vehicleId);
     // True if every slot is currently occupied.
     virtual bool isFull() const;
+
+
     void setCapacity(int cap);
     int getCapacity() const { return capacity_; }
 

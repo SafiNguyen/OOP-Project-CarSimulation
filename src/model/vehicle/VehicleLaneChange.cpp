@@ -59,6 +59,18 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
         return; // chi co 1 lane, khong co gi de doi
     }
 
+    // Rule 1 & 3: Cannot change if already transitioning, at stop line, or waiting for light
+    if (isTransitioningPose() || movementState_ == MovementState::TraversingJunction || isWaitingForLight_) {
+        return;
+    }
+
+    const bool isCurrentLaneBlocked = currentRoad->getLane(currentLaneIndex).isBlocked();
+
+    // Rule 2: Cannot change just after entering road
+    if (!isCurrentLaneBlocked && progressOnCurrentRoad < std::min(20.0, currentRoad->getDistance() * 0.2)) {
+        return;
+    }
+
     // 1) Chi xet doi lane khi dang THUC SU bi can tro o lane hien tai -
     //    tuc la gap phia truoc nho hon "khoang cach thoai mai" mong muon.
     //    Neu dang chay tu do, khong co ly do gi de doi lane.
@@ -67,8 +79,6 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
 
     const double minGap = getMinGap();
     const double desiredGap = minGap + freeFlowSpeed * getTimeHeadway();
-
-    const bool isCurrentLaneBlocked = currentRoad->getLane(currentLaneIndex).isBlocked();
 
     if (!isCurrentLaneBlocked && currentGapAhead >= desiredGap) {
         if (laneChangeReason_ ==
@@ -101,6 +111,20 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
         : currentGapAhead * LANE_CHANGE_GAP_IMPROVEMENT_FACTOR;
 
     const int candidateLanes[2] = { currentLaneIndex - 1, currentLaneIndex + 1 };
+    
+    auto hasTransitioningVehicleNearby = [&](int targetLane) {
+        auto checkLane = [&](int laneIdx) {
+            const auto& vehicles = currentRoad->getLane(laneIdx).getVehicles();
+            for (Vehicle* v : vehicles) {
+                if (v != this && v->isTransitioningPose() && std::abs(v->getProgressOnRoad() - progressOnCurrentRoad) < 15.0) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        return checkLane(currentLaneIndex) || checkLane(targetLane);
+    };
+
     for (int candidateLane : candidateLanes) {
         if (candidateLane < 0 || candidateLane >= currentRoad->getLaneCount()) {
             continue;
@@ -111,6 +135,12 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
         if (yielding && candidateLane == emergencyLaneToAvoid) {
             continue;
         }
+        
+        // Rule 4: No crossing lane changes
+        if (hasTransitioningVehicleNearby(candidateLane)) {
+            continue;
+        }
+
         LaneChangeCandidate candidate = laneChangePolicy.assess(
             *this, *currentRoad, candidateLane,
             LANE_CHANGE_REAR_SAFETY_TIME, LANE_CHANGE_MIN_TTC);
@@ -154,9 +184,10 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
             ? PRIORITY_LANE_CHANGE_COOLDOWN
             : LANE_CHANGE_COOLDOWN;
     } else {
-        laneChangeCooldownTimer = 0.5; // Short cooldown when lane change is skipped/fails
+        laneChangeCooldownTimer = LANE_CHANGE_POSE_TRANSITION_SECONDS + 3.0; // Wait longer before consecutive lane changes
     }
 }
+
 void Vehicle::tryYieldLaneChange() {
     if (currentRoad == nullptr || !canChangeLanes()) return;
     if (currentRoad->getLaneCount() <= 1) return;

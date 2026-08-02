@@ -86,6 +86,7 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
         releaseSpawnSlot();
         spawnLifecycleState_ =
             SpawnLifecycleState::Active;
+        laneChangeCooldownTimer = 4.0; // Delay lane change immediately after POI merge
     }
     
     if (targetPOI != nullptr && currentRoad == targetPOI->getConnectedRoad()) {
