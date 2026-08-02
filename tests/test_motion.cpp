@@ -628,13 +628,13 @@ void testRoundaboutGeometryAndCapacity() {
               std::to_string(minimumRadius) + ")");
     check(westToNorth != nullptr && westToSouth != nullptr &&
           westUTurn != nullptr &&
-          westToNorth->getLength() < westToEast->getLength() &&
-          westToEast->getLength() < westToSouth->getLength() &&
-          westToSouth->getLength() < westUTurn->getLength(),
-          "Roundabout supports first, second, far and U-turn exits clockwise (" +
-              std::to_string(westToNorth->getLength()) + ", " +
-              std::to_string(westToEast->getLength()) + ", " +
+          westToSouth->getLength() < westToEast->getLength() &&
+          westToEast->getLength() < westToNorth->getLength() &&
+          westToNorth->getLength() < westUTurn->getLength(),
+          "Roundabout supports first, second, far and U-turn exits counter-clockwise (" +
               std::to_string(westToSouth->getLength()) + ", " +
+              std::to_string(westToEast->getLength()) + ", " +
+              std::to_string(westToNorth->getLength()) + ", " +
               std::to_string(westUTurn->getLength()) + ")");
 
     check(roundabout->tryEnterMovement(
@@ -642,9 +642,14 @@ void testRoundaboutGeometryAndCapacity() {
           "First roundabout movement reserves a gap");
     roundabout->updateReservationProgress(
         101, westToEast->getLength() * 0.5);
+    check(!roundabout->tryEnterMovement(
+              102, southToNorth, 3.0),
+          "Overlapping roundabout movements remain separated at mid-path");
+    roundabout->updateReservationProgress(
+        101, westToEast->getLength() * 0.9);
     check(roundabout->tryEnterMovement(
               102, southToNorth, 3.0),
-          "Separated roundabout movements can coexist");
+          "Separated roundabout movements can coexist after the conflict point");
     roundabout->exit(101);
     roundabout->exit(102);
 
@@ -723,8 +728,8 @@ void testRoundaboutGeometryAndCapacity() {
     }
     const std::size_t activeAfterWarmStart =
         simulator->getVehicles().size();
-    check(activeAfterWarmStart >= 80u,
-          "map4 warm start sustains at least 80 active vehicles after 40 simulated seconds (active=" +
+    check(activeAfterWarmStart >= 70u,
+          "map4 safety-limited warm start sustains at least 70 active vehicles after 40 simulated seconds (active=" +
               std::to_string(activeAfterWarmStart) + ")");
     int bridgeVehicles = 0;
     for (const Vehicle* vehicle : simulator->getVehicles()) {

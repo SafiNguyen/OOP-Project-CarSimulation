@@ -177,10 +177,15 @@ void test_Map4_RoadsideBusStopsUseDirectionalCurbLane() {
         int stopId;
         int roadId;
     } expectedStops[] = {
-        {501, 100},
-        {502, 100},
-        {503, 104},
-        {504, -100}
+        {501, 101},
+        {502, 103},
+        {503, 106},
+        {504, -100},
+        {505, -104},
+        {506, 109},
+        {507, -108},
+        {508, 114},
+        {509, -113}
     };
 
     bool stopsValid = loaded;
@@ -196,7 +201,7 @@ void test_Map4_RoadsideBusStopsUseDirectionalCurbLane() {
     }
 
     std::ostringstream d;
-    d << "  Expected: stops 501-504 belong to their directional Road and curb lane\n";
+    d << "  Expected: all map4 roadside stops belong to their configured directional Road and curb lane\n";
     d << "  Load error: " << error << "\n";
     reportResult(testName, stopsValid, d.str());
 }

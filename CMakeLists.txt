@@ -163,3 +163,9 @@ add_test(NAME motion_test COMMAND test_motion)
 set_tests_properties(motion_test PROPERTIES
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )
+
+add_executable(test_simulation_services
+    tests/test_simulation_services.cpp
+)
+target_link_libraries(test_simulation_services PRIVATE urban_core)
+add_test(NAME simulation_services_test COMMAND test_simulation_services)

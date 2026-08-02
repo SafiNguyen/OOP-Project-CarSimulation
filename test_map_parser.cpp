@@ -11,17 +11,34 @@ int main() {
         std::cerr << "FAILED: " << err << std::endl;
         return 1;
     }
-    Road* forward = graph.getRoad(100);
-    Road* reverse = graph.getRoad(-100);
-    Road* oneDirectionOnly = graph.getRoad(-104);
-    if (forward == nullptr || reverse == nullptr || oneDirectionOnly == nullptr ||
-        forward->findBusStopById(501) == nullptr ||
-        forward->findBusStopById(502) == nullptr ||
-        reverse->findBusStopById(504) == nullptr ||
-        !oneDirectionOnly->getBusStops().empty()) {
-        std::cerr << "FAILED: map4 bus stops were not attached to the expected directed roads."
-                  << std::endl;
-        return 1;
+    const struct ExpectedStop {
+        int stopId;
+        int roadId;
+    } expectedStops[] = {
+        {501, 101},
+        {502, 103},
+        {503, 106},
+        {504, -100},
+        {505, -104},
+        {506, 109},
+        {507, -108},
+        {508, 114},
+        {509, -113}
+    };
+
+    for (const ExpectedStop& expected : expectedStops) {
+        Road* road = graph.getRoad(expected.roadId);
+        const BusStop* stop =
+            road != nullptr
+                ? road->findBusStopById(expected.stopId)
+                : nullptr;
+        if (road == nullptr || stop == nullptr ||
+            stop->getRoad() != road ||
+            !road->isCurbLane(stop->getLaneIndex())) {
+            std::cerr << "FAILED: map4 bus stops were not attached to the expected directed roads."
+                      << std::endl;
+            return 1;
+        }
     }
 
     std::cout << "SUCCESS! Nodes: " << graph.getAllIntersections().size()
