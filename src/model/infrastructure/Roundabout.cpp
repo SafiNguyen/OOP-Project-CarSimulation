@@ -65,7 +65,7 @@ std::shared_ptr<const JunctionConnector> Roundabout::createConnector(
         incomingTangent,
         exit,
         outgoingTangent,
-        false,
+        true, // clockwise
         scale,
         TurnLanePolicy::classify(
             incoming, outgoing) == MovementType::UTurn);

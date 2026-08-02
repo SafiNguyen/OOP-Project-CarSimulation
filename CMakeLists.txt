@@ -75,8 +75,69 @@ target_include_directories(imgui-sfml-lib PUBLIC
     ${sfml_SOURCE_DIR}/include
 )
 
-file(GLOB_RECURSE CORE_SOURCE_FILES CONFIGURE_DEPENDS
-    "src/**/*.cpp"
+set(CORE_SOURCE_FILES
+    src/InputHandling.cpp
+    src/algorithm/AStarStrategy.cpp
+    src/algorithm/BFSStrategy.cpp
+    src/algorithm/DijkstraStrategy.cpp
+    src/loader/DemoMap.cpp
+    src/loader/GraphBuilder.cpp
+    src/loader/MapLoading.cpp
+    src/loader/Mapload.cpp
+    src/loader/MapParser.cpp
+    src/model/Graph.cpp
+    src/model/MotionPath.cpp
+    src/model/infrastructure/Intersection.cpp
+    src/model/infrastructure/JunctionConnector.cpp
+    src/model/infrastructure/Lane.cpp
+    src/model/infrastructure/LaneMapping.cpp
+    src/model/infrastructure/Road.cpp
+    src/model/infrastructure/RoadGeometry.cpp
+    src/model/infrastructure/Roundabout.cpp
+    src/model/infrastructure/TrafficLight.cpp
+    src/model/vehicle/BusService.cpp
+    src/model/vehicle/BusSnapshot.cpp
+    src/model/vehicle/BusStop.cpp
+    src/model/vehicle/Vehicle.cpp
+    src/model/vehicle/VehicleFactory.cpp
+    src/model/vehicle/VehicleJunction.cpp
+    src/model/vehicle/VehicleLaneChange.cpp
+    src/model/vehicle/VehicleMovement.cpp
+    src/model/vehicle/VehiclePOI.cpp
+    src/model/vehicle/VehicleSignaling.cpp
+    src/model/vehicle/components/CarFollowingModel.cpp
+    src/model/vehicle/components/JunctionTraversalState.cpp
+    src/model/vehicle/components/LaneChangePolicy.cpp
+    src/model/vehicle/components/RouteFollower.cpp
+    src/model/vehicle/components/VehicleBehavior.cpp
+    src/model/vehicle/components/VehicleDynamics.cpp
+    src/simulation/BusTripPlanner.cpp
+    src/simulation/EventManager.cpp
+    src/simulation/SnapshotManager.cpp
+    src/simulation/StatisticsManager.cpp
+    src/simulation/TimePlaybackController.cpp
+    src/simulation/TrafficSimulator.cpp
+    src/simulation/VehicleSpawnPolicy.cpp
+    src/ui/DebugConsole.cpp
+    src/ui/DebugConsoleAccident.cpp
+    src/ui/DebugConsoleAddRoad.cpp
+    src/ui/DebugConsoleAlgorithm.cpp
+    src/ui/DebugConsoleSpawnVehicle.cpp
+    src/ui/DebugConsoleTopBar.cpp
+    src/ui/DebugConsoleTrafficLight.cpp
+    src/ui/MapFileDialog.cpp
+    src/ui/StatsPanel.cpp
+    src/ui/UiTheme.cpp
+    src/ui/VehicleInspector.cpp
+    src/visualization/Camera.cpp
+    src/visualization/Rendering.cpp
+    src/visualization/SimulatorFactory.cpp
+    src/visualization/VehicleAssets.cpp
+    src/visualization/VehicleSprite.cpp
+    src/visualization/VisualizationEngine.cpp
+    src/visualization/VisualizationEngineGeometry.cpp
+    src/visualization/VisualizationEngineOverlays.cpp
+    src/visualization/VisualizationEngineSidewalks.cpp
 )
 
 add_library(urban_core STATIC ${CORE_SOURCE_FILES})

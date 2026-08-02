@@ -470,6 +470,9 @@ public:
                 BusTripState::WaitingAtOrigin) {
             tripState_ = BusTripState::Departing;
         }
+        if (currentRoad != nullptr && nextStop == nullptr) {
+            refreshNextStop();
+        }
         Vehicle::update(dt, graph, strategy, allowDynamicReroute);
         if (service_ != nullptr &&
             currentRoad != nullptr &&

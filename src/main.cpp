@@ -483,7 +483,9 @@ int main(int argc, char** argv) {
         ImGui::GetIO().FontDefault = ImGui::GetIO().Fonts->AddFontDefault(&fallbackConfig);
         std::cout << "Using fallback ImGui font" << std::endl;
     }
-    ImGui::SFML::UpdateFontTexture();
+    if (!ImGui::SFML::UpdateFontTexture()) {
+        std::cerr << "Warning: failed to update ImGui font texture." << std::endl;
+    }
 
     Graph graph;
     VisualizationEngine visualization({windowW, windowH});
