@@ -180,11 +180,29 @@ void VehicleInspector::draw(TrafficSimulator* simulator,
         // --- 1. Origin / Destination ---
         Intersection* origin = vehicle->getSpawnPoint();
         Intersection* dest = vehicle->getDestination();
-        PointOfInterest* originPOI =
+        const PointOfInterest* originPOI =
             vehicle->getSpawnPOI();
-        PointOfInterest* destinationPOI =
+        const PointOfInterest* destinationPOI =
             vehicle->getTargetPOI();
-        if (originPOI != nullptr) {
+        const Bus* transitBus = nullptr;
+        if (vehicle->getVehicleKind() ==
+                VehicleKind::Bus) {
+            const auto& bus =
+                static_cast<const Bus&>(*vehicle);
+            if (bus.hasTransitService()) {
+                transitBus = &bus;
+            }
+        }
+
+        if (transitBus != nullptr) {
+            const BusStation* station =
+                transitBus->getOriginStation();
+            ImGui::Text(
+                "Origin:      Bus Station %s - %s (#%d)",
+                station->getCode().c_str(),
+                station->getName().c_str(),
+                station->getId());
+        } else if (originPOI != nullptr) {
             ImGui::Text(
                 "Origin:      %s (#%d)",
                 originPOI->getName().c_str(),
@@ -194,7 +212,15 @@ void VehicleInspector::draw(TrafficSimulator* simulator,
                 "Origin:      intersection #%d",
                 origin ? origin->getId() : -1);
         }
-        if (destinationPOI != nullptr) {
+        if (transitBus != nullptr) {
+            const BusStation* station =
+                transitBus->getDestinationStation();
+            ImGui::Text(
+                "Destination: Bus Station %s - %s (#%d)",
+                station->getCode().c_str(),
+                station->getName().c_str(),
+                station->getId());
+        } else if (destinationPOI != nullptr) {
             ImGui::Text(
                 "Destination: %s (#%d)",
                 destinationPOI->getName().c_str(),
@@ -222,12 +248,6 @@ void VehicleInspector::draw(TrafficSimulator* simulator,
                     "Trip state: %s",
                     busTripStateLabel(
                         bus.getTripState()));
-                ImGui::Text(
-                    "Stations: %s -> %s",
-                    bus.getOriginStation()->
-                        getCode().c_str(),
-                    bus.getDestinationStation()->
-                        getCode().c_str());
                 ImGui::Text(
                     "Next stop: %s",
                     nextStop != nullptr

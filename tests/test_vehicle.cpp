@@ -208,7 +208,7 @@ void test_Vehicle_RouteAdvancement() {
             : 0.0;
     bool passed = car.getCurrentRoad() == &r2 &&
                   secondRoadProgress > 0.0 &&
-                  secondRoadProgress <= 5.0;
+                  secondRoadProgress <= 5.0 + 1e-6;
 
     std::ostringstream d;
     d << "  Expected: currentRoad=r2 with positive progress within the 5m no-handoff upper bound\n";

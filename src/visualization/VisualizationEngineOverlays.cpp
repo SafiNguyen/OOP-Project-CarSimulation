@@ -1224,7 +1224,54 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
             text.setFillColor(sf::Color::White);
             text.setOutlineColor(sf::Color::Black);
             text.setOutlineThickness(1.0f);
-            text.setPosition(pos.x + 8.0f, pos.y - 6.0f);
+            sf::Vector2f roadAnchor = pos;
+            if (const Road* road =
+                    poi->getConnectedRoad()) {
+                const int accessLane =
+                    poi->getAccessLaneIndex() >= 0
+                        ? poi->getAccessLaneIndex()
+                        : road->getCurbLaneIndex();
+                const auto accessPath =
+                    RoadGeometry::makeRoadAccessPath(
+                        *road,
+                        accessLane,
+                        poi->getProgressOffset(),
+                        {poi->getX(), poi->getY()});
+                roadAnchor = worldToScreen(
+                    accessPath.curb.x,
+                    accessPath.curb.y);
+            }
+            sf::Vector2f labelDirection =
+                pos - roadAnchor;
+            if (poi->isLabelOnLeft()) {
+                labelDirection = {-1.0f, 0.0f};
+            }
+
+            constexpr float labelGap = 8.0f;
+            const sf::FloatRect bounds =
+                text.getLocalBounds();
+            sf::Vector2f labelPosition;
+            if (std::fabs(labelDirection.x) >=
+                std::fabs(labelDirection.y)) {
+                labelPosition.x =
+                    labelDirection.x < 0.0f
+                        ? pos.x - labelGap -
+                              bounds.left - bounds.width
+                        : pos.x + labelGap - bounds.left;
+                labelPosition.y =
+                    pos.y - bounds.top -
+                    bounds.height * 0.5f;
+            } else {
+                labelPosition.x =
+                    pos.x - bounds.left -
+                    bounds.width * 0.5f;
+                labelPosition.y =
+                    labelDirection.y < 0.0f
+                        ? pos.y - labelGap -
+                              bounds.top - bounds.height
+                        : pos.y + labelGap - bounds.top;
+            }
+            text.setPosition(labelPosition);
             target.draw(text);
         }
     }

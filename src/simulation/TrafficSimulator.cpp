@@ -729,7 +729,7 @@ bool TrafficSimulator::resolveRoute(
 
     PointOfInterest* origin =
         vehicle->getSpawnPOI();
-    PointOfInterest* destination =
+    const PointOfInterest* destination =
         vehicle->getTargetPOI();
     Road* originRoad =
         origin != nullptr

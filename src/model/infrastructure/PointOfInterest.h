@@ -44,6 +44,7 @@ protected:
     double destinationWeight;
     double spawnCooldownSeconds;
     bool explicitRoadAccess;
+    bool labelOnLeft;
 
 public:
     PointOfInterest(int id, const std::string& name, POIType type,
@@ -52,7 +53,8 @@ public:
           nearestIntersection(nearest), connectedRoad(nullptr),
           progressOffset(0.0), accessLaneIndex(-1),
           spawnWeight(1.0), destinationWeight(1.0),
-          spawnCooldownSeconds(1.0), explicitRoadAccess(false) {}
+          spawnCooldownSeconds(1.0), explicitRoadAccess(false),
+          labelOnLeft(false) {}
 
     virtual ~PointOfInterest() = default;
 
@@ -72,6 +74,7 @@ public:
         return spawnCooldownSeconds;
     }
     bool hasExplicitRoadAccess() const { return explicitRoadAccess; }
+    bool isLabelOnLeft() const { return labelOnLeft; }
 
     void setNearestIntersection(Intersection* i) { nearestIntersection = i; }
     void setConnectedRoad(Road* r) { connectedRoad = r; }
@@ -86,6 +89,7 @@ public:
     void setSpawnCooldownSeconds(double seconds) {
         spawnCooldownSeconds = seconds;
     }
+    void setLabelOnLeft(bool enabled) { labelOnLeft = enabled; }
     void configureRoadAccess(Road* road,
                              double progressMetres,
                              int laneIndex = -1) {

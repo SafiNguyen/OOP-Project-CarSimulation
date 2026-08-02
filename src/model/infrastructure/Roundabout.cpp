@@ -94,10 +94,16 @@ bool Roundabout::canEnterMovement(
     double vehicleWidthMetres) const {
     if (occupants_.count(vehicleId) > 0) return true;
     if (connector == nullptr ||
-        static_cast<int>(occupants_.size()) >= getCapacity()) {
+        static_cast<int>(occupants_.size()) >= getCapacity() ||
+        isEmergencyAdmissionBlocked(
+            vehicleId, connector->getIncomingRoad())) {
         return false;
     }
 
+    // Keep the roundabout-specific merge-gap calculation below, but first
+    // honour the common junction admission rules. In particular, an active
+    // emergency approach must stop new traffic from other entrances while
+    // vehicles already circulating are allowed to clear the roundabout.
     const Pose2D mergePose = connector->sampleByDistance(0.0);
     const double scale =
         RoadGeometry::metresPerWorldUnit(*this);

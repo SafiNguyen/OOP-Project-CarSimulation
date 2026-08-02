@@ -128,10 +128,10 @@ void Vehicle::tryLaneChange(double freeFlowSpeed) {
         const double signalLeadTime = hasTrafficPriority()
             ? PRIORITY_SIGNAL_LEAD_TIME_SECONDS
             : MIN_SIGNAL_LEAD_TIME_SECONDS;
-        // if (laneChangeSignalElapsedSeconds_ + 1e-9 < signalLeadTime) {
-        //     laneChangeState_ = LaneChangeState::Signaling;
-        //     return;
-        // }
+        if (laneChangeSignalElapsedSeconds_ + 1e-9 < signalLeadTime) {
+            laneChangeState_ = LaneChangeState::Signaling;
+            return;
+        }
         laneChangeState_ = LaneChangeState::WaitingForGap;
         currentRoad->getLane(currentLaneIndex).removeVehicle(this);
         const Pose2D fromPose = RoadGeometry::sampleLane(
@@ -178,11 +178,11 @@ void Vehicle::tryYieldLaneChange() {
         requestLaneChange(
             bestCandidate.laneIndex,
             TurnSignalReason::LaneChange);
-        // if (laneChangeSignalElapsedSeconds_ + 1e-9 <
-        //     MIN_SIGNAL_LEAD_TIME_SECONDS) {
-        //     laneChangeState_ = LaneChangeState::Signaling;
-        //     return;
-        // }
+        if (laneChangeSignalElapsedSeconds_ + 1e-9 <
+            MIN_SIGNAL_LEAD_TIME_SECONDS) {
+            laneChangeState_ = LaneChangeState::Signaling;
+            return;
+        }
         laneChangeState_ = LaneChangeState::WaitingForGap;
         currentRoad->getLane(currentLaneIndex).removeVehicle(this);
         const Pose2D fromPose = RoadGeometry::sampleLane(

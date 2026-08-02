@@ -690,13 +690,13 @@ bool Vehicle::tryRequiredLaneChange(
     }
 
     requestLaneChange(requiredLaneIndex, reason);
-    // const double signalLeadTime = hasTrafficPriority()
-    //     ? PRIORITY_SIGNAL_LEAD_TIME_SECONDS
-    //     : MIN_SIGNAL_LEAD_TIME_SECONDS;
-    // if (laneChangeSignalElapsedSeconds_ + 1e-9 < signalLeadTime) {
-    //     laneChangeState_ = LaneChangeState::Signaling;
-    //     return false;
-    // }
+    const double signalLeadTime = hasTrafficPriority()
+        ? PRIORITY_SIGNAL_LEAD_TIME_SECONDS
+        : MIN_SIGNAL_LEAD_TIME_SECONDS;
+    if (laneChangeSignalElapsedSeconds_ + 1e-9 < signalLeadTime) {
+        laneChangeState_ = LaneChangeState::Signaling;
+        return false;
+    }
     laneChangeState_ = LaneChangeState::WaitingForGap;
     const int adjacentLane = currentLaneIndex +
         (requiredLaneIndex > currentLaneIndex ? 1 : -1);
