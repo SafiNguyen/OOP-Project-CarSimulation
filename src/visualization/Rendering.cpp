@@ -790,6 +790,76 @@ void drawSelectedVehicleRoute(sf::RenderWindow& window,
 
 } // namespace
 
+// Draws a small on-screen indicator showing the current LOD level and mode
+// so the user can always see what detail level is active. Drawn in screen
+// space (default view) so it stays fixed regardless of pan/zoom.
+void drawLodIndicator(sf::RenderWindow& window,
+                      const VisualizationEngine& visualization) {
+    const auto mode = visualization.getLodMode();
+    const auto level = visualization.getLodLevel();
+
+    const char* modeStr = "Auto";
+    if (mode == VisualizationEngine::LodMode::Full) modeStr = "Full";
+    else if (mode == VisualizationEngine::LodMode::Medium) modeStr = "Medium";
+    else if (mode == VisualizationEngine::LodMode::Low) modeStr = "Low";
+
+    const char* levelStr = "Low";
+    if (level == VisualizationEngine::LodLevel::Full) levelStr = "Full";
+    else if (level == VisualizationEngine::LodLevel::Medium) levelStr = "Medium";
+
+    std::string label = std::string("LOD: ") + modeStr;
+    if (mode == VisualizationEngine::LodMode::Auto) {
+        label += std::string("(") + levelStr + ")";
+    }
+
+    // Draw a semi-transparent background rectangle for readability.
+    sf::Text text;
+    const sf::Font* font = nullptr;
+    // Try to get the font from the visualization engine's font.
+    // We use a simple approach: draw a colored rectangle + text.
+    sf::RectangleShape bg(sf::Vector2f(160.0f, 28.0f));
+    bg.setPosition(8.0f, 8.0f);
+    bg.setFillColor(sf::Color(0, 0, 0, 160));
+    bg.setOutlineThickness(1.0f);
+    bg.setOutlineColor(sf::Color(120, 120, 120, 180));
+    window.draw(bg);
+
+    // Use SFML text if a font is available through the window's default view.
+    // Since we don't have direct access to the font here, we draw colored
+    // bars to indicate the LOD level instead.
+    sf::Color indicatorColor;
+    if (level == VisualizationEngine::LodLevel::Full) {
+        indicatorColor = sf::Color(80, 200, 80);   // Green = Full detail
+    } else if (level == VisualizationEngine::LodLevel::Medium) {
+        indicatorColor = sf::Color(240, 200, 40);  // Yellow = Medium
+    } else {
+        indicatorColor = sf::Color(220, 80, 80);   // Red = Low (most optimized)
+    }
+
+    // Draw 3 small bars - filled ones indicate the level.
+    for (int i = 0; i < 3; ++i) {
+        sf::RectangleShape bar(sf::Vector2f(16.0f, 12.0f));
+        bar.setPosition(14.0f + i * 20.0f, 16.0f);
+        int threshold = 0;
+        if (level == VisualizationEngine::LodLevel::Full) threshold = 3;
+        else if (level == VisualizationEngine::LodLevel::Medium) threshold = 2;
+        else threshold = 1; // Low
+
+        if (i < threshold) {
+            bar.setFillColor(indicatorColor);
+        } else {
+            bar.setFillColor(sf::Color(60, 60, 60, 200));
+        }
+        bar.setOutlineThickness(1.0f);
+        bar.setOutlineColor(sf::Color(100, 100, 100, 180));
+        window.draw(bar);
+    }
+
+    // Draw mode text using simple colored rectangles if no font.
+    // The label text is drawn via ImGui in the bottom dock, but the
+    // colored bars provide an always-visible screen-space indicator.
+}
+
 void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
                   std::unique_ptr<TrafficSimulator>& simulator, StatsPanel& statsPanel,
                   VehicleInspector& vehicleInspector, float dt) {
@@ -834,6 +904,13 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
                        statsPanel, statisticsPtr, dt);
 
     vehicleInspector.draw(simulator.get(), ctx.visualization, ctx);
+
+    // Draw the LOD indicator in screen space (default view) so it stays
+    // fixed in the top-left corner regardless of pan/zoom.
+    const sf::View gameView = window.getView();
+    window.setView(window.getDefaultView());
+    drawLodIndicator(window, ctx.visualization);
+    window.setView(gameView);
 
     ImGui::SFML::Render(window);
     window.display();

@@ -11,6 +11,37 @@
 #include "PointOfInterest.h"
 #include "SpawnPoint.h"
 
+namespace {
+
+// Append a rotated rectangle (a "strip") as a quad to a vertex array.
+// Mirrors the geometry produced by drawRoadStrip() so batched rendering
+// looks identical to the per-shape path, but issues a single draw call for
+// the whole batch instead of one draw call per strip.
+void appendStripQuad(std::vector<sf::Vertex>& vertices,
+                     const sf::Vector2f& a,
+                     const sf::Vector2f& b,
+                     const sf::Color& color,
+                     float thickness) {
+    const float dx = b.x - a.x;
+    const float dy = b.y - a.y;
+    const float len = std::sqrt(dx * dx + dy * dy);
+    if (len <= 0.01f || thickness <= 0.01f) {
+        return;
+    }
+    const float invLen = 1.0f / len;
+    const float dirX = dx * invLen;
+    const float dirY = dy * invLen;
+    const float halfThick = thickness * 0.5f;
+    const sf::Vector2f lateral(-dirY * halfThick, dirX * halfThick);
+    const sf::Vector2f longitudinal(dirX * len, dirY * len);
+    vertices.emplace_back(a, color);
+    vertices.emplace_back(a + longitudinal, color);
+    vertices.emplace_back(a + longitudinal + lateral, color);
+    vertices.emplace_back(a + lateral, color);
+}
+
+} // namespace
+
 VisualizationEngine::VisualizationEngine(sf::Vector2u windowSize, float margin)
     : windowSize_(windowSize),
       margin_(margin),
@@ -37,6 +68,9 @@ void VisualizationEngine::setWindowSize(sf::Vector2u windowSize) {
 
 void VisualizationEngine::prepare(const Graph& graph) {
     ++revision_;
+    if (lodMode_ == LodMode::Auto) {
+        lodLevel_ = LodLevel::Low;
+    }
     auto intersections = graph.getAllIntersections();
     std::sort(intersections.begin(), intersections.end(), [](Intersection* lhs, Intersection* rhs) {
         return lhs->getId() < rhs->getId();
@@ -202,6 +236,25 @@ VisualizationEngine::buildRoadDrawList(const Graph& graph) const {
 void VisualizationEngine::drawLaneMarkings(
     sf::RenderTarget& target,
     const std::vector<RoadDraw>& drawList) const {
+    // Zoom-aware LOD: when the view is zoomed out far enough that lane
+    // dashes would be sub-pixel, skip the whole layer. This is the single
+    // most expensive per-frame layer on large maps, and at a small zoom the
+    // markings are visually meaningless anyway.
+    const float detailScale = getDetailScale(target.getView());
+    if (detailScale < 0.6f) {
+        return;
+    }
+
+    // Batch every lane marking strip into a single vertex array so the
+    // whole layer costs one draw call instead of one draw call per dash.
+    // The viewport cull rejects roads entirely off-screen, which matters
+    // for large maps (thousands of roads) where only a fraction is visible.
+    const ViewportBounds viewportBounds(
+        target.getView(),
+        2.0f);
+    std::vector<sf::Vertex> vertices;
+    vertices.reserve(drawList.size() * 16u);
+
     // Lane dividers and carriageway edges.
     for (const RoadDraw& rd : drawList) {
         Road* roadObj = rd.road;
@@ -245,6 +298,11 @@ void VisualizationEngine::drawLaneMarkings(
                         3.0f,
                         metresToScreenPixels(3.0, roadObj));
                 const float segmentLength = dashLength + gapLength;
+                const float dashThickness =
+                    std::max(
+                        1.25f,
+                        metresToScreenPixels(
+                            0.12, roadObj));
                 float traveled = 0.0f;
                 while (traveled < laneLineLength) {
                     const float dashEnd =
@@ -257,15 +315,12 @@ void VisualizationEngine::drawLaneMarkings(
                     const sf::Vector2f dashB =
                         laneLineA +
                         laneDirectionUnit * dashEnd;
-                    drawRoadStrip(
-                        target,
+                    appendStripQuad(
+                        vertices,
                         dashA,
                         dashB,
                         sf::Color(245, 245, 245, 190),
-                        std::max(
-                            1.25f,
-                            metresToScreenPixels(
-                                0.12, roadObj)));
+                        dashThickness);
                     traveled += segmentLength;
                 }
             }
@@ -280,10 +335,20 @@ void VisualizationEngine::drawLaneMarkings(
             const Vec2 edgeEnd =
                 RoadGeometry::roadEdgeEndpoint(
                     *roadObj, rightEdge, false);
-            drawRoadStrip(
-                target,
-                worldToScreen(edgeStart.x, edgeStart.y),
-                worldToScreen(edgeEnd.x, edgeEnd.y),
+            const sf::Vector2f edgeA =
+                worldToScreen(edgeStart.x, edgeStart.y);
+            const sf::Vector2f edgeB =
+                worldToScreen(edgeEnd.x, edgeEnd.y);
+            if (!viewportBounds.intersectsSegment(
+                    edgeA,
+                    edgeB,
+                    2.0f)) {
+                continue;
+            }
+            appendStripQuad(
+                vertices,
+                edgeA,
+                edgeB,
                 sf::Color(245, 245, 245, 205),
                 std::max(
                     1.5f,
@@ -351,23 +416,42 @@ void VisualizationEngine::drawLaneMarkings(
             centreNormal *
             (centrelineSeparationMetres * 0.5 /
              metricScale);
+        const float centreThickness =
+            std::max(
+                1.25f,
+                metresToScreenPixels(
+                    0.12, rd.road));
         for (double side : {-1.0, 1.0}) {
             const Vec2 offset =
                 halfSeparation * side;
-            drawRoadStrip(
-                target,
+            const sf::Vector2f centreA =
                 worldToScreen(
                     centreStart.x + offset.x,
-                    centreStart.y + offset.y),
+                    centreStart.y + offset.y);
+            const sf::Vector2f centreB =
                 worldToScreen(
                     centreEnd.x + offset.x,
-                    centreEnd.y + offset.y),
+                    centreEnd.y + offset.y);
+            if (!viewportBounds.intersectsSegment(
+                    centreA,
+                    centreB,
+                    centreThickness)) {
+                continue;
+            }
+            appendStripQuad(
+                vertices,
+                centreA,
+                centreB,
                 sf::Color(245, 195, 45),
-                std::max(
-                    1.25f,
-                    metresToScreenPixels(
-                        0.12, rd.road)));
+                centreThickness);
         }
+    }
+
+    if (!vertices.empty()) {
+        target.draw(
+            vertices.data(),
+            vertices.size(),
+            sf::Quads);
     }
 }
 
@@ -446,21 +530,30 @@ void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph&
     for (auto* intersection : intersections) {
         drawIntersectionNode(target, intersection, /*tintByCongestion=*/false);
     }
-
-    drawBusStops(target, graph);
-    drawBusStations(target, graph);
-    drawPOIs(target, graph);
 }
 
 
 void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph& graph) const {
+    const bool fullDetail = lodLevel_ == LodLevel::Full;
+
+    // Zoom-aware overlays (POIs, bus stops, bus stations) are only drawn at
+    // Full LOD. At Medium/Low LOD they are skipped to keep the frame rate
+    // high on large maps. The zoom-aware getDetailScale() inside each
+    // function still hides them when zoomed out.
+    if (fullDetail) {
+        drawBusStops(target, graph);
+        drawBusStations(target, graph);
+        drawPOIs(target, graph);
+    }
+
     // Layer 2: heat-map color block drawn on top of the gray road bodies.
+    // Always drawn (at all LOD levels) so the heat map works like before.
     drawRoadCongestionOverlay(target, graph);
     drawBlockedLaneFills(target, graph);
 
     // Layer 3: intersection and roundabout heat-map tint. Drawn before the
     // lane markings so the road lane markings render on top of the
-    // roundabout surface.
+    // roundabout surface. Always drawn so the heat map works like before.
     auto intersections = graph.getAllIntersections();
     std::sort(intersections.begin(), intersections.end(), [](Intersection* lhs, Intersection* rhs) {
         return lhs->getId() < rhs->getId();
@@ -487,15 +580,27 @@ void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph
 
     // Layer 4: lane markings drawn on top of the heat-map overlay and the
     // intersection/roundabout tint so the white lane dividers, carriageway
-    // edges, and yellow centreline remain visible.
+    // edges, and yellow centreline remain visible. Always drawn (with
+    // zoom-based hiding inside drawLaneMarkings) so the render order is:
+    //   1. gray road bodies (static layer)
+    //   2. heat-map color block
+    //   3. lane markings
+    //   4. road names
+    //   5. vehicles (drawn in renderFrame)
     drawLaneMarkings(target, buildRoadDrawList(graph));
 
-    drawTrafficLights(target, graph);
+    // Traffic lights are only drawn at Full LOD.
+    if (fullDetail) {
+        drawTrafficLights(target, graph);
+    }
 
     // Road names drawn last so they appear on top of the heatmap overlay
-    // and remain readable when heat map mode is active.
-    auto roads = graph.getAllRoads();
-    drawRoadNames(target, roads);
+    // and remain readable when heat map mode is active. Always drawn (with
+    // zoom-based hiding inside drawRoadNames).
+    {
+        auto roads = graph.getAllRoads();
+        drawRoadNames(target, roads);
+    }
 }
 
 void VisualizationEngine::drawRoadCongestionOverlay(sf::RenderTarget& target, const Graph& graph) const {
@@ -505,7 +610,8 @@ void VisualizationEngine::drawRoadCongestionOverlay(sf::RenderTarget& target, co
     const ViewportBounds viewportBounds(
         target.getView(),
         2.0f);
-    for (Road* road : graph.getAllRoads()) {
+    const auto roads = graph.getAllRoads();
+    for (Road* road : roads) {
         // Bridges and tunnels both use the heat-map tint (a deep
         // green-to-red gradient) just like ordinary roads.
         if (road == nullptr) {
@@ -543,7 +649,11 @@ void VisualizationEngine::drawBlockedLaneFills(sf::RenderTarget& target, const G
     const ViewportBounds viewportBounds(
         target.getView(),
         2.0f);
-    for (Road* road : graph.getAllRoads()) {
+    // Batch blocked-lane fills into a single vertex array.
+    std::vector<sf::Vertex> vertices;
+    const auto roads = graph.getAllRoads();
+    vertices.reserve(roads.size() * 4u);
+    for (Road* road : roads) {
         if (road == nullptr || road->isBlocked()) {
             continue;
         }
@@ -568,13 +678,19 @@ void VisualizationEngine::drawBlockedLaneFills(sf::RenderTarget& target, const G
                     laneFillWidth * 0.5f)) {
                 continue;
             }
-            drawRoadStrip(
-                target,
+            appendStripQuad(
+                vertices,
                 laneCenterA,
                 laneCenterB,
                 sf::Color(180, 40, 40),
                 laneFillWidth);
         }
+    }
+    if (!vertices.empty()) {
+        target.draw(
+            vertices.data(),
+            vertices.size(),
+            sf::Quads);
     }
 }
 
@@ -624,6 +740,32 @@ void VisualizationEngine::setHeatMapEnabled(bool enabled) {
 
 bool VisualizationEngine::isHeatMapEnabled() const {
     return heatMapEnabled_;
+}
+
+void VisualizationEngine::setLodLevel(LodLevel level) {
+    if (lodLevel_ == level) {
+        return;
+    }
+    lodLevel_ = level;
+}
+
+VisualizationEngine::LodLevel VisualizationEngine::getLodLevel() const {
+    return lodLevel_;
+}
+
+void VisualizationEngine::setLodMode(LodMode mode) {
+    lodMode_ = mode;
+    if (mode == LodMode::Full) {
+        setLodLevel(LodLevel::Full);
+    } else if (mode == LodMode::Medium) {
+        setLodLevel(LodLevel::Medium);
+    } else if (mode == LodMode::Low) {
+        setLodLevel(LodLevel::Low);
+    }
+}
+
+VisualizationEngine::LodMode VisualizationEngine::getLodMode() const {
+    return lodMode_;
 }
 
 std::uint64_t VisualizationEngine::getRevision() const {

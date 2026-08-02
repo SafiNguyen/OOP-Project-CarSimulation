@@ -573,8 +573,78 @@ int main(int argc, char** argv) {
 
     sf::Clock clock;
 
+    // Adaptive level-of-detail controller. Tracks a sliding window of frame
+    // times and adjusts the renderer's LOD based on measured performance.
+    //
+    // Design goals:
+    //   * The default LOD when a map loads is always Low (most optimized).
+    //     prepare() resets lodLevel_ to Low, and this controller picks that
+    //     up by syncing currentLod from the engine each frame.
+    //   * In Auto mode the controller only ever escalates to Medium — never
+    //     Full. Full LOD is exclusively a manual user choice (via the LOD
+    //     button in the bottom dock). This prevents the "LOD bumps to Full,
+    //     FPS collapses, LOD drops back" oscillation that previously left
+    //     bus stops / POIs / traffic lights / road names permanently visible.
+    //   * Hysteresis: the restore threshold (58 FPS) is deliberately very
+    //     close to the 60 FPS frame-rate cap so the controller only escalates
+    //     when performance is genuinely and consistently high.
+    constexpr int kLodWindowFrames = 30;
+    constexpr float kLodDropFps = 35.0f;
+    constexpr float kLodRestoreFps = 58.0f;
+    std::vector<float> lodFrameTimes;
+    lodFrameTimes.reserve(kLodWindowFrames);
+    VisualizationEngine::LodLevel currentLod =
+        VisualizationEngine::LodLevel::Low;
+    visualization.setLodLevel(VisualizationEngine::LodLevel::Low);
+
     while (window.isOpen()) {
         const float dt = clock.restart().asSeconds();
+
+        // Update the FPS sliding window and adapt the LOD level if in Auto mode.
+        if (dt > 0.0f) {
+            lodFrameTimes.push_back(dt);
+            if (static_cast<int>(lodFrameTimes.size()) >
+                kLodWindowFrames) {
+                lodFrameTimes.erase(lodFrameTimes.begin());
+            }
+            float averageFrameTime = 0.0f;
+            for (const float frameTime : lodFrameTimes) {
+                averageFrameTime += frameTime;
+            }
+            averageFrameTime /=
+                static_cast<float>(lodFrameTimes.size());
+            const float averageFps =
+                averageFrameTime > 0.0f
+                    ? 1.0f / averageFrameTime
+                    : 999.0f;
+
+            if (visualization.getLodMode() ==
+                VisualizationEngine::LodMode::Auto) {
+                // Sync with the engine so that prepare() resetting lodLevel_
+                // to Low on map load is immediately reflected here.
+                currentLod = visualization.getLodLevel();
+
+                if (averageFps < kLodDropFps &&
+                    currentLod !=
+                        VisualizationEngine::LodLevel::Low) {
+                    // Drop one step: Medium -> Low. (Full is never reached
+                    // in Auto mode, so no Full -> Medium transition here.)
+                    currentLod =
+                        VisualizationEngine::LodLevel::Low;
+                    visualization.setLodLevel(currentLod);
+                } else if (averageFps > kLodRestoreFps &&
+                           currentLod ==
+                               VisualizationEngine::LodLevel::Low) {
+                    // Escalate one step: Low -> Medium. Auto mode never
+                    // goes to Full -- that is reserved for manual selection.
+                    currentLod =
+                        VisualizationEngine::LodLevel::Medium;
+                    visualization.setLodLevel(currentLod);
+                }
+            } else {
+                currentLod = visualization.getLodLevel();
+            }
+        }
 
         sf::Event event;
         while (window.pollEvent(event)) {

@@ -21,12 +21,67 @@ float VisualizationEngine::metresToScreenPixels(
     const double naturalPixelsPerMetre =
         referenceRoad != nullptr
             ? scale_ / std::max(
-                  1e-6,
-                  RoadGeometry::metresPerWorldUnit(*referenceRoad))
+                   1e-6,
+                   RoadGeometry::metresPerWorldUnit(*referenceRoad))
             : scale_;
     return static_cast<float>(
         std::fabs(metres) *
         naturalPixelsPerMetre);
+}
+
+float VisualizationEngine::getDetailScale(
+    const sf::View& view) const {
+    // The view size is windowSize * zoomFactor. At the default zoom the
+    // view spans the whole window, so the ratio of the window size to the
+    // current view size gives 1.0 at default zoom, >1.0 when zoomed in
+    // (smaller view), and <1.0 when zoomed out (larger view). Clamp so
+    // overlays never grow unboundedly when zoomed in very far.
+    const float viewWidth = std::abs(view.getSize().x);
+    const float viewHeight = std::abs(view.getSize().y);
+    const float windowWidth =
+        static_cast<float>(std::max(1u, windowSize_.x));
+    const float windowHeight =
+        static_cast<float>(std::max(1u, windowSize_.y));
+    const float scaleX = windowWidth / std::max(1.0f, viewWidth);
+    const float scaleY = windowHeight / std::max(1.0f, viewHeight);
+    float scale = std::clamp(std::min(scaleX, scaleY), 0.0f, 50.0f);
+
+    // Map-density awareness: for large maps like VNU HCM (where scale_ is
+    // small because a huge world area is fitted onto screen), lower the base
+    // detail scale so dense labels naturally hide at overview zoom levels,
+    // and reveal themselves when zooming in.
+    constexpr double kReferencePixelScale = 2.0;
+    if (scale_ > 0.0 && scale_ < kReferencePixelScale) {
+        const float densityFactor = std::clamp(
+            static_cast<float>(scale_ / kReferencePixelScale),
+            0.25f,
+            1.0f);
+        scale *= densityFactor;
+    }
+
+    // When the adaptive LOD has dropped the detail level, lower the effective
+    // zoom scale so zoom-based hide thresholds trigger sooner. However, the
+    // heat map, lane markings, and road names are always drawn (regardless
+    // of LOD level) and rely on this scale for zoom-based hiding. So at Low
+    // LOD we use a mild penalty instead of forcing 0.0 -- this lets lane
+    // markings and road names still show when zoomed in, while hiding them
+    // when zoomed out. The expensive overlays (bus stops, POIs, traffic
+    // lights) are gated by the `fullDetail` check in drawDynamicLayer, not
+    // by this scale.
+    if (lodLevel_ == LodLevel::Medium) {
+        scale *= 0.4f;
+    } else if (lodLevel_ == LodLevel::Low) {
+        scale *= 0.3f;
+    }
+
+    // At Full LOD, apply a mild penalty when zoomed out so that overlays
+    // (bus stops, POIs, traffic lights, road names) still hide when the
+    // user zooms out, even though the LOD level itself hasn't changed.
+    if (lodLevel_ == LodLevel::Full && scale < 1.0f) {
+        scale *= 0.6f;
+    }
+
+    return scale;
 }
 
 sf::Color VisualizationEngine::mixColor(const sf::Color& a, const sf::Color& b, float t) {

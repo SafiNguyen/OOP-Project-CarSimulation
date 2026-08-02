@@ -293,7 +293,7 @@ void DebugConsole::drawBottomDock(sf::RenderWindow& window,
         ImGuiWindowFlags_NoScrollWithMouse;
 
     if (ImGui::Begin("##bottom_control_dock", nullptr, flags)) {
-        const int itemCount = narrow ? 4 : (wide ? 7 : 6);
+        const int itemCount = narrow ? 4 : (wide ? 8 : 7);
         const float gap = 6.0f;
         const float itemWidth = std::max(58.0f,
             (ImGui::GetContentRegionAvail().x - gap * static_cast<float>(itemCount - 1))
@@ -379,7 +379,27 @@ void DebugConsole::drawBottomDock(sf::RenderWindow& window,
                 visualization_.setHeatMapEnabled(heatMapEnabled);
             }
             UiTheme::tooltip("Toggle traffic-density heatmap");
+            next();
 
+            const auto currentMode = visualization_.getLodMode();
+            const auto currentLevel = visualization_.getLodLevel();
+            std::string lodLabel = "LOD: Auto";
+            if (currentMode == VisualizationEngine::LodMode::Full) lodLabel = "LOD: Full";
+            else if (currentMode == VisualizationEngine::LodMode::Medium) lodLabel = "LOD: Med";
+            else if (currentMode == VisualizationEngine::LodMode::Low) lodLabel = "LOD: Low";
+            else {
+                if (currentLevel == VisualizationEngine::LodLevel::Medium) lodLabel = "LOD: Auto(M)";
+                else if (currentLevel == VisualizationEngine::LodLevel::Low) lodLabel = "LOD: Auto(L)";
+                else lodLabel = "LOD: Auto(F)";
+            }
+
+            if (ImGui::Button(lodLabel.c_str(), buttonSize)) {
+                if (currentMode == VisualizationEngine::LodMode::Auto) visualization_.setLodMode(VisualizationEngine::LodMode::Full);
+                else if (currentMode == VisualizationEngine::LodMode::Full) visualization_.setLodMode(VisualizationEngine::LodMode::Medium);
+                else if (currentMode == VisualizationEngine::LodMode::Medium) visualization_.setLodMode(VisualizationEngine::LodMode::Low);
+                else visualization_.setLodMode(VisualizationEngine::LodMode::Auto);
+            }
+            UiTheme::tooltip("Level of Detail: Auto -> Full -> Med -> Low");
             next();
         } else {
             // narrow mode: no Map button

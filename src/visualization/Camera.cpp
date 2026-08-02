@@ -126,7 +126,7 @@ bool isFollowingVehicle(const AppContext& ctx, int vehicleId) {
 
 void zoomBy(AppContext& ctx, float factor) {
     const float oldZoomFactor = ctx.zoomFactor;
-    const float newZoomFactor = std::clamp(oldZoomFactor * factor, 0.35f, 2.5f);
+    const float newZoomFactor = std::clamp(oldZoomFactor * factor, 0.02f, 5.0f);
     if (std::abs(newZoomFactor - oldZoomFactor) < 0.0001f) {
         return;
     }
@@ -138,7 +138,7 @@ void zoomBy(AppContext& ctx, float factor) {
 
 void zoomBy(AppContext& ctx, float factor, sf::Vector2f zoomCenter) {
     const float oldZoomFactor = ctx.zoomFactor;
-    const float newZoomFactor = std::clamp(oldZoomFactor * factor, 0.35f, 2.5f);
+    const float newZoomFactor = std::clamp(oldZoomFactor * factor, 0.02f, 5.0f);
     if (std::abs(newZoomFactor - oldZoomFactor) < 0.0001f) {
         return;
     }

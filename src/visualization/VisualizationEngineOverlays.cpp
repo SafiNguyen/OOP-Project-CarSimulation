@@ -233,6 +233,26 @@ void drawSevenSegmentNumber(
 } // namespace
 
 void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& graph) const {
+    // Zoom-aware LOD: the sign/pole scale with the view so they stay
+    // proportional to the road they sit on, and the whole stop is hidden
+    // once the view is zoomed out past a threshold to avoid cluttering the
+    // map with hundreds of tiny markers.
+    const float detailScale = getDetailScale(target.getView());
+    if (detailScale < 0.35f) {
+        return;
+    }
+    // Cap the detail scale so markers never grow unboundedly when zooming
+    // in very far. The base sizes are tuned for detailScale ~1.0.
+    const float cappedScale = std::min(detailScale, 1.5f);
+    const float signWidth = 8.0f * cappedScale;
+    const float signHeight = 7.0f * cappedScale;
+    const float poleWidth = 1.25f * cappedScale;
+    const float poleHeight = 0.0f * cappedScale;
+    const float markerOffset = 4.5f * cappedScale;
+    const float outlineThickness = std::max(0.5f, 1.0f * cappedScale);
+    const unsigned int labelSize = static_cast<unsigned int>(
+        std::clamp(5.0f * cappedScale, 2.5f, 6.0f));
+
     for (const Road* road : graph.getAllRoads()) {
         if (road == nullptr || road->getStart() == nullptr || road->getEnd() == nullptr) {
             continue;
@@ -266,25 +286,23 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
             const sf::Vector2f roadEdge =
                 laneCenter + normal * (edgeDirection * laneWidth * 0.5f);
             const sf::Vector2f markerPos =
-                roadEdge + normal * (edgeDirection * 9.0f);
+                roadEdge + normal * (edgeDirection * markerOffset);
 
             drawRoadStrip(
                 target, roadEdge, markerPos,
-                sf::Color(225, 235, 245), 2.5f);
+                sf::Color(225, 235, 245), 2.5f * detailScale);
 
-            sf::RectangleShape pole({2.5f, 8.0f});
-            pole.setOrigin(1.25f, 0.0f);
-            pole.setPosition(markerPos.x, markerPos.y + 5.0f);
+            sf::RectangleShape pole({poleWidth, poleHeight});
+            pole.setOrigin(poleWidth * 0.5f, 0.0f);
+            pole.setPosition(markerPos.x, markerPos.y + poleHeight * 0.6f);
             pole.setFillColor(sf::Color(225, 235, 245));
             target.draw(pole);
 
-            constexpr float signWidth = 16.0f;
-            constexpr float signHeight = 14.0f;
             sf::RectangleShape sign({signWidth, signHeight});
             sign.setOrigin(signWidth * 0.5f, signHeight * 0.5f);
             sign.setPosition(markerPos);
             sign.setFillColor(sf::Color(35, 145, 230));
-            sign.setOutlineThickness(2.0f);
+            sign.setOutlineThickness(outlineThickness);
             sign.setOutlineColor(sf::Color::White);
             target.draw(sign);
 
@@ -297,7 +315,7 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
                 number.setFont(*font_);
                 number.setString(stopCode);
                 number.setCharacterSize(
-                    stopCode.size() <= 2u ? 10u : 8u);
+                    stopCode.size() <= 2u ? labelSize : labelSize - 2u);
                 number.setStyle(sf::Text::Bold);
                 number.setFillColor(sf::Color::White);
                 const sf::FloatRect bounds =
@@ -336,12 +354,25 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
 }
 
 void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Graph& graph) const {
+    // Zoom-aware LOD: traffic lights are hidden once the view is zoomed out
+    // past a threshold. With thousands of intersections, drawing every
+    // signal at a small zoom is both visually cluttered and expensive.
+    const float detailScale = getDetailScale(target.getView());
+    if (detailScale < 0.5f) {
+        return;
+    }
+
     const ViewportBounds viewportBounds(
         target.getView(),
         2.0f);
     for (const Intersection* intersection :
          graph.getAllIntersections()) {
         if (intersection == nullptr) continue;
+        const sf::Vector2f interPos =
+            worldToScreen(intersection->getX(), intersection->getY());
+        if (!viewportBounds.containsPoint(interPos, 150.0f)) {
+            continue;
+        }
         for (const Road* road :
              intersection->getIncomingRoads()) {
             const TrafficLight* light =
@@ -545,38 +576,45 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                 sf::Color(225, 230, 235));
             target.draw(countdownBox);
 
-            const int displayedSeconds =
-                static_cast<int>(std::ceil(
-                    std::max(
-                        0.0,
-                        light->getRemainingSeconds() -
-                            1e-9)));
-            if (font_) {
-                sf::Text countdownText;
-                countdownText.setFont(*font_);
-                countdownText.setString(
-                    std::to_string(displayedSeconds));
-                countdownText.setCharacterSize(
-                    static_cast<unsigned int>(
-                        std::max(8.0f, countdownSize * 0.7f)));
-                countdownText.setStyle(sf::Text::Bold);
-                countdownText.setFillColor(lightColor(state));
-                const sf::FloatRect bounds =
-                    countdownText.getLocalBounds();
-                countdownText.setOrigin(
-                    bounds.left + bounds.width * 0.5f,
-                    bounds.top + bounds.height * 0.5f);
-                countdownText.setPosition(
-                    std::round(countdownCenter.x),
-                    std::round(countdownCenter.y));
-                target.draw(countdownText);
-            } else {
-                drawSevenSegmentNumber(
-                    target,
-                    displayedSeconds,
-                    countdownCenter,
-                    countdownSize,
-                    lightColor(state));
+            // The countdown text is the most expensive part of each signal
+            // (per-frame text layout). At Medium/Low LOD we keep the lamp
+            // housing but drop the countdown to save per-frame work.
+            if (lodLevel_ == LodLevel::Full) {
+                const int displayedSeconds =
+                    static_cast<int>(std::ceil(
+                        std::max(
+                            0.0,
+                            light->getRemainingSeconds() -
+                                1e-9)));
+                if (detailScale >= 0.7f) {
+                    if (font_) {
+                        sf::Text countdownText;
+                        countdownText.setFont(*font_);
+                        countdownText.setString(
+                            std::to_string(displayedSeconds));
+                        countdownText.setCharacterSize(
+                            static_cast<unsigned int>(
+                                std::max(8.0f, countdownSize * 0.7f)));
+                        countdownText.setStyle(sf::Text::Bold);
+                        countdownText.setFillColor(lightColor(state));
+                        const sf::FloatRect bounds =
+                            countdownText.getLocalBounds();
+                        countdownText.setOrigin(
+                            bounds.left + bounds.width * 0.5f,
+                            bounds.top + bounds.height * 0.5f);
+                        countdownText.setPosition(
+                            std::round(countdownCenter.x),
+                            std::round(countdownCenter.y));
+                        target.draw(countdownText);
+                    } else {
+                        drawSevenSegmentNumber(
+                            target,
+                            displayedSeconds,
+                            countdownCenter,
+                            countdownSize,
+                            lightColor(state));
+                    }
+                }
             }
         }
     }
@@ -585,6 +623,25 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
 void VisualizationEngine::drawBusStations(
     sf::RenderTarget& target,
     const Graph& graph) const {
+    // Zoom-aware LOD: the terminal marker scales with the view so it stays
+    // proportional to the road it sits on, and the label is hidden once the
+    // view is zoomed out past a threshold.
+    const float detailScale = getDetailScale(target.getView());
+    if (detailScale < 0.35f) {
+        return;
+    }
+
+    const float cappedScale = std::min(detailScale, 1.5f);
+    const float terminalWidth = 7.0f * cappedScale;
+    const float terminalHeight = 5.0f * cappedScale;
+    const float bayWidth = 3.0f * cappedScale;
+    const float bayHeight = 1.5f * cappedScale;
+    const float outlineThickness = std::max(0.25f, 0.75f * cappedScale);
+    const unsigned int labelSize = static_cast<unsigned int>(
+        std::clamp(4.0f * cappedScale, 2.5f, 5.0f));
+    const bool showLabel = detailScale >= 0.25f;
+
+    const ViewportBounds viewportBounds(target.getView(), 10.0f);
     for (const BusStation* station :
          graph.getAllBusStations()) {
         if (station == nullptr ||
@@ -592,31 +649,34 @@ void VisualizationEngine::drawBusStations(
             continue;
         }
 
-        const Road* departureRoad =
-            station->getDepartureRoad();
         const sf::Vector2f marker =
             worldToScreen(
                 station->getX(),
                 station->getY());
+        if (!viewportBounds.containsPoint(marker, terminalWidth + 50.0f)) {
+            continue;
+        }
+
+        const Road* departureRoad = station->getDepartureRoad();
 
         sf::RectangleShape terminal(
-            {22.0f, 16.0f});
-        terminal.setOrigin(11.0f, 8.0f);
+            {terminalWidth, terminalHeight});
+        terminal.setOrigin(terminalWidth * 0.5f, terminalHeight * 0.5f);
         terminal.setPosition(marker);
         terminal.setFillColor(
             sf::Color(35, 185, 105));
-        terminal.setOutlineThickness(2.0f);
+        terminal.setOutlineThickness(outlineThickness);
         terminal.setOutlineColor(sf::Color::White);
         target.draw(terminal);
 
         sf::RectangleShape bay(
-            {9.0f, 4.0f});
-        bay.setOrigin(4.5f, 2.0f);
+            {bayWidth, bayHeight});
+        bay.setOrigin(bayWidth * 0.5f, bayHeight * 0.5f);
         bay.setPosition(marker);
         bay.setFillColor(sf::Color::White);
         target.draw(bay);
 
-        if (font_ != nullptr) {
+        if (font_ != nullptr && showLabel) {
             const Vec2 laneWorld =
                 RoadGeometry::sampleLane(
                     *departureRoad,
@@ -644,15 +704,15 @@ void VisualizationEngine::drawBusStations(
             sf::Text label;
             label.setFont(*font_);
             label.setString(station->getCode());
-            label.setCharacterSize(10);
+            label.setCharacterSize(labelSize);
             label.setStyle(sf::Text::Bold);
             label.setFillColor(
                 sf::Color(120, 255, 175));
             label.setOutlineColor(sf::Color::Black);
             label.setOutlineThickness(1.0f);
             label.setPosition(
-                marker.x + outward.x * 15.0f,
-                marker.y + outward.y * 15.0f);
+                marker.x + outward.x * 15.0f * detailScale,
+                marker.y + outward.y * 15.0f * detailScale);
             target.draw(label);
         }
     }
@@ -1195,10 +1255,28 @@ void VisualizationEngine::drawPOIDriveways(
 }
 
 void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph) const {
+    const float detailScale = getDetailScale(target.getView());
+    if (detailScale < 0.35f) {
+        return;
+    }
+    // Cap the detail scale so POI markers never grow unboundedly when
+    // zooming in very far. The base sizes are tuned for detailScale ~1.0.
+    const float cappedScale = std::min(detailScale, 1.5f);
     const auto& pois = graph.getAllPOIs();
+    const bool showLabels = detailScale >= 0.6f;
+    const float buildingSize = std::max(1.5f, 5.0f * cappedScale);
+    const float halfSize = buildingSize * 0.5f;
+    const float outlineThickness = std::max(0.25f, 0.5f * cappedScale);
+    const unsigned int labelSize = static_cast<unsigned int>(
+        std::clamp(5.0f * cappedScale, 3.0f, 7.0f));
+
+    const ViewportBounds viewportBounds(target.getView(), 20.0f);
     for (const auto* poi : pois) {
         if (!poi) continue;
         sf::Vector2f pos = worldToScreen(poi->getX(), poi->getY());
+        if (!viewportBounds.containsPoint(pos, buildingSize + 50.0f)) {
+            continue;
+        }
 
         sf::Color poiColor(255, 150, 0);
         if (poi->getType() == POIType::PARKING_LOT) poiColor = sf::Color(100, 100, 255);
@@ -1207,20 +1285,20 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
         else if (poi->getType() == POIType::RESIDENTIAL_AREA) poiColor = sf::Color(90, 190, 220);
         else if (poi->getType() == POIType::SUPERMARKET) poiColor = sf::Color(200, 200, 50);
 
-        // Draw building
-        sf::RectangleShape building(sf::Vector2f(10.0f, 10.0f));
-        building.setOrigin(5.0f, 5.0f);
+        // Draw building, scaled with the zoom level.
+        sf::RectangleShape building(sf::Vector2f(buildingSize, buildingSize));
+        building.setOrigin(halfSize, halfSize);
         building.setPosition(pos);
         building.setFillColor(poiColor);
-        building.setOutlineThickness(1.0f);
+        building.setOutlineThickness(outlineThickness);
         building.setOutlineColor(sf::Color::White);
         target.draw(building);
 
-        if (font_) {
+        if (font_ && showLabels) {
             sf::Text text;
             text.setFont(*font_);
             text.setString(poi->getName());
-            text.setCharacterSize(10);
+            text.setCharacterSize(labelSize);
             text.setFillColor(sf::Color::White);
             text.setOutlineColor(sf::Color::Black);
             text.setOutlineThickness(1.0f);
@@ -1247,7 +1325,7 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
                 labelDirection = {-1.0f, 0.0f};
             }
 
-            constexpr float labelGap = 8.0f;
+            const float labelGap = 8.0f * detailScale;
             const sf::FloatRect bounds =
                 text.getLocalBounds();
             sf::Vector2f labelPosition;
@@ -1280,9 +1358,25 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
 void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vector<Road*>& roads) const {
     if (!font_) return;
 
+    // Zoom-aware LOD: road-name labels are hidden once the view is zoomed
+    // out past a threshold. With thousands of roads, drawing every label
+    // at a small zoom is both visually cluttered and expensive (per-label
+    // text layout).
+    const float detailScale = getDetailScale(target.getView());
+    if (detailScale < 0.65f) {
+        return;
+    }
+
     const ViewportBounds viewportBounds(
         target.getView(),
         2.0f);
+    // A two-way road is represented by two directional Road objects. Track
+    // which physical road (identified by its unordered pair of endpoint
+    // intersection ids) already has a label so we draw one per physical
+    // road instead of stacking both names. Using a hash set keeps this
+    // O(n) instead of the previous O(n²) scan over all earlier roads.
+    std::unordered_set<std::uint64_t> labelledRoads;
+    labelledRoads.reserve(roads.size());
     for (std::size_t roadIndex = 0; roadIndex < roads.size(); ++roadIndex) {
         const Road* road = roads[roadIndex];
         if (!road || road->getName().empty()) continue;
@@ -1290,34 +1384,19 @@ void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vec
         const Intersection* end = road->getEnd();
         if (!start || !end) continue;
 
-        // A two-way road is represented by two directional Road objects.
-        // Draw one physical-road label instead of stacking both names.
         const int firstIntersectionId =
             std::min(start->getId(), end->getId());
         const int secondIntersectionId =
             std::max(start->getId(), end->getId());
-        const bool labelAlreadyDrawn = std::any_of(
-            roads.begin(),
-            roads.begin() + static_cast<std::ptrdiff_t>(roadIndex),
-            [&](const Road* candidate) {
-                if (candidate == nullptr ||
-                    candidate->getName() != road->getName() ||
-                    candidate->getStart() == nullptr ||
-                    candidate->getEnd() == nullptr) {
-                    return false;
-                }
-                const int candidateFirstId = std::min(
-                    candidate->getStart()->getId(),
-                    candidate->getEnd()->getId());
-                const int candidateSecondId = std::max(
-                    candidate->getStart()->getId(),
-                    candidate->getEnd()->getId());
-                return candidateFirstId == firstIntersectionId &&
-                       candidateSecondId == secondIntersectionId;
-            });
-        if (labelAlreadyDrawn) {
+        const std::uint64_t roadKey =
+            (static_cast<std::uint64_t>(
+                 static_cast<unsigned int>(firstIntersectionId))
+             << 32u) |
+            static_cast<unsigned int>(secondIntersectionId);
+        if (labelledRoads.count(roadKey) != 0) {
             continue;
         }
+        labelledRoads.insert(roadKey);
 
         // Labels belong on the shared physical centreline. Directional road
         // surfaces are offset to either side of this line.

@@ -46,6 +46,15 @@ bool loadGraphFromPath(AppContext& ctx, const std::string& requestedPath) {
 }
 
 void loadAndRefresh(AppContext& ctx, const std::string& requestedPath) {
+    // Always start with the most optimized LOD (Low) in Auto mode when a
+    // map is loaded. This ensures consistent performance regardless of what
+    // LOD mode was active before the map change. The adaptive controller
+    // in main() can escalate to Medium later if the frame rate is high.
+    ctx.visualization.setLodMode(
+        VisualizationEngine::LodMode::Auto);
+    ctx.visualization.setLodLevel(
+        VisualizationEngine::LodLevel::Low);
+
     try {
         loadGraphFromPath(ctx, requestedPath);
         ctx.visualization.prepare(ctx.graph);
