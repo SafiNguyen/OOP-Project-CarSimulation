@@ -1772,7 +1772,9 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
             } else {
                 stuckTimer = 0.0;
             }
-            if (allowsUTurn() &&
+            
+            bool isWaitingForPOI = (targetPOI != nullptr && currentRoad == targetPOI->getConnectedRoad() && currentRouteIndex == static_cast<int>(currentRoute.size()) - 1);
+            if (!isWaitingForPOI && allowsUTurn() &&
                 stuckTimer > patienceThreshold &&
                 graph != nullptr && strategy != nullptr) {
                 // Check if it's safe to U-turn (no vehicle closely behind)
@@ -1792,13 +1794,20 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                 
                 if (safeToUTurn && currentLaneIndex == 0 && uTurnCooldownTimer <= 0.0) {
                     if (performUTurn(*graph, strategy)) {
+                        std::cout << "[STUCK] Vehicle " << getId() << " U-TURNED! type=" << (int)getVehicleKind() << "\n";
                         stuckTimer = 0.0;
                         uTurnCooldownTimer = 30.0; // 30s cooldown
                         laneChangeCooldownTimer = LANE_CHANGE_COOLDOWN;
                     } else {
+                        std::cout << "[STUCK] Vehicle " << getId() << " U-turn failed! (performUTurn returned false)\n";
                         // If U-turn failed (e.g. no path), wait longer
                         patienceThreshold += 2.0; 
                     }
+                } else {
+                    if (!safeToUTurn) std::cout << "[STUCK] Vehicle " << getId() << " U-turn failed! (safeToUTurn=false)\n";
+                    else if (currentLaneIndex != 0) std::cout << "[STUCK] Vehicle " << getId() << " U-turn failed! (lane=" << currentLaneIndex << ")\n";
+                    else if (uTurnCooldownTimer > 0.0) std::cout << "[STUCK] Vehicle " << getId() << " U-turn failed! (cooldown)\n";
+                    patienceThreshold += 2.0; 
                 }
             }
             break;
@@ -1915,7 +1924,7 @@ bool Vehicle::isRoadInUpcomingRoute(int roadId) const {
 
 bool Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy) {
     if (!allowsDynamicRerouting() ||
-        currentRoad == nullptr || destination == nullptr ||
+        currentRoad == nullptr || (destination == nullptr && targetPOI == nullptr) ||
         movementState_ == MovementState::TraversingJunction) {
         return false;
     }
@@ -1925,7 +1934,17 @@ bool Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy
     }
 
     int startNodeId = currentRoad->getEnd()->getId();
-    int destNodeId = destination->getId();
+    int destNodeId = (destination != nullptr) ? destination->getId() : -1;
+    Road* poiRoad = (targetPOI != nullptr) ? targetPOI->getConnectedRoad() : nullptr;
+
+    if (poiRoad != nullptr) {
+        if (currentRoad == poiRoad) {
+            // Already on the POI road. No need to reroute.
+            return false;
+        }
+        // Force the destination node to be the start of the POI road
+        destNodeId = poiRoad->getStart()->getId();
+    }
 
     PathResult result = strategy->findPath(graph, startNodeId, destNodeId);
 
@@ -1934,7 +1953,7 @@ bool Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy
     }
 
     std::vector<Road*> newRoute;
-    newRoute.reserve(static_cast<size_t>(currentRouteIndex) + 1 + result.roadPath.size());
+    newRoute.reserve(static_cast<size_t>(currentRouteIndex) + 1 + result.roadPath.size() + (poiRoad != nullptr ? 1 : 0));
     for (int i = 0; i <= currentRouteIndex; ++i) {
         newRoute.push_back(currentRoute[i]);
     }
@@ -1942,29 +1961,39 @@ bool Vehicle::recalculateRoute(const Graph& graph, PathFindingStrategy* strategy
     for (Road* r : result.roadPath) {
         newRoute.push_back(r);
     }
+    
+    if (poiRoad != nullptr) {
+        newRoute.push_back(poiRoad);
+    }
 
     currentRoute = newRoute;
     return true;
 }
 
 bool Vehicle::performUTurn(const Graph& graph, PathFindingStrategy* strategy) {
-    if (!allowsUTurn() ||
-        currentRoad == nullptr || destination == nullptr ||
-        movementState_ == MovementState::TraversingJunction) {
-        return false;
-    }
+    if (!allowsUTurn()) { std::cout << "performUTurn fail: !allowsUTurn\n"; return false; }
+    if (currentRoad == nullptr) { std::cout << "performUTurn fail: currentRoad null\n"; return false; }
+    if (destination == nullptr && targetPOI == nullptr) { std::cout << "performUTurn fail: dest and poi null\n"; return false; }
+    if (movementState_ == MovementState::TraversingJunction) { std::cout << "performUTurn fail: TraversingJunction\n"; return false; }
 
     int startId = currentRoad->getStart()->getId();
     Road* reverseRoad = currentRoad->getReverseRoad();
 
     if (reverseRoad == nullptr) {
+        std::cout << "performUTurn fail: reverseRoad null\n";
         return false;
     }
 
     const Pose2D fromPose = getPose();
 
-    PathResult result = strategy->findPath(graph, startId, destination->getId());
+    int destNodeId = (destination != nullptr) ? destination->getId() : -1;
+    if (targetPOI != nullptr && targetPOI->getConnectedRoad() != nullptr) {
+        destNodeId = targetPOI->getConnectedRoad()->getStart()->getId();
+    }
+
+    PathResult result = strategy->findPath(graph, startId, destNodeId);
     if (!result.found) {
+        std::cout << "performUTurn fail: findPath not found for dest=" << destNodeId << "\n";
         return false;
     }
 
@@ -2000,6 +2029,10 @@ bool Vehicle::performUTurn(const Graph& graph, PathFindingStrategy* strategy) {
     newRoute.push_back(currentRoad);
     for (Road* r : result.roadPath) {
         newRoute.push_back(r);
+    }
+
+    if (targetPOI != nullptr && targetPOI->getConnectedRoad() != nullptr) {
+        newRoute.push_back(targetPOI->getConnectedRoad());
     }
 
     currentRoute = newRoute;
