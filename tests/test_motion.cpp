@@ -723,6 +723,10 @@ void testRoundaboutGeometryAndCapacity() {
     }
     const std::size_t activeAfterWarmStart =
         simulator->getVehicles().size();
+    std::cout << "DEBUG: active=" << activeAfterWarmStart 
+              << " maxActive=" << simulator->getMaximumActiveVehicles() 
+              << " pending=" << simulator->getPendingVehicleCount() 
+              << " finished=" << simulator->getFinishedVehicles().size() << std::endl;
     check(activeAfterWarmStart >= 80u,
           "map4 warm start sustains at least 80 active vehicles after 40 simulated seconds (active=" +
               std::to_string(activeAfterWarmStart) + ")");

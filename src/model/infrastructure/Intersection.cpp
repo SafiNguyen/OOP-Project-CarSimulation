@@ -647,16 +647,6 @@ bool Intersection::isPrioritizedEmergencyVehicle(
            emergencyApproach_.path.incomingRoad == incomingRoad;
 }
 
-bool Intersection::isEmergencyAdmissionBlocked(
-    int vehicleId,
-    const Road* incomingRoad) const {
-    return hasActiveEmergencyPriority() &&
-           !isPrioritizedEmergencyVehicle(
-               vehicleId, incomingRoad) &&
-           incomingRoad !=
-               emergencyApproach_.path.incomingRoad;
-}
-
 void Intersection::requestEmergencyPriority(
     int vehicleId,
     const Road* incomingRoad,
@@ -888,7 +878,12 @@ bool Intersection::canEnter(int vehicleId, const Road* fromRoad) const {
     if (occupants_.count(vehicleId) > 0) {
         return true; // dang giu cho roi
     }
-    if (isEmergencyAdmissionBlocked(vehicleId, fromRoad)) {
+    const bool prioritizedEmergency =
+        isPrioritizedEmergencyVehicle(
+            vehicleId, fromRoad);
+    if (hasActiveEmergencyPriority() &&
+        !prioritizedEmergency &&
+        fromRoad != emergencyApproach_.path.incomingRoad) {
         return false;
     }
     for (const auto& occupant : occupants_) {

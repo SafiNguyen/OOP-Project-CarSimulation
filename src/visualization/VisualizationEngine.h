@@ -5,14 +5,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <string>
 #include <vector>
 #include "TrafficLight.h"
 
 class Graph;
 class Road;
 class Intersection;
-class PointOfInterest;
 class Vehicle;
 
 class ViewportBounds {
@@ -94,9 +92,6 @@ public:
                                const Road* referenceRoad) const;
     const std::vector<sf::Vector2f>& getRoutePoints() const;
     sf::Color colorForRoad(const Road* road) const;
-    std::string getPointOfInterestDisplayName(
-        const Graph& graph,
-        const PointOfInterest* poi) const;
 
     void drawGraph(sf::RenderTarget& target, const Graph& graph) const;
     void drawStaticLayer(sf::RenderTarget& target, const Graph& graph) const;
