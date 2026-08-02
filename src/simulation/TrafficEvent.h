@@ -32,6 +32,12 @@ public:
 
     bool isActive() const { return active; }
     int getRoadId() const { return roadId; }
+    double getDuration() const { return duration; }
+    double getTimeElapsed() const { return timeElapsed; }
+    void restoreTimeElapsed(double elapsed) {
+        timeElapsed = elapsed < 0.0 ? 0.0 : elapsed;
+        active = timeElapsed < duration;
+    }
 };
 
 // Congestion Event
@@ -51,6 +57,7 @@ public:
     }
 
     std::string getEventType() const override { return "Congestion"; }
+    double getSeverity() const { return severity; }
 };
 
 // Accident Event
@@ -69,6 +76,7 @@ public:
     }
 
     std::string getEventType() const override { return "Accident"; }
+    int getLaneIndex() const { return laneIndex; }
 };
 
 // Road Closure Event

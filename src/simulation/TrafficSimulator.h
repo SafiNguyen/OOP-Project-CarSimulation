@@ -5,6 +5,7 @@
 #include <deque>
 #include <memory>
 #include <set>
+#include <string>
 #include <limits>
 #include <unordered_map>
 #include <unordered_set>
@@ -103,7 +104,8 @@ public:
     SimulationSnapshot captureSnapshot() const;
     // Restores the complete simulation state from a snapshot. O(N).
     // Destroys all live vehicles and reconstructs them from snapshot data.
-    void restoreSnapshot(const SimulationSnapshot& snapshot);
+    bool restoreSnapshot(const SimulationSnapshot& snapshot,
+                         std::string* error = nullptr);
 
     // --- Snapshot auto-capture (OMIT_CAPTURE_PERFORMANCE feature) ---
     // Snapshots are taken automatically every `intervalSeconds` of

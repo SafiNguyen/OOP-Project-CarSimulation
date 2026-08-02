@@ -51,3 +51,7 @@ void Lane::unblock() {
  
 Lane::~Lane() {
 }
+
+void Lane::clearVehicles() {
+    vehicles.clear();
+}

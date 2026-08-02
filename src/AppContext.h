@@ -23,6 +23,7 @@ struct AppContext {
 
     sf::View view;
     float zoomFactor = 1.0f;
+    int followedVehicleId = -1;
     bool isDragging = false;
     sf::Vector2i lastMousePixel;
 

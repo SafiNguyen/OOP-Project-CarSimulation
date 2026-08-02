@@ -1371,27 +1371,43 @@ void Intersection::captureSnapshot(IntersectionSnapshot& snap) const {
     snap.occupants.clear();
     for (const auto& entry : occupants_) {
         IntersectionSnapshot::ReservationData data;
-        data.fromRoadId =
-            entry.second.fromRoad != nullptr
-                ? entry.second.fromRoad->getId()
-                : -1;
+        data.fromRoadId = entry.second.fromRoad != nullptr
+            ? std::optional<int>(entry.second.fromRoad->getId())
+            : std::nullopt;
+        if (entry.second.connector != nullptr) {
+            data.incomingLane =
+                entry.second.connector->getIncomingLane();
+            data.outgoingRoadId =
+                entry.second.connector->getOutgoingRoad() != nullptr
+                    ? std::optional<int>(
+                          entry.second.connector->getOutgoingRoad()->getId())
+                    : std::nullopt;
+            data.outgoingLane =
+                entry.second.connector->getOutgoingLane();
+        }
         data.progressMetres = entry.second.progressMetres;
         data.vehicleLengthMetres = entry.second.vehicleLengthMetres;
         data.vehicleWidthMetres = entry.second.vehicleWidthMetres;
+        data.entryId = entry.second.entryId;
         snap.occupants[entry.first] = data;
     }
+    snap.nextEntryId = nextEntryId_;
 
     snap.emergencyVehicleId = emergencyApproach_.vehicleId;
     snap.emergencyIncomingRoadId =
         emergencyApproach_.path.incomingRoad != nullptr
-            ? emergencyApproach_.path.incomingRoad->getId()
-            : -1;
+            ? std::optional<int>(
+                  emergencyApproach_.path.incomingRoad->getId())
+            : std::nullopt;
     snap.emergencyIncomingLane = emergencyApproach_.path.incomingLane;
     snap.emergencyOutgoingRoadId =
         emergencyApproach_.path.outgoingRoad != nullptr
-            ? emergencyApproach_.path.outgoingRoad->getId()
-            : -1;
+            ? std::optional<int>(
+                  emergencyApproach_.path.outgoingRoad->getId())
+            : std::nullopt;
     snap.emergencyOutgoingLane = emergencyApproach_.path.outgoingLane;
+    snap.emergencyVehicleWidthMetres =
+        emergencyApproach_.path.vehicleWidthMetres;
     snap.emergencyPriorityRemainingSeconds =
         emergencyPriorityRemainingSeconds_;
 }
@@ -1401,17 +1417,77 @@ void Intersection::restoreSnapshot(const IntersectionSnapshot& snap) {
     signalStage_ = static_cast<SignalStage>(snap.signalStage);
     stageRemainingSeconds_ = snap.stageRemainingSeconds;
 
-    // Occupants hold shared_ptr<const JunctionConnector> which are expensive
-    // to re-materialize from raw ids. Vehicles restore their own motion state
-    // (including junction traversal) and will re-establish their intersection
-    // reservations naturally during the next update step. Clear here so stale
-    // reservations from a different time slice never linger.
-    occupants_.clear();
+    auto findRoadById =
+        [&](const std::optional<int>& roadId) -> Road* {
+        if (!roadId.has_value()) {
+            return nullptr;
+        }
+        for (Road* road : incomingRoads) {
+            if (road != nullptr && road->getId() == *roadId) {
+                return road;
+            }
+        }
+        for (Road* road : outgoingRoads) {
+            if (road != nullptr && road->getId() == *roadId) {
+                return road;
+            }
+        }
+        return nullptr;
+    };
 
-    // Emergency priority is derived from live vehicle positions; it will be
-    // re-requested by EmergencyVehicle::update() if the vehicle is near.
+    occupants_.clear();
+    nextEntryId_ = snap.nextEntryId;
+    for (const auto& entry : snap.occupants) {
+        const auto& data = entry.second;
+        Road* fromRoad = findRoadById(data.fromRoadId);
+        if (fromRoad == nullptr) {
+            continue;
+        }
+        std::shared_ptr<const JunctionConnector> connector;
+        Road* outgoingRoad = findRoadById(data.outgoingRoadId);
+        if (outgoingRoad != nullptr && data.incomingLane >= 0 &&
+            data.outgoingLane >= 0) {
+            connector = getConnector(
+                fromRoad,
+                data.incomingLane,
+                outgoingRoad,
+                data.outgoingLane);
+        }
+        occupants_.emplace(
+            entry.first,
+            Reservation{
+                fromRoad,
+                std::move(connector),
+                std::max(0.0, data.progressMetres),
+                std::max(0.1, data.vehicleLengthMetres),
+                std::max(0.1, data.vehicleWidthMetres),
+                data.entryId
+            });
+        nextEntryId_ = std::max(nextEntryId_, data.entryId);
+    }
+
     emergencyApproach_ = {};
-    emergencyPriorityRemainingSeconds_ = 0.0;
+    emergencyPriorityRemainingSeconds_ =
+        std::max(0.0, snap.emergencyPriorityRemainingSeconds);
+    Road* emergencyIncoming =
+        findRoadById(snap.emergencyIncomingRoadId);
+    Road* emergencyOutgoing =
+        findRoadById(snap.emergencyOutgoingRoadId);
+    if (snap.emergencyVehicleId >= 0 &&
+        emergencyIncoming != nullptr &&
+        snap.emergencyIncomingLane >= 0) {
+        emergencyApproach_.vehicleId = snap.emergencyVehicleId;
+        emergencyApproach_.path.incomingRoad = emergencyIncoming;
+        emergencyApproach_.path.incomingLane =
+            snap.emergencyIncomingLane;
+        emergencyApproach_.path.outgoingRoad = emergencyOutgoing;
+        emergencyApproach_.path.outgoingLane =
+            snap.emergencyOutgoingLane;
+        emergencyApproach_.path.vehicleWidthMetres =
+            std::max(0.1, snap.emergencyVehicleWidthMetres);
+    } else {
+        emergencyPriorityRemainingSeconds_ = 0.0;
+    }
 
     synchronizeSignalHeads();
     markReservationStateChanged();

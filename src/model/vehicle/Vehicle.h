@@ -2,6 +2,7 @@
 #define VEHICLE_H
 
 #include <cstdlib>
+#include <cstdint>
 #include <memory>
 #include <vector>
 #include "Geometry.h"
@@ -100,7 +101,10 @@ protected:
     double laneChangeSignalElapsedSeconds_ = 0.0;
     double simulationTimeSeconds_ = 0.0;
     
-    double recalculateTimer = 10.0 + static_cast<double>(std::rand() % 50) / 10.0; // 10-15s initial spread
+    double recalculateTimer =
+        10.0 + static_cast<double>(std::rand() % 50) / 10.0;
+    std::uint32_t rerouteRandomState_ = 1u;
+    double nextRerouteDelaySeconds();
     
     bool isWaitingForLight_ = false;
     Vehicle* currentLeader_ = nullptr;

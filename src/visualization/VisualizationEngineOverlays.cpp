@@ -1260,9 +1260,7 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
         if (font_) {
             sf::Text text;
             text.setFont(*font_);
-            text.setString(
-                getPointOfInterestDisplayName(
-                    graph, poi));
+            text.setString(poi->getName());
             text.setCharacterSize(10);
             text.setFillColor(sf::Color::White);
             text.setOutlineColor(sf::Color::Black);

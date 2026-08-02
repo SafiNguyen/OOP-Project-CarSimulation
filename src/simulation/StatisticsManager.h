@@ -9,6 +9,7 @@
 
 class Graph;
 class PathFindingStrategy;
+struct StatisticsSnapshot;
 
 /**
  * TravelMetric
@@ -128,6 +129,9 @@ public:
 
     // --- Thứ 7: tổng hợp cho Statistics Panel ---
     StatisticsSummary getSummary() const;
+
+    StatisticsSnapshot captureSnapshot() const;
+    void restoreSnapshot(const StatisticsSnapshot& snapshot);
 
 private:
     std::unordered_map<std::string, AlgorithmMetric> algorithmMetrics;

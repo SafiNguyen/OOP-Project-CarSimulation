@@ -9,17 +9,375 @@
 #include "Motorbike.h"
 #include "EmergencyVehicle.h"
 #include "PointOfInterest.h"
+#include "SpawnPoint.h"
 #include "algorithm/PathFindingStrategy.h"
 #include <algorithm> 
 #include <chrono>
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <sstream>
+#include <unordered_set>
 #include <utility>
 #include "EventManager.h"
 #include "StatisticsManager.h"
 #include "SnapshotManager.h"
 #include "TimePlaybackController.h"
+
+namespace {
+
+bool snapshotError(std::string* error, const std::string& message) {
+    if (error != nullptr) {
+        *error = message;
+    }
+    return false;
+}
+
+std::unique_ptr<Vehicle> createSnapshotVehicle(
+    const VehicleSnapshot& snapshot) {
+    switch (snapshot.kind) {
+        case VehicleKind::Car:
+            return std::make_unique<Car>(
+                snapshot.id, snapshot.baseSpeed, nullptr, nullptr);
+        case VehicleKind::Bus:
+            return std::make_unique<Bus>(
+                snapshot.id, snapshot.baseSpeed, nullptr, nullptr);
+        case VehicleKind::Motorbike:
+            return std::make_unique<Motorbike>(
+                snapshot.id, snapshot.baseSpeed, nullptr, nullptr);
+        case VehicleKind::Emergency:
+            return std::make_unique<EmergencyVehicle>(
+                snapshot.id, snapshot.baseSpeed, nullptr, nullptr);
+    }
+    return nullptr;
+}
+
+bool validateVehicleSnapshot(const Graph& graph,
+                             const VehicleSnapshot& snapshot,
+                             std::string* error) {
+    auto requireRoad =
+        [&](const std::optional<int>& roadId, const char* field) -> bool {
+        if (roadId.has_value() && graph.getRoad(*roadId) == nullptr) {
+            return snapshotError(
+                error,
+                "Vehicle " + std::to_string(snapshot.id) +
+                    " references missing " + field + " " +
+                    std::to_string(*roadId) + ".");
+        }
+        return true;
+    };
+    auto requireIntersection =
+        [&](int intersectionId, const char* field) -> bool {
+        if (intersectionId >= 0 &&
+            graph.getIntersection(intersectionId) == nullptr) {
+            return snapshotError(
+                error,
+                "Vehicle " + std::to_string(snapshot.id) +
+                    " references missing " + field + " " +
+                    std::to_string(intersectionId) + ".");
+        }
+        return true;
+    };
+    auto requirePoi = [&](int poiId, const char* field) -> bool {
+        if (poiId >= 0 &&
+            graph.getPointOfInterest(poiId) == nullptr) {
+            return snapshotError(
+                error,
+                "Vehicle " + std::to_string(snapshot.id) +
+                    " references missing " + field + " " +
+                    std::to_string(poiId) + ".");
+        }
+        return true;
+    };
+
+    if (snapshot.id < 0 ||
+        !requireRoad(snapshot.currentRoadId, "current road") ||
+        !requireRoad(snapshot.junctionIncomingRoadId, "incoming road") ||
+        !requireRoad(snapshot.junctionOutgoingRoadId, "outgoing road") ||
+        !requireIntersection(snapshot.spawnPointId, "spawn intersection") ||
+        !requireIntersection(snapshot.destinationId, "destination intersection") ||
+        !requireIntersection(
+            snapshot.reservedIntersectionId, "reserved intersection") ||
+        !requirePoi(snapshot.spawnPOIId, "spawn POI") ||
+        !requirePoi(snapshot.targetPOIId, "target POI") ||
+        !requirePoi(snapshot.mergeSourcePOIId, "merge POI") ||
+        !requirePoi(snapshot.reservedSpawnPointId, "reserved spawn POI")) {
+        return false;
+    }
+    if (!std::isfinite(snapshot.baseSpeed) || snapshot.baseSpeed < 0.0 ||
+        !std::isfinite(snapshot.progressOnCurrentRoad) ||
+        !std::isfinite(snapshot.currentSpeed) ||
+        !std::isfinite(snapshot.recalculateTimer)) {
+        return snapshotError(
+            error,
+            "Vehicle " + std::to_string(snapshot.id) +
+                " contains invalid numeric state.");
+    }
+    for (std::size_t routeIndex = 0;
+         routeIndex < snapshot.currentRoute.size();
+         ++routeIndex) {
+        const std::optional<int>& roadId =
+            snapshot.currentRoute[routeIndex];
+        if (!roadId.has_value() || graph.getRoad(*roadId) == nullptr) {
+            return snapshotError(
+                error,
+                "Vehicle " + std::to_string(snapshot.id) +
+                    " has invalid route road " +
+                    (roadId.has_value()
+                         ? std::to_string(*roadId)
+                         : std::string("<null>")) +
+                    " at index " +
+                    std::to_string(routeIndex) + ".");
+        }
+    }
+    for (const std::optional<int>& roadId : snapshot.travelHistory) {
+        if (!roadId.has_value() || graph.getRoad(*roadId) == nullptr) {
+            return snapshotError(
+                error,
+                "Vehicle " + std::to_string(snapshot.id) +
+                    " has an invalid travel-history road.");
+        }
+    }
+    Road* currentRoad = snapshot.currentRoadId.has_value()
+        ? graph.getRoad(*snapshot.currentRoadId)
+        : nullptr;
+    if (currentRoad != nullptr &&
+        (snapshot.currentLaneIndex < 0 ||
+         snapshot.currentLaneIndex >= currentRoad->getLaneCount())) {
+        return snapshotError(
+            error,
+            "Vehicle " + std::to_string(snapshot.id) +
+                " has an invalid lane index.");
+    }
+    if (!snapshot.currentRoute.empty() &&
+        (snapshot.currentRouteIndex < 0 ||
+         static_cast<std::size_t>(snapshot.currentRouteIndex) >=
+             snapshot.currentRoute.size())) {
+        return snapshotError(
+            error,
+            "Vehicle " + std::to_string(snapshot.id) +
+                " has an invalid route cursor.");
+    }
+    if (snapshot.movementState == MovementState::TraversingJunction) {
+        Road* outgoing = snapshot.junctionOutgoingRoadId.has_value()
+            ? graph.getRoad(*snapshot.junctionOutgoingRoadId)
+            : nullptr;
+        if (currentRoad == nullptr || outgoing == nullptr ||
+            currentRoad->getEnd() == nullptr ||
+            currentRoad->getEnd()->getConnector(
+                currentRoad,
+                snapshot.junctionIncomingLane,
+                outgoing,
+                snapshot.junctionOutgoingLane) == nullptr) {
+            return snapshotError(
+                error,
+                "Vehicle " + std::to_string(snapshot.id) +
+                    " has an invalid junction connector.");
+        }
+    }
+    if (snapshot.kind == VehicleKind::Bus) {
+        if ((snapshot.serviceId >= 0 &&
+             graph.getBusService(snapshot.serviceId) == nullptr) ||
+            (snapshot.originStationId >= 0 &&
+             graph.getBusStation(snapshot.originStationId) == nullptr) ||
+            (snapshot.destinationStationId >= 0 &&
+             graph.getBusStation(snapshot.destinationStationId) == nullptr)) {
+            return snapshotError(
+                error,
+                "Bus " + std::to_string(snapshot.id) +
+                    " references missing transit metadata.");
+        }
+        for (const int stopId : snapshot.assignedStopIds) {
+            if (stopId >= 0 && graph.getBusStop(stopId) == nullptr) {
+                return snapshotError(
+                    error,
+                    "Bus " + std::to_string(snapshot.id) +
+                        " references missing stop " +
+                        std::to_string(stopId) + ".");
+            }
+        }
+    }
+    return true;
+}
+
+bool validateSimulationSnapshot(const Graph* graph,
+                                const SimulationSnapshot& snapshot,
+                                std::string* error) {
+    if (graph == nullptr) {
+        return snapshotError(error, "Simulator graph is unavailable.");
+    }
+    std::unordered_set<int> activeVehicleIds;
+    std::unordered_set<int> vehicleIds;
+    for (const VehicleSnapshot& vehicle : snapshot.vehicles) {
+        if (!vehicleIds.insert(vehicle.id).second) {
+            return snapshotError(error, "Snapshot contains duplicate vehicle ids.");
+        }
+        activeVehicleIds.insert(vehicle.id);
+        if (!validateVehicleSnapshot(*graph, vehicle, error)) {
+            return false;
+        }
+    }
+    for (const PendingVehicleSnapshot& pending : snapshot.pendingVehicles) {
+        if (!vehicleIds.insert(pending.vehicle.id).second) {
+            return snapshotError(error, "Snapshot contains duplicate vehicle ids.");
+        }
+        if (!validateVehicleSnapshot(*graph, pending.vehicle, error)) {
+            return false;
+        }
+        for (const std::optional<int>& roadId : pending.route) {
+            if (!roadId.has_value() ||
+                graph->getRoad(*roadId) == nullptr) {
+                return snapshotError(error, "Pending vehicle has an invalid route.");
+            }
+        }
+    }
+    const auto allRoads = graph->getAllRoads();
+    if (snapshot.roads.size() != allRoads.size()) {
+        return snapshotError(
+            error,
+            "Snapshot road topology no longer matches the loaded map.");
+    }
+    std::unordered_set<int> restoredRoadIds;
+    for (const RoadRuntimeSnapshot& roadState : snapshot.roads) {
+        Road* road = graph->getRoad(roadState.roadId);
+        if (road == nullptr ||
+            !restoredRoadIds.insert(roadState.roadId).second ||
+            roadState.blockedLanes.size() !=
+                static_cast<std::size_t>(road->getLaneCount()) ||
+            !std::isfinite(roadState.congestionLevel) ||
+            roadState.congestionLevel <= 0.0) {
+            return snapshotError(
+                error,
+                "Snapshot road topology no longer matches the loaded map.");
+        }
+    }
+    const auto allIntersections = graph->getAllIntersections();
+    if (snapshot.intersections.size() != allIntersections.size()) {
+        return snapshotError(
+            error,
+            "Snapshot intersection topology no longer matches the loaded map.");
+    }
+    std::unordered_set<int> restoredIntersectionIds;
+    for (const IntersectionSnapshot& intersection : snapshot.intersections) {
+        Intersection* liveIntersection =
+            graph->getIntersection(intersection.id);
+        if (liveIntersection == nullptr ||
+            !restoredIntersectionIds.insert(intersection.id).second) {
+            return snapshotError(
+                error,
+                "Snapshot references a missing intersection.");
+        }
+        for (const auto& occupant : intersection.occupants) {
+            if (activeVehicleIds.count(occupant.first) == 0u) {
+                return snapshotError(
+                    error,
+                    "Intersection reservation references a missing vehicle.");
+            }
+            const auto& reservation = occupant.second;
+            Road* incoming = reservation.fromRoadId.has_value()
+                ? graph->getRoad(*reservation.fromRoadId)
+                : nullptr;
+            if (incoming == nullptr || incoming->getEnd() != liveIntersection ||
+                !std::isfinite(reservation.progressMetres) ||
+                !std::isfinite(reservation.vehicleLengthMetres) ||
+                !std::isfinite(reservation.vehicleWidthMetres) ||
+                reservation.vehicleLengthMetres <= 0.0 ||
+                reservation.vehicleWidthMetres <= 0.0) {
+                return snapshotError(
+                    error,
+                    "Intersection reservation contains invalid state.");
+            }
+            if (reservation.outgoingRoadId.has_value()) {
+                Road* outgoing =
+                    graph->getRoad(*reservation.outgoingRoadId);
+                if (outgoing == nullptr ||
+                    liveIntersection->getConnector(
+                        incoming,
+                        reservation.incomingLane,
+                        outgoing,
+                        reservation.outgoingLane) == nullptr) {
+                    return snapshotError(
+                        error,
+                        "Intersection reservation references an invalid connector.");
+                }
+            }
+        }
+        if (intersection.emergencyVehicleId >= 0) {
+            Road* incoming =
+                intersection.emergencyIncomingRoadId.has_value()
+                    ? graph->getRoad(*intersection.emergencyIncomingRoadId)
+                    : nullptr;
+            Road* outgoing =
+                intersection.emergencyOutgoingRoadId.has_value()
+                ? graph->getRoad(*intersection.emergencyOutgoingRoadId)
+                : nullptr;
+            if (activeVehicleIds.count(intersection.emergencyVehicleId) == 0u ||
+                incoming == nullptr || incoming->getEnd() != liveIntersection ||
+                intersection.emergencyIncomingLane < 0 ||
+                intersection.emergencyIncomingLane >= incoming->getLaneCount() ||
+                (intersection.emergencyOutgoingRoadId.has_value() &&
+                 outgoing == nullptr) ||
+                !std::isfinite(intersection.emergencyVehicleWidthMetres) ||
+                intersection.emergencyVehicleWidthMetres <= 0.0 ||
+                !std::isfinite(
+                    intersection.emergencyPriorityRemainingSeconds) ||
+                intersection.emergencyPriorityRemainingSeconds < 0.0) {
+                return snapshotError(
+                    error,
+                    "Intersection emergency priority contains invalid state.");
+            }
+        }
+    }
+    for (const TrafficEventSnapshot& event : snapshot.activeEvents) {
+        Road* road = graph->getRoad(event.roadId);
+        if (road == nullptr ||
+            !std::isfinite(event.duration) || event.duration <= 0.0 ||
+            !std::isfinite(event.timeElapsed) || event.timeElapsed < 0.0 ||
+            event.timeElapsed >= event.duration ||
+            !std::isfinite(event.severity)) {
+            return snapshotError(error, "Snapshot event contains invalid state.");
+        }
+        if ((event.kind == TrafficEventKind::Congestion &&
+             event.severity < 1.0) ||
+            (event.kind == TrafficEventKind::Accident &&
+             (event.laneIndex < 0 ||
+              event.laneIndex >= road->getLaneCount()))) {
+            return snapshotError(error, "Snapshot event contains invalid state.");
+        }
+    }
+    for (const auto& entry : snapshot.nextSpawnTimeByRoad) {
+        if (graph->getRoad(entry.first) == nullptr ||
+            !std::isfinite(entry.second)) {
+            return snapshotError(error, "Snapshot spawn schedule is invalid.");
+        }
+    }
+    for (const auto& entry : snapshot.nextSpawnTimeBySource) {
+        if (graph->getPointOfInterest(entry.first) == nullptr ||
+            !std::isfinite(entry.second)) {
+            return snapshotError(error, "Snapshot spawn schedule is invalid.");
+        }
+    }
+    for (const auto& entry : snapshot.nextTransitDepartureTimeByService) {
+        if (graph->getBusService(entry.first) == nullptr ||
+            !std::isfinite(entry.second)) {
+            return snapshotError(error, "Snapshot transit schedule is invalid.");
+        }
+    }
+    if (snapshot.maximumActiveVehicles == 0u ||
+        !std::isfinite(snapshot.elapsedTime) || snapshot.elapsedTime < 0.0 ||
+        !std::isfinite(snapshot.speedMultiplier) ||
+        snapshot.speedMultiplier <= 0.0 ||
+        !std::isfinite(snapshot.leftoverDt) || snapshot.leftoverDt < 0.0 ||
+        !std::isfinite(snapshot.lastSnapshotTime) ||
+        !std::isfinite(snapshot.nextTransitNetworkDepartureTime) ||
+        !std::isfinite(snapshot.pendingVehicleTimeoutSeconds) ||
+        snapshot.pendingVehicleTimeoutSeconds <= 0.0) {
+        return snapshotError(error, "Snapshot contains invalid simulator limits.");
+    }
+    return true;
+}
+
+} // namespace
 
 TrafficSimulator::TrafficSimulator(Graph* graph, PathFindingStrategy* strategy)
     : graph(graph),
@@ -981,7 +1339,13 @@ void TrafficSimulator::recalculateAllVehicleRoutes() {
 }
 
 void TrafficSimulator::pause() { paused = true; }
-void TrafficSimulator::resume() { paused = false; }
+void TrafficSimulator::resume() {
+    if (playbackController_ != nullptr) {
+        playbackController_->resumeLive();
+    }
+    lastSnapshotTime_ = elapsedTime;
+    paused = false;
+}
 bool TrafficSimulator::isPaused() const { return paused; }
 
 void TrafficSimulator::setSpeedMultiplier(double factor) {
@@ -1030,6 +1394,11 @@ SimulationSnapshot TrafficSimulator::captureSnapshot() const {
     snap.paused = paused;
     snap.speedMultiplier = speedMultiplier;
     snap.leftoverDt = leftoverDt;
+    snap.lastSnapshotTime = lastSnapshotTime_;
+    snap.dynamicRerouteCursor = dynamicRerouteCursor_;
+    snap.maximumActiveVehicles = maximumActiveVehicles_;
+    snap.pendingVehicleTimeoutSeconds =
+        pendingVehicleTimeoutSeconds_;
 
     snap.accepted = spawnStatistics_.accepted;
     snap.activated = spawnStatistics_.activated;
@@ -1085,11 +1454,13 @@ SimulationSnapshot TrafficSimulator::captureSnapshot() const {
     for (const PendingVehicle& pending : pendingVehicles) {
         if (pending.vehicle == nullptr) continue;
         PendingVehicleSnapshot ps;
-        ps.vehicleId = pending.vehicle->getId();
-        ps.kind = pending.vehicle->getVehicleKind();
+        pending.vehicle->captureSnapshot(ps.vehicle, *graph);
         ps.route.clear();
         for (const Road* road : pending.route) {
-            ps.route.push_back(road != nullptr ? road->getId() : -1);
+            ps.route.push_back(
+                road != nullptr
+                    ? std::optional<int>(road->getId())
+                    : std::nullopt);
         }
         ps.earliestActivationTime = pending.earliestActivationTime;
         ps.nextAttemptTime = pending.nextAttemptTime;
@@ -1098,16 +1469,31 @@ SimulationSnapshot TrafficSimulator::captureSnapshot() const {
         ps.routeResolved = pending.routeResolved;
         ps.fixedRoute = pending.fixedRoute;
         ps.routeAttempts = pending.routeAttempts;
-        ps.spawnPOIId = pending.vehicle->getSpawnPOI() != nullptr
-            ? pending.vehicle->getSpawnPOI()->getId() : -1;
-        ps.targetPOIId = pending.vehicle->getTargetPOI() != nullptr
-            ? pending.vehicle->getTargetPOI()->getId() : -1;
-        ps.spawnPointId = pending.vehicle->getSpawnPoint() != nullptr
-            ? pending.vehicle->getSpawnPoint()->getId() : -1;
-        ps.destinationId = pending.vehicle->getDestination() != nullptr
-            ? pending.vehicle->getDestination()->getId() : -1;
-        ps.baseSpeed = pending.vehicle->getBaseSpeed();
         snap.pendingVehicles.push_back(std::move(ps));
+    }
+
+    const auto allRoads = graph->getAllRoads();
+    snap.roads.reserve(allRoads.size());
+    for (const Road* road : allRoads) {
+        if (road == nullptr) continue;
+        RoadRuntimeSnapshot roadState;
+        roadState.roadId = road->getId();
+        // Persist the configured/event congestion multiplier. Dynamic
+        // occupancy is derived again from the restored lane membership.
+        roadState.congestionLevel = road->getCongestionLevel();
+        roadState.blockedLanes.reserve(
+            static_cast<std::size_t>(road->getLaneCount()));
+        for (const Lane& lane : road->getLanes()) {
+            roadState.blockedLanes.push_back(lane.isBlocked());
+        }
+        snap.roads.push_back(std::move(roadState));
+    }
+
+    if (eventManager != nullptr) {
+        snap.activeEvents = eventManager->captureSnapshot();
+    }
+    if (statisticsManager != nullptr) {
+        snap.statistics = statisticsManager->captureSnapshot();
     }
 
     // Merging-from-POI index
@@ -1132,7 +1518,21 @@ SimulationSnapshot TrafficSimulator::captureSnapshot() const {
     return snap;
 }
 
-void TrafficSimulator::restoreSnapshot(const SimulationSnapshot& snapshot) {
+bool TrafficSimulator::restoreSnapshot(const SimulationSnapshot& snapshot,
+                                       std::string* error) {
+    if (error != nullptr) {
+        error->clear();
+    }
+    if (!validateSimulationSnapshot(graph, snapshot, error)) {
+        return false;
+    }
+
+    for (Road* road : graph->getAllRoads()) {
+        if (road != nullptr) {
+            road->clearRuntimeVehicleReferences();
+        }
+    }
+
     // Destroy all live vehicles (they will be reconstructed from snapshot).
     for (Vehicle* v : vehicles) {
         delete v;
@@ -1148,12 +1548,28 @@ void TrafficSimulator::restoreSnapshot(const SimulationSnapshot& snapshot) {
     pendingVehicles.clear();
     mergingFromPOIByRoad_.clear();
 
+    for (PointOfInterest* poi : graph->getAllPOIs()) {
+        if (auto* spawn = dynamic_cast<SpawnPoint*>(poi)) {
+            spawn->resetSpawnSlotsForRestore();
+        }
+    }
+    for (BusStation* station : graph->getAllBusStations()) {
+        if (station != nullptr) {
+            station->resetSpawnSlotsForRestore();
+        }
+    }
+
     // Restore core state
     elapsedTime = snapshot.elapsedTime;
     tickCount = snapshot.tickCount;
     paused = snapshot.paused;
     speedMultiplier = snapshot.speedMultiplier;
     leftoverDt = snapshot.leftoverDt;
+    lastSnapshotTime_ = snapshot.lastSnapshotTime;
+    dynamicRerouteCursor_ = snapshot.dynamicRerouteCursor;
+    maximumActiveVehicles_ = snapshot.maximumActiveVehicles;
+    pendingVehicleTimeoutSeconds_ =
+        snapshot.pendingVehicleTimeoutSeconds;
 
     spawnStatistics_.accepted = snapshot.accepted;
     spawnStatistics_.activated = snapshot.activated;
@@ -1170,7 +1586,8 @@ void TrafficSimulator::restoreSnapshot(const SimulationSnapshot& snapshot) {
     }
     nextSpawnTimeBySource_.clear();
     for (const auto& entry : snapshot.nextSpawnTimeBySource) {
-        PointOfInterest* poi = graph->getPOI(entry.first);
+        PointOfInterest* poi =
+            graph->getPointOfInterest(entry.first);
         if (poi != nullptr) {
             nextSpawnTimeBySource_[poi] = entry.second;
         }
@@ -1184,90 +1601,62 @@ void TrafficSimulator::restoreSnapshot(const SimulationSnapshot& snapshot) {
     }
     nextTransitNetworkDepartureTime_ = snapshot.nextTransitNetworkDepartureTime;
 
-    // Restore intersections (traffic light timing)
-    for (const IntersectionSnapshot& is : snapshot.intersections) {
-        Intersection* intersection = graph->getIntersection(is.id);
-        if (intersection != nullptr) {
-            intersection->restoreSnapshot(is);
+    for (const RoadRuntimeSnapshot& roadState : snapshot.roads) {
+        Road* road = graph->getRoad(roadState.roadId);
+        road->updateCongestionLevel(roadState.congestionLevel);
+        for (std::size_t laneIndex = 0;
+             laneIndex < roadState.blockedLanes.size();
+             ++laneIndex) {
+            if (roadState.blockedLanes[laneIndex]) {
+                road->blockLane(static_cast<int>(laneIndex));
+            } else {
+                road->unblockLane(static_cast<int>(laneIndex));
+            }
         }
     }
 
     // Restore active vehicles
-    std::unordered_map<int, Vehicle*> vehiclesById;
     for (const VehicleSnapshot& vs : snapshot.vehicles) {
-        Vehicle* vehicle = nullptr;
-        switch (vs.kind) {
-            case VehicleKind::Car:
-                vehicle = new Car(vs.id, vs.baseSpeed, nullptr, nullptr);
-                break;
-            case VehicleKind::Bus:
-                vehicle = new Bus(vs.id, vs.baseSpeed, nullptr, nullptr);
-                break;
-            case VehicleKind::Motorbike:
-                vehicle = new Motorbike(vs.id, vs.baseSpeed, nullptr, nullptr);
-                break;
-            case VehicleKind::Emergency:
-                vehicle = new EmergencyVehicle(vs.id, vs.baseSpeed, nullptr, nullptr);
-                break;
-        }
-        if (vehicle == nullptr) continue;
-        vehicle->restoreSnapshot(vs, *graph);
-        vehicles.push_back(vehicle);
-        vehiclesById[vehicle->getId()] = vehicle;
+        std::unique_ptr<Vehicle> restored =
+            createSnapshotVehicle(vs);
+        if (restored == nullptr) continue;
+        restored->restoreSnapshot(vs, *graph);
+        vehicles.push_back(restored.release());
     }
 
-    // Restore POI merge bookkeeping for vehicles that were already merging.
+    // Rebuild the lane/POI membership indexes from vehicle state instead of
+    // trusting raw pointers from the previous timeline.
     mergingFromPOIByRoad_.clear();
-    for (const auto& entry : snapshot.mergingFromPOIByRoad) {
-        Road* road = graph->getRoad(entry.first);
-        if (road == nullptr) {
+    for (Vehicle* vehicle : vehicles) {
+        if (vehicle == nullptr ||
+            vehicle->getCurrentRoad() == nullptr) {
             continue;
         }
-        auto& restoredVehicles = mergingFromPOIByRoad_[road];
-        restoredVehicles.reserve(entry.second.size());
-        for (const int vehicleId : entry.second) {
-            const auto it = vehiclesById.find(vehicleId);
-            if (it == vehiclesById.end()) {
-                continue;
-            }
-            Vehicle* vehicle = it->second;
-            if (vehicle != nullptr &&
-                vehicle->getIsMergingFromPOI() &&
-                vehicle->getCurrentRoad() == road) {
-                road->addMergingVehicle(vehicle);
-                restoredVehicles.push_back(vehicle);
-            }
+        Road* road = vehicle->getCurrentRoad();
+        if (vehicle->getIsMergingFromPOI()) {
+            road->addMergingVehicle(vehicle);
+            mergingFromPOIByRoad_[road].push_back(vehicle);
+        } else if (vehicle->getMovementState() !=
+                       MovementState::TraversingJunction &&
+                   !vehicle->getIsEnteringPOI()) {
+            road->getLane(vehicle->getCurrentLaneIndex()).
+                addVehicle(vehicle);
         }
     }
 
     // Restore pending vehicles
     for (const PendingVehicleSnapshot& ps : snapshot.pendingVehicles) {
-        Vehicle* vehicle = nullptr;
-        switch (ps.kind) {
-            case VehicleKind::Car:
-                vehicle = new Car(ps.vehicleId, ps.baseSpeed, nullptr, nullptr);
-                break;
-            case VehicleKind::Bus:
-                vehicle = new Bus(ps.vehicleId, ps.baseSpeed, nullptr, nullptr);
-                break;
-            case VehicleKind::Motorbike:
-                vehicle = new Motorbike(ps.vehicleId, ps.baseSpeed, nullptr, nullptr);
-                break;
-            case VehicleKind::Emergency:
-                vehicle = new EmergencyVehicle(ps.vehicleId, ps.baseSpeed, nullptr, nullptr);
-                break;
-        }
-        if (vehicle == nullptr) continue;
-        vehicle->setSpawnPOI(ps.spawnPOIId >= 0 ? graph->getPOI(ps.spawnPOIId) : nullptr);
-        vehicle->setTargetPOI(ps.targetPOIId >= 0 ? graph->getPOI(ps.targetPOIId) : nullptr);
-        vehicle->setSpawnPoint(ps.spawnPointId >= 0 ? graph->getIntersection(ps.spawnPointId) : nullptr);
-        vehicle->setDestination(ps.destinationId >= 0 ? graph->getIntersection(ps.destinationId) : nullptr);
+        std::unique_ptr<Vehicle> restored =
+            createSnapshotVehicle(ps.vehicle);
+        if (restored == nullptr) continue;
+        restored->restoreSnapshot(ps.vehicle, *graph);
 
         PendingVehicle pending;
-        pending.vehicle = vehicle;
+        pending.vehicle = restored.release();
         pending.route.clear();
-        for (const int roadId : ps.route) {
-            pending.route.push_back(roadId >= 0 ? graph->getRoad(roadId) : nullptr);
+        for (const std::optional<int>& roadId : ps.route) {
+            pending.route.push_back(
+                roadId.has_value() ? graph->getRoad(*roadId) : nullptr);
         }
         pending.earliestActivationTime = ps.earliestActivationTime;
         pending.nextAttemptTime = ps.nextAttemptTime;
@@ -1279,11 +1668,24 @@ void TrafficSimulator::restoreSnapshot(const SimulationSnapshot& snapshot) {
         pendingVehicles.push_back(std::move(pending));
     }
 
+    for (const IntersectionSnapshot& is : snapshot.intersections) {
+        Intersection* intersection = graph->getIntersection(is.id);
+        intersection->restoreSnapshot(is);
+    }
+
+    if (statisticsManager != nullptr) {
+        statisticsManager->restoreSnapshot(snapshot.statistics);
+    }
+    if (eventManager != nullptr) {
+        eventManager->restoreSnapshot(snapshot.activeEvents);
+    }
+
     // Restore failed recalc ids
     failedRecalcIds.clear();
     for (const int id : snapshot.failedRecalcIds) {
         failedRecalcIds.insert(id);
     }
+    return true;
 }
 
 void TrafficSimulator::setSnapshotInterval(double intervalSeconds) {
@@ -1297,8 +1699,8 @@ void TrafficSimulator::maybeAutoCaptureSnapshot() {
     }
     if (elapsedTime - lastSnapshotTime_ >=
             snapshotIntervalSeconds_) {
-        snapshotManager_->capture(*this);
         lastSnapshotTime_ = elapsedTime;
+        snapshotManager_->capture(*this);
     }
 }
 

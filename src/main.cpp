@@ -27,6 +27,7 @@
 #include "Graph.h"
 #include "Bus.h"
 #include "simulation/TrafficSimulator.h"
+#include "simulation/TimePlaybackController.h"
 #include "ui/DebugConsole.h"
 #include "ui/StatsPanel.h"
 #include "ui/UiTheme.h"
@@ -550,7 +551,7 @@ int main(int argc, char** argv) {
         [&](int vehicleCount) {
             return resetSimulation(vehicleCount);
         },
-        [&]() { clampViewToMap(ctx); },
+        [&]() { resetView(ctx); },
         openMapFileDialog);
 
     resetSimulation = [&](int vehicleCount) {
@@ -578,13 +579,23 @@ int main(int argc, char** argv) {
             handleEvent(event, ctx, debugConsole, simulator, vehicleInspector);
         }
 
-        updateCamera(ctx, dt);
+        if (simulator) {
+            if (auto* playback = simulator->getPlaybackController()) {
+                std::string playbackError;
+                if (!playback->applyPendingSeek(&playbackError)) {
+                    std::cerr << "Playback restore failed: "
+                              << playbackError << std::endl;
+                }
+            }
+        }
 
         ImGui::SFML::Update(window, sf::seconds(dt));
 
         if (simulator) {
             simulator->update(dt);
         }
+
+        updateCamera(ctx, simulator.get(), dt);
 
         renderFrame(ctx, debugConsole, simulator, statsPanel, vehicleInspector, dt);
     }

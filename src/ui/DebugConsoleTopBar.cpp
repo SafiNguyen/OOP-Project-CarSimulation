@@ -11,7 +11,6 @@
 #include "simulation/TrafficSimulator.h"
 #include "simulation/TimePlaybackController.h"
 #include "UiTheme.h"
-#include "visualization/Camera.h"
 #include "visualization/VisualizationEngine.h"
 
 namespace {
@@ -269,8 +268,6 @@ void DebugConsole::drawTopHud(sf::RenderWindow& window,
 
 void DebugConsole::drawBottomDock(sf::RenderWindow& window,
                                   std::unique_ptr<TrafficSimulator>& simulator,
-                                  sf::View& view,
-                                  float& zoomFactor,
                                   bool& heatMapEnabled,
                                   bool& showParkedVehicles,
                                   std::string& mapPathInput,
@@ -333,7 +330,13 @@ void DebugConsole::drawBottomDock(sf::RenderWindow& window,
             auto* controller = simulator
                 ? simulator->getPlaybackController()
                 : nullptr;
-            const bool canRewind = controller && controller->available() > 0;
+            const std::size_t playbackIndex = controller
+                ? controller->currentIndex()
+                : SnapshotManager::npos;
+            const bool canRewind = controller &&
+                controller->available() > 1u &&
+                (playbackIndex == SnapshotManager::npos ||
+                 playbackIndex > 0u);
             ImGui::BeginDisabled(!canRewind);
             const std::string rewindLabel = rewindButtonLabel(controller);
             if (ImGui::Button(rewindLabel.c_str(), buttonSize) && controller) {
@@ -364,14 +367,7 @@ void DebugConsole::drawBottomDock(sf::RenderWindow& window,
         next();
 
         if (ImGui::Button(narrow ? "View" : "Reset View", buttonSize)) {
-            zoomFactor = DEFAULT_MAP_ZOOM_FACTOR;
-            view = window.getDefaultView();
-            view.setSize(
-                static_cast<float>(windowSize.x) *
-                    zoomFactor,
-                static_cast<float>(windowSize.y) *
-                    zoomFactor);
-            clampViewToMap_();
+            resetView_();
             setNotice(NoticeTone::INFO, "Camera reset to the map bounds.");
         }
         UiTheme::tooltip("Reset camera position and zoom");

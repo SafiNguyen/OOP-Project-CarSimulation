@@ -47,6 +47,9 @@ public:
     int getOccupiedSpawnSlots() const {
         return occupiedSpawnSlots;
     }
+    void resetSpawnSlotsForRestore() const {
+        occupiedSpawnSlots = 0;
+    }
 };
 
 // --- Convenience subclasses for specific spawn types ---

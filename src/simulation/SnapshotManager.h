@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <deque>
 #include <memory>
+#include <string>
 
 #include "SnapshotTypes.h"
 
@@ -36,7 +37,13 @@ public:
 
     /// Restores the simulator to the snapshot at `index`.
     /// Returns false if index is out of range.
-    bool restore(TrafficSimulator& simulator, std::size_t index);
+    bool restore(TrafficSimulator& simulator,
+                 std::size_t index,
+                 std::string* error = nullptr);
+
+    /// Drops snapshots newer than `index`. Used when live simulation resumes
+    /// from a rewound state and creates a new timeline branch.
+    void truncateAfter(std::size_t index);
 
     /// Returns the number of snapshots currently held.
     std::size_t size() const { return snapshots_.size(); }

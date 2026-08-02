@@ -314,6 +314,13 @@ void Road::removeMergingVehicle(Vehicle* v) {
     }
 }
 
+void Road::clearRuntimeVehicleReferences() {
+    for (Lane& lane : lanes) {
+        lane.clearVehicles();
+    }
+    mergingVehicles.clear();
+}
+
 void Road::addLanes(int count) {
     if (count <= 0) return;
     int oldLaneCount = laneCount;

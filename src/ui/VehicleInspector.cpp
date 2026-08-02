@@ -5,6 +5,7 @@
 
 #include <imgui.h>
 
+#include "AppContext.h"
 #include "Intersection.h"
 #include "Bus.h"
 #include "BusService.h"
@@ -13,6 +14,7 @@
 #include "SpawnPoint.h"
 #include "Vehicle.h"
 #include "simulation/TrafficSimulator.h"
+#include "visualization/Camera.h"
 #include "visualization/VehicleSprite.h"
 #include "visualization/VisualizationEngine.h"
 #include "algorithm/PathFindingStrategy.h"
@@ -129,7 +131,9 @@ Vehicle* VehicleInspector::findSelectedVehicle(TrafficSimulator* simulator) cons
     return nullptr;
 }
 
-void VehicleInspector::draw(TrafficSimulator* simulator, const VisualizationEngine& visualization) {
+void VehicleInspector::draw(TrafficSimulator* simulator,
+                            const VisualizationEngine& visualization,
+                            AppContext& ctx) {
     if (!hasSelection()) return;
 
     Vehicle* vehicle = findSelectedVehicle(simulator);
@@ -364,7 +368,27 @@ void VehicleInspector::draw(TrafficSimulator* simulator, const VisualizationEngi
         ImGui::EndChild();
 
         ImGui::Separator();
+        const bool followingThisVehicle =
+            isFollowingVehicle(ctx, vehicle->getId());
+        const bool canFollow =
+            !finished && vehicle->getCurrentRoad() != nullptr;
+        ImGui::BeginDisabled(!canFollow && !followingThisVehicle);
+        if (ImGui::Button(
+                followingThisVehicle
+                    ? "Stop following"
+                    : "Follow")) {
+            if (followingThisVehicle) {
+                stopFollowingVehicle(ctx);
+            } else {
+                startFollowingVehicle(ctx, vehicle->getId());
+            }
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
         if (ImGui::Button("Close")) {
+            if (followingThisVehicle) {
+                stopFollowingVehicle(ctx);
+            }
             open = false;
         }
     }

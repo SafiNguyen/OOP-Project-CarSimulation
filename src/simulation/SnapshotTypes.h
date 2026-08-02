@@ -2,11 +2,13 @@
 #define SNAPSHOT_TYPES_H
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 #include <string>
 #include <unordered_map>
 
 #include "VehicleTypes.h"
+#include "StatisticsManager.h"
 
 // Forward declarations
 class TrafficSimulator;
@@ -21,22 +23,22 @@ struct VehicleSnapshot {
     int id = -1;
     VehicleKind kind = VehicleKind::Car;
 
-    int currentRoadId = -1;
+    std::optional<int> currentRoadId;
     int currentLaneIndex = 0;
     double progressOnCurrentRoad = 0.0;
     double currentSpeed = 0.0;
 
-    std::vector<int> currentRoute;
+    std::vector<std::optional<int>> currentRoute;
     int currentRouteIndex = 0;
-    std::vector<int> travelHistory;
+    std::vector<std::optional<int>> travelHistory;
 
     bool paused = false;
     PauseReason pauseReason = PauseReason::None;
     MovementState movementState = MovementState::OnRoad;
 
-    int junctionIncomingRoadId = -1;
+    std::optional<int> junctionIncomingRoadId;
     int junctionIncomingLane = -1;
-    int junctionOutgoingRoadId = -1;
+    std::optional<int> junctionOutgoingRoadId;
     int junctionOutgoingLane = -1;
     double junctionProgressMetres = 0.0;
     int reservedIntersectionId = -1;
@@ -103,6 +105,9 @@ struct VehicleSnapshot {
     std::vector<int> missedStopIds;
     int tripState = 0;
     bool departureSlotHeld = false;
+
+    // Per-vehicle deterministic state used for future reroute scheduling.
+    std::uint32_t rerouteRandomState = 0;
 };
 
 // --- Per-intersection snapshot (traffic light + reservations) ---
@@ -113,26 +118,33 @@ struct IntersectionSnapshot {
     double stageRemainingSeconds = 0.0;
 
     struct ReservationData {
-        int fromRoadId = -1;
+        std::optional<int> fromRoadId;
+        int incomingLane = -1;
+        std::optional<int> outgoingRoadId;
+        int outgoingLane = -1;
         double progressMetres = 0.0;
         double vehicleLengthMetres = 4.5;
         double vehicleWidthMetres = 1.8;
+        std::uint64_t entryId = 0;
     };
     std::unordered_map<int, ReservationData> occupants;
+    std::uint64_t nextEntryId = 0;
 
     int emergencyVehicleId = -1;
-    int emergencyIncomingRoadId = -1;
+    std::optional<int> emergencyIncomingRoadId;
     int emergencyIncomingLane = -1;
-    int emergencyOutgoingRoadId = -1;
+    std::optional<int> emergencyOutgoingRoadId;
     int emergencyOutgoingLane = -1;
+    double emergencyVehicleWidthMetres = 0.0;
     double emergencyPriorityRemainingSeconds = 0.0;
 };
 
 // --- Per-pending-vehicle snapshot ---
 struct PendingVehicleSnapshot {
-    int vehicleId = -1;
-    VehicleKind kind = VehicleKind::Car;
-    std::vector<int> route;
+    // Keep the complete polymorphic vehicle payload. The previous flattened
+    // representation silently dropped Bus service/stop/dwell state.
+    VehicleSnapshot vehicle;
+    std::vector<std::optional<int>> route;
     double earliestActivationTime = 0.0;
     double nextAttemptTime = 0.0;
     double deadlineTime = 0.0;
@@ -140,16 +152,36 @@ struct PendingVehicleSnapshot {
     bool routeResolved = false;
     bool fixedRoute = false;
     int routeAttempts = 0;
-    int spawnPOIId = -1;
-    int targetPOIId = -1;
-    int spawnPointId = -1;
-    int destinationId = -1;
-    double baseSpeed = 0.0;
-    std::string fleetCode;
-    int serviceId = -1;
-    double scheduledDepartureTime = 0.0;
-    std::vector<int> assignedStopIds;
-    std::vector<std::size_t> assignedStopRouteIndices;
+};
+
+struct RoadRuntimeSnapshot {
+    int roadId = -1;
+    double congestionLevel = 1.0;
+    std::vector<bool> blockedLanes;
+};
+
+enum class TrafficEventKind {
+    Congestion,
+    Accident,
+    RoadClosure
+};
+
+struct TrafficEventSnapshot {
+    TrafficEventKind kind = TrafficEventKind::Congestion;
+    int roadId = -1;
+    double duration = 0.0;
+    double timeElapsed = 0.0;
+    double severity = 1.0;
+    int laneIndex = -1;
+};
+
+struct StatisticsSnapshot {
+    std::unordered_map<std::string, AlgorithmMetric> algorithmMetrics;
+    std::unordered_map<int, TravelMetric> travelMetrics;
+    double totalSimulatedTime = 0.0;
+    long long totalRecalculations = 0;
+    long long tickCounter = 0;
+    int completedTrips = 0;
 };
 
 // --- Top-level simulation snapshot (Memento) ---
@@ -159,6 +191,10 @@ struct SimulationSnapshot {
     bool paused = false;
     double speedMultiplier = 1.0;
     double leftoverDt = 0.0;
+    double lastSnapshotTime = 0.0;
+    std::size_t dynamicRerouteCursor = 0;
+    std::size_t maximumActiveVehicles = 1;
+    double pendingVehicleTimeoutSeconds = 600.0;
 
     std::size_t accepted = 0;
     std::size_t activated = 0;
@@ -174,6 +210,9 @@ struct SimulationSnapshot {
     std::vector<VehicleSnapshot> vehicles;
     std::vector<IntersectionSnapshot> intersections;
     std::vector<PendingVehicleSnapshot> pendingVehicles;
+    std::vector<RoadRuntimeSnapshot> roads;
+    std::vector<TrafficEventSnapshot> activeEvents;
+    StatisticsSnapshot statistics;
 
     std::unordered_map<int, std::vector<int>> mergingFromPOIByRoad;
     std::vector<int> failedRecalcIds;

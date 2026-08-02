@@ -4,6 +4,7 @@
 #include <SFML/System/Vector2.hpp>
 
 struct AppContext;
+class TrafficSimulator;
 
 inline constexpr float DEFAULT_MAP_ZOOM_FACTOR = 0.82f;
 
@@ -21,7 +22,15 @@ void clampViewToMap(AppContext& ctx);
 void refreshViewBounds(AppContext& ctx);
 
 // Resets to the default close map view and clamps it to the map bounds.
+// Also leaves vehicle-follow mode, without changing simulation state.
 void resetView(AppContext& ctx);
+
+// Vehicle follow state is stored by id so camera updates never retain a
+// Vehicle pointer across simulation frames or snapshot restores.
+void startFollowingVehicle(AppContext& ctx, int vehicleId);
+void stopFollowingVehicle(AppContext& ctx);
+bool isFollowingVehicle(const AppContext& ctx);
+bool isFollowingVehicle(const AppContext& ctx, int vehicleId);
 
 // Multiplies zoomFactor by `factor` (clamped to [0.35, 2.5]), resizes the
 // view to match, and re-clamps.
@@ -30,7 +39,10 @@ void zoomBy(AppContext& ctx, float factor);
 // Overload that zooms centered on a specific world coordinates position.
 void zoomBy(AppContext& ctx, float factor, sf::Vector2f zoomCenter);
 
-// Frame-rate independent RTS camera update (Edge scroll, WASD & Arrow Key panning).
-void updateCamera(AppContext& ctx, float dt);
+// Updates either the vehicle-follow camera or the normal frame-rate
+// independent RTS camera (edge scroll, WASD and arrow-key panning).
+void updateCamera(AppContext& ctx,
+                  const TrafficSimulator* simulator,
+                  float dt);
 
 #endif

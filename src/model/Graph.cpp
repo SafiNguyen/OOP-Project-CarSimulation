@@ -303,6 +303,24 @@ PointOfInterest* Graph::getPOI(int id) const {
     return nullptr;
 }
 
+PointOfInterest* Graph::getPointOfInterest(int id) const {
+    if (PointOfInterest* poi = getPOI(id)) {
+        return poi;
+    }
+    return getBusStation(id);
+}
+
+const BusStop* Graph::getBusStop(int id) const {
+    for (Road* road : getAllRoads()) {
+        if (road != nullptr) {
+            if (const BusStop* stop = road->findBusStopById(id)) {
+                return stop;
+            }
+        }
+    }
+    return nullptr;
+}
+
 std::vector<PointOfInterest*> Graph::getSpawnPoints() const {
     std::vector<PointOfInterest*> result;
     for (auto* poi : pois) {

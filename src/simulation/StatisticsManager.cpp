@@ -6,6 +6,7 @@
 
 #include "../algorithm/PathFindingStrategy.h"
 #include "Graph.h"
+#include "SnapshotTypes.h"
 
 
 
@@ -130,4 +131,25 @@ StatisticsSummary StatisticsManager::getSummary() const {
     }
 
     return summary;
+}
+
+StatisticsSnapshot StatisticsManager::captureSnapshot() const {
+    StatisticsSnapshot snapshot;
+    snapshot.algorithmMetrics = algorithmMetrics;
+    snapshot.travelMetrics = travelMetrics;
+    snapshot.totalSimulatedTime = totalSimulatedTime;
+    snapshot.totalRecalculations = totalRecalculations;
+    snapshot.tickCounter = tickCounter;
+    snapshot.completedTrips = completedTrips;
+    return snapshot;
+}
+
+void StatisticsManager::restoreSnapshot(
+    const StatisticsSnapshot& snapshot) {
+    algorithmMetrics = snapshot.algorithmMetrics;
+    travelMetrics = snapshot.travelMetrics;
+    totalSimulatedTime = snapshot.totalSimulatedTime;
+    totalRecalculations = snapshot.totalRecalculations;
+    tickCounter = snapshot.tickCounter;
+    completedTrips = snapshot.completedTrips;
 }

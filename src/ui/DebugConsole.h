@@ -47,7 +47,7 @@ public:
     using LoadMapFn = std::function<void(const std::string& requestedPath)>;
     using ResetSimulationFn =
         std::function<std::unique_ptr<TrafficSimulator>(int vehicleCount)>;
-    using ClampViewFn = std::function<void()>;
+    using ResetViewFn = std::function<void()>;
     // Opens a native "pick a file" dialog. Returns true and fills
     // selectedPath if the user picked one; returns false (dialog
     // unavailable or cancelled) otherwise.
@@ -57,14 +57,12 @@ public:
                  VisualizationEngine& visualization,
                  LoadMapFn loadAndRefresh,
                  ResetSimulationFn resetSimulation,
-                 ClampViewFn clampViewToMap,
+                 ResetViewFn resetView,
                  FileDialogFn openFileDialog);
 
     // Call once per frame, after ImGui::SFML::Update and before ImGui::SFML::Render.
     void draw(sf::RenderWindow& window,
               std::unique_ptr<TrafficSimulator>& simulator,
-              sf::View& view,
-              float& zoomFactor,
               bool& heatMapEnabled,
               bool& showParkedVehicles,
               std::string& mapPathInput,
@@ -115,16 +113,12 @@ private:
                     const StatisticsSummary* statistics);
     void drawBottomDock(sf::RenderWindow& window,
                         std::unique_ptr<TrafficSimulator>& simulator,
-                        sf::View& view,
-                        float& zoomFactor,
                         bool& heatMapEnabled,
                         bool& showParkedVehicles,
                         std::string& mapPathInput,
                         const std::string& loadError);
     void drawDrawer(sf::RenderWindow& window,
                     std::unique_ptr<TrafficSimulator>& simulator,
-                    sf::View& view,
-                    float& zoomFactor,
                     bool& heatMapEnabled,
                     bool& showParkedVehicles,
                     std::string& mapPathInput,
@@ -170,7 +164,7 @@ private:
     VisualizationEngine& visualization_;
     LoadMapFn loadAndRefresh_;
     ResetSimulationFn resetSimulation_;
-    ClampViewFn clampViewToMap_;
+    ResetViewFn resetView_;
     FileDialogFn openFileDialog_;
 
     PickTarget pickTarget_ = PickTarget::NONE;

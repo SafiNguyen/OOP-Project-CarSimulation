@@ -89,6 +89,7 @@ public:
     const std::vector<Vehicle*>& getMergingVehicles() const { return mergingVehicles; }
     void addMergingVehicle(Vehicle* v) { mergingVehicles.push_back(v); }
     void removeMergingVehicle(Vehicle* v);
+    void clearRuntimeVehicleReferences();
     Vehicle* getFirstVehicleInLane(int laneIndex) const;
 
     double getTravelCost() const;

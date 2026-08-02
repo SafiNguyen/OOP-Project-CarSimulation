@@ -6,7 +6,34 @@
 
 #include "AppContext.h"
 #include "Graph.h"
+#include "model/vehicle/Vehicle.h"
+#include "simulation/TrafficSimulator.h"
 #include "visualization/VisualizationEngine.h"
+
+namespace {
+constexpr float FOLLOW_ZOOM_FACTOR = 0.18f;
+constexpr float FOLLOW_RESPONSE = 10.0f;
+
+const Vehicle* findActiveVehicleById(
+    const TrafficSimulator* simulator,
+    int vehicleId) {
+    if (simulator == nullptr || vehicleId < 0) {
+        return nullptr;
+    }
+
+    for (const Vehicle* vehicle : simulator->getVehicles()) {
+        if (vehicle != nullptr && vehicle->getId() == vehicleId) {
+            return vehicle;
+        }
+    }
+    return nullptr;
+}
+
+float followBlend(float dt) {
+    const float safeDt = std::clamp(dt, 0.0f, 0.1f);
+    return 1.0f - std::exp(-FOLLOW_RESPONSE * safeDt);
+}
+} // namespace
 
 void clampViewToMap(AppContext& ctx) {
     const sf::Vector2f size = ctx.view.getSize();
@@ -65,6 +92,7 @@ void refreshViewBounds(AppContext& ctx) {
 }
 
 void resetView(AppContext& ctx) {
+    stopFollowingVehicle(ctx);
     ctx.zoomFactor = DEFAULT_MAP_ZOOM_FACTOR;
     ctx.view = ctx.window.getDefaultView();
     ctx.view.setSize(
@@ -73,6 +101,27 @@ void resetView(AppContext& ctx) {
         static_cast<float>(ctx.windowH) *
             ctx.zoomFactor);
     clampViewToMap(ctx);
+}
+
+void startFollowingVehicle(AppContext& ctx, int vehicleId) {
+    if (vehicleId < 0) {
+        return;
+    }
+    ctx.followedVehicleId = vehicleId;
+    ctx.isDragging = false;
+}
+
+void stopFollowingVehicle(AppContext& ctx) {
+    ctx.followedVehicleId = -1;
+    ctx.isDragging = false;
+}
+
+bool isFollowingVehicle(const AppContext& ctx) {
+    return ctx.followedVehicleId >= 0;
+}
+
+bool isFollowingVehicle(const AppContext& ctx, int vehicleId) {
+    return vehicleId >= 0 && ctx.followedVehicleId == vehicleId;
 }
 
 void zoomBy(AppContext& ctx, float factor) {
@@ -105,7 +154,39 @@ void zoomBy(AppContext& ctx, float factor, sf::Vector2f zoomCenter) {
     ctx.view.setCenter(newCenter);
 }
 
-void updateCamera(AppContext& ctx, float dt) {
+void updateCamera(AppContext& ctx,
+                  const TrafficSimulator* simulator,
+                  float dt) {
+    if (isFollowingVehicle(ctx)) {
+        const Vehicle* target = findActiveVehicleById(
+            simulator,
+            ctx.followedVehicleId);
+        if (target == nullptr || target->getCurrentRoad() == nullptr) {
+            stopFollowingVehicle(ctx);
+        } else {
+            const Pose2D pose = target->getPose();
+            const sf::Vector2f targetCenter =
+                ctx.visualization.worldToScreen(
+                    pose.position.x,
+                    pose.position.y);
+            const float blend = followBlend(dt);
+
+            ctx.zoomFactor +=
+                (FOLLOW_ZOOM_FACTOR - ctx.zoomFactor) * blend;
+            if (std::abs(FOLLOW_ZOOM_FACTOR - ctx.zoomFactor) < 0.0001f) {
+                ctx.zoomFactor = FOLLOW_ZOOM_FACTOR;
+            }
+            ctx.view.setSize(
+                static_cast<float>(ctx.windowW) * ctx.zoomFactor,
+                static_cast<float>(ctx.windowH) * ctx.zoomFactor);
+
+            const sf::Vector2f center = ctx.view.getCenter();
+            ctx.view.setCenter(
+                center + (targetCenter - center) * blend);
+            return;
+        }
+    }
+
     if (!ctx.window.hasFocus()) {
         return;
     }
