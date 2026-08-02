@@ -22,6 +22,8 @@
 #include "Motorbike.h"
 #include "Bus.h"
 #include "BusStop.h"
+#include "Destination.h"
+#include "SpawnPoint.h"
 #include "TrafficLight.h"
 #include "../src/algorithm/DijkstraStrategy.h" 
 #include "../src/simulation/TrafficSimulator.h"
@@ -1608,6 +1610,117 @@ void test_SimulatorDefersUnsafeSpawnUntilEntranceIsClear() {
       << " clearancesSafe=" << bodyClearancesAreSafe << "\n";
     reportResult(testName, passed, d.str());
 }
+
+void test_SimulatorValidatesPoiEndpointsBeforeQueueing() {
+    std::string testName =
+        "Simulator: manual POI spawn rejects endpoints that can never activate";
+
+    Graph graph;
+    graph.addIntersection(new Intersection(1, 0.0, 0.0));
+    graph.addIntersection(new Intersection(2, 100.0, 0.0));
+    graph.addIntersection(new Intersection(3, 200.0, 0.0));
+    graph.addRoad(new Road(
+        101, "Origin road",
+        graph.getIntersection(1),
+        graph.getIntersection(2),
+        100.0, 20.0));
+    graph.addRoad(new Road(
+        102, "Destination road",
+        graph.getIntersection(2),
+        graph.getIntersection(3),
+        100.0, 20.0));
+
+    auto* validOrigin = new ParkingLot(
+        201, "Parking", 20.0, 0.0,
+        graph.getIntersection(1));
+    validOrigin->configureRoadAccess(
+        graph.getRoad(101), 20.0, 0);
+    graph.addPOI(validOrigin);
+
+    auto* validDestination = new Supermarket(
+        202, "Market", 180.0, 0.0,
+        graph.getIntersection(3));
+    validDestination->configureRoadAccess(
+        graph.getRoad(102), 80.0, 0);
+    graph.addPOI(validDestination);
+
+    auto* invalidOrigin = new Supermarket(
+        203, "Destination only", 30.0, 0.0,
+        graph.getIntersection(1));
+    invalidOrigin->configureRoadAccess(
+        graph.getRoad(101), 30.0, 0);
+    graph.addPOI(invalidOrigin);
+
+    auto* invalidDestination = new HospitalSpawn(
+        204, "Spawn only", 170.0, 0.0,
+        graph.getIntersection(3));
+    invalidDestination->configureRoadAccess(
+        graph.getRoad(102), 70.0, 0);
+    graph.addPOI(invalidDestination);
+
+    DijkstraStrategy strategy;
+    TrafficSimulator simulator(&graph, &strategy);
+    simulator.setMaximumActiveVehicles(1);
+
+    auto* validVehicle = new Car(
+        1, 20.0,
+        graph.getIntersection(1),
+        graph.getIntersection(3));
+    validVehicle->setSpawnPOI(validOrigin);
+    validVehicle->setTargetPOI(validDestination);
+    const bool validAccepted =
+        simulator.addVehicleImmediately(validVehicle);
+
+    auto* secondValidVehicle = new Car(
+        4, 20.0,
+        graph.getIntersection(1),
+        graph.getIntersection(3));
+    secondValidVehicle->setSpawnPOI(validOrigin);
+    secondValidVehicle->setTargetPOI(validDestination);
+    const bool secondValidAccepted =
+        simulator.addVehicleImmediately(
+            secondValidVehicle);
+
+    auto* invalidOriginVehicle = new Car(
+        2, 20.0,
+        graph.getIntersection(1),
+        graph.getIntersection(3));
+    invalidOriginVehicle->setSpawnPOI(invalidOrigin);
+    invalidOriginVehicle->setTargetPOI(validDestination);
+    const bool invalidOriginRejected =
+        !simulator.addVehicleImmediately(
+            invalidOriginVehicle);
+
+    auto* invalidDestinationVehicle = new Car(
+        3, 20.0,
+        graph.getIntersection(1),
+        graph.getIntersection(3));
+    invalidDestinationVehicle->setSpawnPOI(validOrigin);
+    invalidDestinationVehicle->setTargetPOI(
+        invalidDestination);
+    const bool invalidDestinationRejected =
+        !simulator.addVehicleImmediately(
+            invalidDestinationVehicle);
+
+    const bool passed =
+        validAccepted &&
+        secondValidAccepted &&
+        simulator.getVehicles().size() == 2 &&
+        simulator.getPendingVehicleCount() == 0 &&
+        validVehicle->getSpawnLifecycleState() ==
+            SpawnLifecycleState::Merging &&
+        invalidOriginRejected &&
+        invalidDestinationRejected;
+
+    std::ostringstream d;
+    d << "  Expected: two manual spawns activate immediately despite the active cap; invalid endpoints are rejected\n";
+    d << "  Actual: active=" << simulator.getVehicles().size()
+      << " pending=" << simulator.getPendingVehicleCount()
+      << " invalidOriginRejected=" << invalidOriginRejected
+      << " invalidDestinationRejected="
+      << invalidDestinationRejected << "\n";
+    reportResult(testName, passed, d.str());
+}
 // ----------------------------------------------------------------------------
 // main
 // ----------------------------------------------------------------------------
@@ -1657,6 +1770,7 @@ int main() {
     test_Yielding_DoesNotSlowVehiclesAlreadyOutsideEmergencyLane();
     test_MixedLengthVehiclesUseBumperToBumperGap();
     test_SimulatorDefersUnsafeSpawnUntilEntranceIsClear();
+    test_SimulatorValidatesPoiEndpointsBeforeQueueing();
 
 
     printSummary();

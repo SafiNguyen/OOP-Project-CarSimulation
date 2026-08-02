@@ -1,11 +1,16 @@
+#include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <memory>
+#include <limits>
 #include <string>
 #include <vector>
 
 #include "Graph.h"
 #include "Intersection.h"
+#include "Mapload.h"
+#include "PointOfInterest.h"
 #include "Road.h"
 #include "algorithm/DijkstraStrategy.h"
 #include "simulation/EventManager.h"
@@ -13,6 +18,8 @@
 #include "simulation/StatisticsManager.h"
 #include "simulation/TimePlaybackController.h"
 #include "simulation/TrafficSimulator.h"
+#include "simulation/VehicleSpawnPolicy.h"
+#include "visualization/SimulatorFactory.h"
 
 namespace {
 
@@ -197,12 +204,158 @@ void testSnapshotPlaybackBranching() {
           "Out-of-range playback seek is rejected");
 }
 
+void testLargeDemandStreamsWithoutActiveLimit() {
+    Graph graph;
+    graph.addIntersection(new Intersection(1, 0.0, 0.0));
+    graph.addIntersection(new Intersection(2, 100.0, 0.0));
+    graph.addIntersection(new Intersection(3, 200.0, 0.0));
+    graph.addRoad(new Road(
+        10, "East 1", graph.getIntersection(1),
+        graph.getIntersection(2), 100.0, 20.0));
+    graph.addRoad(new Road(
+        11, "East 2", graph.getIntersection(2),
+        graph.getIntersection(3), 100.0, 20.0));
+    graph.addRoad(new Road(
+        12, "West 1", graph.getIntersection(3),
+        graph.getIntersection(2), 100.0, 20.0));
+    graph.addRoad(new Road(
+        13, "West 2", graph.getIntersection(2),
+        graph.getIntersection(1), 100.0, 20.0));
+
+    DijkstraStrategy strategy;
+    constexpr int demandCount = 10000;
+    auto simulator = createDemoSimulator(
+        graph, &strategy, demandCount);
+
+    check(simulator != nullptr &&
+              simulator->getDeferredDemandCount() ==
+                  static_cast<std::size_t>(demandCount) &&
+              simulator->getHighestReservedVehicleId() ==
+                  demandCount - 1,
+          "Large demand returns immediately as deferred work");
+    check(simulator->getMaximumActiveVehicles() ==
+              std::numeric_limits<std::size_t>::max(),
+          "Automatic vehicle activation has no fleet-size cap");
+    check(near(simulator->getSnapshotInterval(), 0.0),
+          "Large-demand mode disables duplicating the full queue into snapshots");
+
+    for (int frame = 0; frame < 5; ++frame) {
+        simulator->update(0.016);
+    }
+    const std::size_t materialized =
+        simulator->getVehicles().size() +
+        simulator->getPendingVehicleCount();
+    check(materialized > 0u &&
+              simulator->getDeferredDemandCount() <
+                  static_cast<std::size_t>(demandCount) &&
+              simulator->getDeferredDemandError().empty(),
+          "Deferred demand is materialized in bounded per-frame batches");
+}
+
+void testMap4TenThousandDemandKeepsRunning() {
+    Graph graph;
+    std::string error;
+    std::string path = "map4.json";
+    if (!std::filesystem::exists(path)) {
+        path = "../map4.json";
+    }
+    check(MapLoad::loadGraphFromJsonFile(
+              path, graph, &error),
+          "map4 loads for the 10,000-demand stress regression");
+    if (!error.empty() ||
+        graph.getAllIntersections().size() < 2u) {
+        return;
+    }
+
+    VehicleSpawnPolicy policy(graph, 42u);
+    const auto containsId = [](
+        const std::vector<PointOfInterest*>& endpoints,
+        int id) {
+        return std::any_of(
+            endpoints.begin(), endpoints.end(),
+            [id](const PointOfInterest* poi) {
+                return poi != nullptr &&
+                       poi->getId() == id;
+            });
+    };
+
+    const auto carOrigins =
+        policy.getEligibleOrigins(VehicleKind::Car);
+    const auto carDestinations =
+        policy.getEligibleDestinations(VehicleKind::Car);
+    check(containsId(carOrigins, 304) &&
+              containsId(carOrigins, 306) &&
+              !containsId(carOrigins, 300) &&
+              !containsId(carOrigins, 601) &&
+              containsId(carDestinations, 302) &&
+              containsId(carDestinations, 305) &&
+              !containsId(carDestinations, 300) &&
+              !containsId(carDestinations, 601),
+          "Car endpoints use Residence/Parking origins and non-Hospital, non-Bus destinations");
+
+    const auto motorbikeOrigins =
+        policy.getEligibleOrigins(VehicleKind::Motorbike);
+    const auto motorbikeDestinations =
+        policy.getEligibleDestinations(VehicleKind::Motorbike);
+    check(containsId(motorbikeOrigins, 304) &&
+              containsId(motorbikeOrigins, 306) &&
+              !containsId(motorbikeOrigins, 300) &&
+              containsId(motorbikeDestinations, 302) &&
+              containsId(motorbikeDestinations, 305) &&
+              !containsId(motorbikeDestinations, 601),
+          "Motorbike endpoints follow the same civilian policy as Car");
+
+    const auto busOrigins =
+        policy.getEligibleOrigins(VehicleKind::Bus);
+    const auto busDestinations =
+        policy.getEligibleDestinations(VehicleKind::Bus);
+    check(containsId(busOrigins, 601) &&
+              containsId(busDestinations, 602) &&
+              !containsId(busOrigins, 304) &&
+              !containsId(busDestinations, 302),
+          "Bus endpoints are configured Bus Stations only");
+
+    const auto emergencyOrigins =
+        policy.getEligibleOrigins(VehicleKind::Emergency);
+    const auto emergencyDestinations =
+        policy.getEligibleDestinations(VehicleKind::Emergency);
+    check(containsId(emergencyOrigins, 300) &&
+              !containsId(emergencyOrigins, 304) &&
+              containsId(emergencyDestinations, 302) &&
+              containsId(emergencyDestinations, 305) &&
+              !containsId(emergencyDestinations, 601),
+          "Emergency endpoints start at City Hospital and exclude Bus Stations as destinations");
+
+    DijkstraStrategy strategy;
+    constexpr int demandCount = 10000;
+    auto simulator = createDemoSimulator(
+        graph, &strategy, demandCount);
+
+    // Ten seconds of UI-like frames exercises incremental transit planning,
+    // pending admission, vehicle motion, and cleanup without blocking the
+    // event loop or requiring any Control Center action after Start.
+    for (int frame = 0; frame < 600; ++frame) {
+        simulator->update(1.0 / 60.0);
+    }
+
+    const std::size_t accounted =
+        simulator->getDeferredDemandCount() +
+        simulator->getVehicles().size() +
+        simulator->getPendingVehicleCount() +
+        simulator->getFinishedVehicles().size();
+    check(simulator->getDeferredDemandError().empty() &&
+              accounted == static_cast<std::size_t>(demandCount),
+          "map4 keeps all 10,000 trips accounted for while running");
+}
+
 } // namespace
 
 int main() {
     testTrafficEventLifecycle();
     testStatisticsAggregationAndRestore();
     testSnapshotPlaybackBranching();
+    testLargeDemandStreamsWithoutActiveLimit();
+    testMap4TenThousandDemandKeepsRunning();
 
     if (failures == 0) {
         std::cout << "All simulation service tests passed.\n";

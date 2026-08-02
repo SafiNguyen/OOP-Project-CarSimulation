@@ -17,12 +17,42 @@
 #include "Intersection.h"
 #include "Road.h"
 #include "Vehicle.h"
+#include "simulation/VehicleSpawnPolicy.h"
 #include "simulation/TrafficSimulator.h"
 #include "visualization/VisualizationEngine.h"
 #include "model/infrastructure/PointOfInterest.h"
 #include "model/infrastructure/SpawnPoint.h"
 
 namespace debugconsole_detail {
+
+inline VehicleKind vehicleKindFromIndex(int index) {
+    switch (index) {
+        case 1:
+            return VehicleKind::Bus;
+        case 2:
+            return VehicleKind::Motorbike;
+        case 3:
+            return VehicleKind::Emergency;
+        default:
+            return VehicleKind::Car;
+    }
+}
+
+inline bool isManualSpawnOrigin(
+    VehicleKind kind,
+    const PointOfInterest* poi) {
+    return poi != nullptr &&
+           VehicleSpawnPolicy::canSpawnFrom(
+               kind, *poi);
+}
+
+inline bool isManualSpawnDestination(
+    VehicleKind kind,
+    const PointOfInterest* poi) {
+    return poi != nullptr &&
+           VehicleSpawnPolicy::canTravelTo(
+               kind, *poi);
+}
 
 inline int nextFreeRoadId(const Graph& graph) {
     int maxId = 0;
@@ -35,6 +65,9 @@ inline int nextFreeRoadId(const Graph& graph) {
 inline int nextFreeVehicleId(TrafficSimulator* simulator) {
     int maxId = 0;
     if (simulator) {
+        maxId = std::max(
+            maxId,
+            simulator->getHighestReservedVehicleId());
         for (Vehicle* v : simulator->getVehicles()) {
             maxId = std::max(maxId, v->getId());
         }
@@ -72,16 +105,25 @@ inline std::string intersectionLabel(Intersection* it) {
     return "#" + std::to_string(it->getId());
 }
 
-inline PointOfInterest* pickPoiNear(const Graph& graph,
-                                    const VisualizationEngine& visualization,
-                                    const sf::Vector2f& screenPos,
-                                    std::optional<POIType> filterType = std::nullopt,
-                                    float pickRadiusPixels = 20.0f) {
+inline PointOfInterest* pickPoiNear(
+    const Graph& graph,
+    const VisualizationEngine& visualization,
+    const sf::Vector2f& screenPos,
+    VehicleKind kind,
+    bool originSelection,
+    float pickRadiusPixels = 20.0f) {
     PointOfInterest* best = nullptr;
     float bestDistSq = pickRadiusPixels * pickRadiusPixels;
 
+    const auto eligible = [kind, originSelection](
+                              const PointOfInterest* candidate) {
+        return originSelection
+            ? isManualSpawnOrigin(kind, candidate)
+            : isManualSpawnDestination(kind, candidate);
+    };
+
     for (PointOfInterest* candidate : graph.getAllPOIs()) {
-        if (filterType.has_value() && candidate->getType() != filterType.value()) {
+        if (!eligible(candidate)) {
             continue;
         }
         const sf::Vector2f p = visualization.worldToScreen(candidate->getX(), candidate->getY());
@@ -95,7 +137,7 @@ inline PointOfInterest* pickPoiNear(const Graph& graph,
     }
     
     for (BusStation* candidate : graph.getAllBusStations()) {
-        if (filterType.has_value() && candidate->getType() != filterType.value()) {
+        if (!eligible(candidate)) {
             continue;
         }
         const sf::Vector2f p = visualization.worldToScreen(candidate->getX(), candidate->getY());

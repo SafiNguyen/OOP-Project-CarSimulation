@@ -6,6 +6,7 @@
 
 #include "Graph.h"
 #include "PointOfInterest.h"
+#include "SpawnPoint.h"
 
 VehicleSpawnPolicy::VehicleSpawnPolicy(
     Graph& graph,
@@ -69,7 +70,9 @@ bool VehicleSpawnPolicy::canTravelTo(
         case VehicleKind::Car:
         case VehicleKind::Motorbike:
             return poi.getType() !=
-                   POIType::BUS_STATION;
+                       POIType::BUS_STATION &&
+                   poi.getType() !=
+                       POIType::HOSPITAL;
         case VehicleKind::Bus:
             return poi.getType() ==
                    POIType::BUS_STATION;
@@ -87,12 +90,21 @@ std::vector<PointOfInterest*>
 VehicleSpawnPolicy::getEligibleOrigins(
     VehicleKind kind) const {
     std::vector<PointOfInterest*> result;
-    for (PointOfInterest* poi :
-         graph_.getSpawnPoints()) {
+    const auto appendIfEligible =
+        [&result, kind](PointOfInterest* poi) {
         if (poi != nullptr &&
             canSpawnFrom(kind, *poi)) {
             result.push_back(poi);
         }
+    };
+    for (PointOfInterest* poi : graph_.getAllPOIs()) {
+        appendIfEligible(poi);
+    }
+    // Configured transit stations are owned separately from ordinary POIs,
+    // but they participate in the same endpoint policy for Bus trips.
+    for (PointOfInterest* station :
+         graph_.getAllBusStations()) {
+        appendIfEligible(station);
     }
     std::sort(
         result.begin(),
@@ -108,12 +120,19 @@ std::vector<PointOfInterest*>
 VehicleSpawnPolicy::getEligibleDestinations(
     VehicleKind kind) const {
     std::vector<PointOfInterest*> result;
-    for (PointOfInterest* poi :
-         graph_.getDestinations()) {
+    const auto appendIfEligible =
+        [&result, kind](PointOfInterest* poi) {
         if (poi != nullptr &&
             canTravelTo(kind, *poi)) {
             result.push_back(poi);
         }
+    };
+    for (PointOfInterest* poi : graph_.getAllPOIs()) {
+        appendIfEligible(poi);
+    }
+    for (PointOfInterest* station :
+         graph_.getAllBusStations()) {
+        appendIfEligible(station);
     }
     std::sort(
         result.begin(),

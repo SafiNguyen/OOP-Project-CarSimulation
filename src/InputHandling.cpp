@@ -74,7 +74,11 @@ void handleEvent(const sf::Event& event, AppContext& ctx, DebugConsole& debugCon
     }
 
     if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape) {
-        ctx.window.close();
+        // Escape is a UI cancel action. Closing the whole application here
+        // made a normal key press look like a crash (and produced no WER
+        // report), especially while the Control Center was open.
+        debugConsole.handleEscape();
+        return;
     }
     if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Space) {
         if (simulator && simulator->isPaused()) {

@@ -1,6 +1,8 @@
 #include "DebugConsole.h"
 
 #include <algorithm>
+#include <sstream>
+#include <vector>
 
 #include <imgui.h>
 
@@ -15,6 +17,26 @@
 
 using debugconsole_detail::poiLabel;
 using debugconsole_detail::nextFreeVehicleId;
+using debugconsole_detail::isManualSpawnDestination;
+using debugconsole_detail::isManualSpawnOrigin;
+using debugconsole_detail::vehicleKindFromIndex;
+
+namespace {
+
+const char* endpointRuleHint(VehicleKind kind) {
+    switch (kind) {
+        case VehicleKind::Car:
+        case VehicleKind::Motorbike:
+            return "Start: Residence or Parking. Destination: any configured destination except Hospital or Bus Station (for example Residence, Parking, Park or Theater).";
+        case VehicleKind::Bus:
+            return "Start and destination: Bus Station only.";
+        case VehicleKind::Emergency:
+            return "Start: City Hospital. Destination: any other configured destination except Bus Station.";
+    }
+    return "";
+}
+
+} // namespace
 
 void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simulator) {
     if (!ImGui::TreeNodeEx("Spawn Vehicle", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -23,15 +45,31 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
 
     const char* vehicleTypeNames[4] = { "Car", "Bus", "Motorbike", "Emergency Vehicle" };
     if (ImGui::Combo("Vehicle type", &spawnVehicleTypeIdx_, vehicleTypeNames, 4)) {
+        const VehicleKind kind =
+            vehicleKindFromIndex(spawnVehicleTypeIdx_);
+        if (!isManualSpawnOrigin(
+                kind,
+                graph_.getPointOfInterest(spawnStartId_))) {
+            spawnStartId_ = -1;
+        }
+        if (!isManualSpawnDestination(
+                kind,
+                graph_.getPointOfInterest(spawnEndId_))) {
+            spawnEndId_ = -1;
+        }
         if (spawnVehicleTypeIdx_ == 3) { // Emergency
             for (auto* poi : poisSnapshot_) {
-                if (poi->getType() == POIType::HOSPITAL) {
+                if (isManualSpawnOrigin(kind, poi)) {
                     spawnStartId_ = poi->getId();
                     break;
                 }
             }
         }
     }
+
+    const VehicleKind panelKind =
+        vehicleKindFromIndex(spawnVehicleTypeIdx_);
+    ImGui::TextWrapped("%s", endpointRuleHint(panelKind));
 
     {
         std::string previewStart = spawnStartId_ >= 0 ? ("#" + std::to_string(spawnStartId_)) : "(none)";
@@ -44,8 +82,10 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
         }
 
         if (ImGui::BeginCombo("Start##spawn", previewStart.c_str())) {
+            const VehicleKind kind =
+                vehicleKindFromIndex(spawnVehicleTypeIdx_);
             for (PointOfInterest* poi : poisSnapshot_) {
-                if (spawnVehicleTypeIdx_ == 1 && poi->getType() != POIType::BUS_STATION) continue;
+                if (!isManualSpawnOrigin(kind, poi)) continue;
                 bool selected = (poi->getId() == spawnStartId_);
                 if (ImGui::Selectable(poiLabel(poi).c_str(), selected)) {
                     spawnStartId_ = poi->getId();
@@ -74,8 +114,10 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
         }
 
         if (ImGui::BeginCombo("Destination##spawn", previewEnd.c_str())) {
+            const VehicleKind kind =
+                vehicleKindFromIndex(spawnVehicleTypeIdx_);
             for (PointOfInterest* poi : poisSnapshot_) {
-                if (spawnVehicleTypeIdx_ == 1 && poi->getType() != POIType::BUS_STATION) continue;
+                if (!isManualSpawnDestination(kind, poi)) continue;
                 bool selected = (poi->getId() == spawnEndId_);
                 if (ImGui::Selectable(poiLabel(poi).c_str(), selected)) {
                     spawnEndId_ = poi->getId();
@@ -106,9 +148,16 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
 
     Intersection* selectedStart = startPoi ? startPoi->getNearestIntersection() : nullptr;
     Intersection* selectedEnd = endPoi ? endPoi->getNearestIntersection() : nullptr;
+    const VehicleKind selectedKind =
+        vehicleKindFromIndex(spawnVehicleTypeIdx_);
+    const bool validOrigin =
+        isManualSpawnOrigin(selectedKind, startPoi);
+    const bool validDestination =
+        isManualSpawnDestination(selectedKind, endPoi);
     
-    const bool canSpawn = simulator && startPoi != nullptr
-        && endPoi != nullptr && selectedStart != nullptr && selectedEnd != nullptr && startPoi != endPoi;
+    const bool canSpawn = simulator && validOrigin && validDestination &&
+        selectedStart != nullptr && selectedEnd != nullptr &&
+        startPoi != endPoi;
         
     ImGui::BeginDisabled(!canSpawn);
     if (UiTheme::actionButton("Spawn Vehicle", ImVec2(142.0f, 36.0f))) {
@@ -121,51 +170,98 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
         } else if (startPoi == endPoi) {
             spawnMessage_ = "Start and destination must be different.";
         } else {
-            int successCount = 0;
+            std::vector<int> spawnedIds;
+            spawnedIds.reserve(
+                static_cast<std::size_t>(spawnVehicleCount_));
             for (int i = 0; i < spawnVehicleCount_; ++i) {
                 const int newId = nextFreeVehicleId(simulator.get());
-                Vehicle* v = nullptr;
-                VehicleKind kind = VehicleKind::Car;
-                if (spawnVehicleTypeIdx_ == 0) {
-                    kind = VehicleKind::Car;
-                } else if (spawnVehicleTypeIdx_ == 1) {
-                    kind = VehicleKind::Bus;
-                } else if (spawnVehicleTypeIdx_ == 2) {
-                    kind = VehicleKind::Motorbike;
-                } else {
-                    kind = VehicleKind::Emergency;
-                }
-                v = VehicleFactory::createVehicle(
-                    kind, newId, spawnVehicleSpeed_, selectedStart, selectedEnd);
+                Vehicle* v = VehicleFactory::createVehicle(
+                    selectedKind,
+                    newId,
+                    spawnVehicleSpeed_,
+                    selectedStart,
+                    selectedEnd);
                 if (v) {
                     v->setSpawnPOI(startPoi);
                     v->setTargetPOI(endPoi);
                 }
-                if (simulator->addVehicle(v)) {
-                    successCount++;
+                if (simulator->addVehicleImmediately(v)) {
+                    spawnedIds.push_back(newId);
+                    const auto existing = std::find_if(
+                        manualSpawnHighlights_.begin(),
+                        manualSpawnHighlights_.end(),
+                        [newId](
+                            const ManualSpawnHighlight& highlight) {
+                            return highlight.vehicleId == newId;
+                        });
+                    if (existing !=
+                        manualSpawnHighlights_.end()) {
+                        existing->remainingSeconds =
+                            MANUAL_SPAWN_HIGHLIGHT_SECONDS;
+                    } else {
+                        manualSpawnHighlights_.push_back(
+                            {newId,
+                             MANUAL_SPAWN_HIGHLIGHT_SECONDS});
+                    }
                 }
             }
-            if (successCount > 0) {
-                spawnMessage_ =
-                    "Created " +
-                    std::to_string(successCount) +
-                    " vehicles. Busy entrances use the safe spawn queue.";
-                setNotice(NoticeTone::SUCCESS, spawnMessage_);
+            if (!spawnedIds.empty()) {
+                std::ostringstream message;
+                if (spawnedIds.size() == 1u) {
+                    message << "Spawned vehicle ID #"
+                            << spawnedIds.front() << ".";
+                } else {
+                    message << "Spawned " << spawnedIds.size()
+                            << " vehicles. IDs: ";
+                    for (std::size_t index = 0u;
+                         index < spawnedIds.size();
+                         ++index) {
+                        if (index > 0u) {
+                            message << ", ";
+                        }
+                        message << '#' << spawnedIds[index];
+                    }
+                    message << '.';
+                }
+                const int failedCount =
+                    spawnVehicleCount_ -
+                    static_cast<int>(spawnedIds.size());
+                if (failedCount > 0) {
+                    message << ' ' << failedCount
+                            << " could not be spawned.";
+                }
+                spawnMessage_ = message.str();
+                setNotice(
+                    failedCount == 0
+                        ? NoticeTone::SUCCESS
+                        : NoticeTone::WARNING,
+                    spawnMessage_);
             } else {
-                spawnMessage_ = "No path exists between those two points; vehicles were not spawned.";
+                spawnMessage_ =
+                    "Could not spawn immediately. Check that the route is available and its roads are not blocked.";
                 setNotice(NoticeTone::ERROR, spawnMessage_);
             }
         }
     }
     ImGui::EndDisabled();
     if (!canSpawn) {
-        UiTheme::tooltip("Select two different POIs and keep a simulation active");
+        UiTheme::tooltip(
+            "Select a valid spawn point and destination for this vehicle type");
     }
     if (!spawnMessage_.empty()) {
         const bool success =
-            spawnMessage_.rfind("Created", 0) == 0;
-        ImGui::TextColored(success ? UiTheme::Success : UiTheme::Error,
-                           "%s", spawnMessage_.c_str());
+            spawnMessage_.rfind("Spawned", 0) == 0;
+        const bool warning =
+            success &&
+            spawnMessage_.find("could not be spawned") !=
+                std::string::npos;
+        ImGui::TextColored(
+            warning
+                ? UiTheme::Warning
+                : (success ? UiTheme::Success
+                           : UiTheme::Error),
+            "%s",
+            spawnMessage_.c_str());
     }
     ImGui::TreePop();
 }

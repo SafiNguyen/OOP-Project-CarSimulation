@@ -811,6 +811,11 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
         drawSelectedVehicleRoute(window, ctx.visualization, *simulator, vehicleInspector);
         drawActiveVehicles(
             window, ctx.visualization, *simulator, ctx.view);
+        debugConsole.drawManualSpawnMarkers(
+            window,
+            simulator.get(),
+            ctx.visualization,
+            dt);
         debugConsole.drawFailedRecalcMarkers(window, simulator.get(), ctx.visualization);
         drawSelectedVehicleHighlight(window, ctx.visualization, *simulator, vehicleInspector);
         if (ctx.showParkedVehicles) {

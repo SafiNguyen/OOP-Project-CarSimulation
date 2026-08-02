@@ -1,8 +1,10 @@
 #ifndef TRAFFICSIMULATOR_H
 #define TRAFFICSIMULATOR_H
 
+#include <algorithm>
 #include <vector>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <set>
 #include <string>
@@ -27,6 +29,9 @@ class TimePlaybackController;
 
 class TrafficSimulator {
 public:
+    using DeferredDemandProducer =
+        std::function<void(TrafficSimulator&)>;
+
     struct SpawnStatistics {
         // accepted counts submissions whose ownership entered the simulator.
         // rejected/timedOut count terminal failures, including accepted
@@ -47,12 +52,35 @@ public:
     TrafficSimulator& operator=(const TrafficSimulator&) = delete;
 
     bool addVehicle(Vehicle* vehicle);
+    // Used by explicit debug-console actions. Resolves and activates the
+    // vehicle synchronously instead of placing it in the normal demand queue.
+    bool addVehicleImmediately(Vehicle* vehicle);
     bool scheduleVehicleSpawn(
         Vehicle* vehicle,
         double delaySeconds);
     bool addVehicleWithFixedRoute(
         Vehicle* vehicle,
         const std::vector<Road*>& route);
+
+    // Streams large configured demand into the simulator in short,
+    // frame-budgeted batches so starting a large run never blocks the UI.
+    void setDeferredDemand(
+        std::size_t vehicleCount,
+        DeferredDemandProducer producer);
+    std::size_t getDeferredDemandCount() const {
+        return deferredDemandRemaining_;
+    }
+    const std::string& getDeferredDemandError() const {
+        return deferredDemandError_;
+    }
+    void reserveVehicleIdsThrough(int highestVehicleId) {
+        highestReservedVehicleId_ = std::max(
+            highestReservedVehicleId_,
+            highestVehicleId);
+    }
+    int getHighestReservedVehicleId() const {
+        return highestReservedVehicleId_;
+    }
 
     void triggerEvent(std::unique_ptr<TrafficEvent> event);
 
@@ -168,7 +196,12 @@ private:
     // Route searches allocate and traverse the graph. Keeping this bounded
     // prevents a synchronized reroute wave from stalling a render frame.
     static constexpr std::size_t MAX_DYNAMIC_REROUTES_PER_SUBSTEP = 2u;
+    static constexpr std::size_t
+        MAX_DEFERRED_DEMAND_PER_FRAME = 64u;
+    static constexpr double
+        DEFERRED_DEMAND_FRAME_BUDGET_MS = 3.0;
 
+    void pumpDeferredDemand();
     void pruneMergingIndex(Road* road);
     void recalculateAllVehicleRoutes();
     void removeFinishedVehicles();
@@ -177,7 +210,9 @@ private:
         double delaySeconds);
     bool tryActivateVehicle(
         Vehicle* vehicle,
-        const std::vector<Road*>& route);
+        const std::vector<Road*>& route,
+        bool bypassAdmissionGates = false);
+    bool hasValidEndpoints(const Vehicle* vehicle) const;
     bool resolveRoute(
         Vehicle* vehicle,
         std::vector<Road*>& route);
@@ -210,6 +245,10 @@ private:
         DEFAULT_PENDING_TIMEOUT_SECONDS;
     std::unique_ptr<EventManager> eventManager;     
     std::unique_ptr<StatisticsManager> statisticsManager;               
+    DeferredDemandProducer deferredDemandProducer_;
+    std::size_t deferredDemandRemaining_ = 0u;
+    std::string deferredDemandError_;
+    int highestReservedVehicleId_ = -1;
 
     bool paused;
     double speedMultiplier;

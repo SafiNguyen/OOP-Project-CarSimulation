@@ -437,11 +437,13 @@ void TrafficSimulator::pruneMergingIndex(Road* road)
 
 bool TrafficSimulator::tryActivateVehicle(
     Vehicle* vehicle,
-    const std::vector<Road*>& route) {
+    const std::vector<Road*>& route,
+    bool bypassAdmissionGates) {
     if (vehicle == nullptr) {
         return false;
     }
-    if (vehicles.size() >= maximumActiveVehicles_) {
+    if (!bypassAdmissionGates &&
+        vehicles.size() >= maximumActiveVehicles_) {
         vehicle->setSpawnLifecycleState(
             SpawnLifecycleState::WaitingForRoadGap);
         return false;
@@ -498,7 +500,8 @@ bool TrafficSimulator::tryActivateVehicle(
     if (source != nullptr) {
         const auto sourceGate =
             nextSpawnTimeBySource_.find(source);
-        if (sourceGate !=
+        if (!bypassAdmissionGates &&
+            sourceGate !=
                 nextSpawnTimeBySource_.end() &&
             elapsedTime + 1e-9 <
                 sourceGate->second) {
@@ -507,7 +510,8 @@ bool TrafficSimulator::tryActivateVehicle(
                     WaitingForSourceCapacity);
             return false;
         }
-        if (!vehicle->tryReserveSpawnSlot()) {
+        if (!vehicle->tryReserveSpawnSlot() &&
+            !bypassAdmissionGates) {
             return false;
         }
     }
@@ -528,7 +532,8 @@ bool TrafficSimulator::tryActivateVehicle(
     }
     const auto spawnGate =
         nextSpawnTimeByRoad_.find(road);
-    if (spawnGate != nextSpawnTimeByRoad_.end() &&
+    if (!bypassAdmissionGates &&
+        spawnGate != nextSpawnTimeByRoad_.end() &&
         elapsedTime + 1e-9 < spawnGate->second) {
         vehicle->setSpawnLifecycleState(
             SpawnLifecycleState::WaitingForRoadGap);
@@ -598,7 +603,8 @@ bool TrafficSimulator::tryActivateVehicle(
 
         auto mergeIt = mergingFromPOIByRoad_.find(road);
 
-        if (mergeIt != mergingFromPOIByRoad_.end()) {
+        if (!bypassAdmissionGates &&
+            mergeIt != mergingFromPOIByRoad_.end()) {
             for (Vehicle* existing : mergeIt->second) {
 
                 const double dist =
@@ -960,6 +966,36 @@ bool TrafficSimulator::addVehicle(Vehicle* vehicle) {
     return addVehicleWithDelay(vehicle, 0.0);
 }
 
+bool TrafficSimulator::addVehicleImmediately(
+    Vehicle* vehicle) {
+    if (vehicle == nullptr || graph == nullptr ||
+        pathFindingStrategy == nullptr ||
+        !hasValidEndpoints(vehicle)) {
+        ++spawnStatistics_.rejected;
+        delete vehicle;
+        return false;
+    }
+
+    try {
+        std::vector<Road*> route;
+        if (!resolveRoute(vehicle, route) ||
+            !tryActivateVehicle(
+                vehicle,
+                route,
+                true)) {
+            ++spawnStatistics_.rejected;
+            delete vehicle;
+            return false;
+        }
+        ++spawnStatistics_.accepted;
+        return true;
+    } catch (...) {
+        ++spawnStatistics_.rejected;
+        delete vehicle;
+        throw;
+    }
+}
+
 bool TrafficSimulator::scheduleVehicleSpawn(
     Vehicle* vehicle,
     double delaySeconds) {
@@ -983,15 +1019,7 @@ bool TrafficSimulator::addVehicleWithDelay(
         return false;
     }
 
-    const bool hasOrigin =
-        (vehicle->getSpawnPOI() != nullptr &&
-         vehicle->getSpawnPOI()->getConnectedRoad() != nullptr) ||
-        vehicle->getSpawnPoint() != nullptr;
-    const bool hasDestination =
-        (vehicle->getTargetPOI() != nullptr &&
-         vehicle->getTargetPOI()->getConnectedRoad() != nullptr) ||
-        vehicle->getDestination() != nullptr;
-    if (!hasOrigin || !hasDestination) {
+    if (!hasValidEndpoints(vehicle)) {
         ++spawnStatistics_.rejected;
         delete vehicle;
         return false;
@@ -1044,6 +1072,26 @@ bool TrafficSimulator::addVehicleWithDelay(
         delete vehicle;
         throw;
     }
+}
+
+bool TrafficSimulator::hasValidEndpoints(
+    const Vehicle* vehicle) const {
+    if (vehicle == nullptr) {
+        return false;
+    }
+    const PointOfInterest* originPOI =
+        vehicle->getSpawnPOI();
+    const PointOfInterest* destinationPOI =
+        vehicle->getTargetPOI();
+    const bool hasOrigin = originPOI != nullptr
+        ? originPOI->isSpawnPoint() &&
+              originPOI->getConnectedRoad() != nullptr
+        : vehicle->getSpawnPoint() != nullptr;
+    const bool hasDestination = destinationPOI != nullptr
+        ? destinationPOI->isDestination() &&
+              destinationPOI->getConnectedRoad() != nullptr
+        : vehicle->getDestination() != nullptr;
+    return hasOrigin && hasDestination;
 }
 
 void TrafficSimulator::removeFinishedVehicles() {
@@ -1149,6 +1197,63 @@ bool TrafficSimulator::addVehicleWithFixedRoute(
     }
 }
 
+void TrafficSimulator::setDeferredDemand(
+    std::size_t vehicleCount,
+    DeferredDemandProducer producer) {
+    deferredDemandRemaining_ = vehicleCount;
+    deferredDemandProducer_ = std::move(producer);
+    deferredDemandError_.clear();
+    if (deferredDemandRemaining_ == 0u ||
+        !deferredDemandProducer_) {
+        deferredDemandRemaining_ = 0u;
+        deferredDemandProducer_ = {};
+    }
+}
+
+void TrafficSimulator::pumpDeferredDemand() {
+    if (deferredDemandRemaining_ == 0u ||
+        !deferredDemandProducer_) {
+        return;
+    }
+
+    const auto started =
+        std::chrono::steady_clock::now();
+    std::size_t produced = 0u;
+    try {
+        while (deferredDemandRemaining_ > 0u &&
+               produced <
+                   MAX_DEFERRED_DEMAND_PER_FRAME) {
+            deferredDemandProducer_(*this);
+            --deferredDemandRemaining_;
+            ++produced;
+
+            const double elapsedMs =
+                std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() -
+                    started).count();
+            if (elapsedMs >=
+                DEFERRED_DEMAND_FRAME_BUDGET_MS) {
+                break;
+            }
+        }
+    } catch (const std::exception& exception) {
+        deferredDemandError_ = exception.what();
+        deferredDemandRemaining_ = 0u;
+        deferredDemandProducer_ = {};
+        return;
+    } catch (...) {
+        deferredDemandError_ =
+            "Unknown error while generating deferred traffic demand.";
+        deferredDemandRemaining_ = 0u;
+        deferredDemandProducer_ = {};
+        return;
+    }
+
+    if (deferredDemandRemaining_ == 0u) {
+        deferredDemandProducer_ = {};
+    }
+}
+
 void TrafficSimulator::triggerEvent(std::unique_ptr<TrafficEvent> event) {
     if (eventManager) {
          eventManager->triggerEvent(std::move(event));
@@ -1157,6 +1262,8 @@ void TrafficSimulator::triggerEvent(std::unique_ptr<TrafficEvent> event) {
 
 void TrafficSimulator::update(double dt) {
     if (paused) return;
+
+    pumpDeferredDemand();
 
     // High-resolution profiling using std::chrono
     static int profileFrames = 0;
@@ -1694,7 +1801,8 @@ void TrafficSimulator::setSnapshotInterval(double intervalSeconds) {
 
 void TrafficSimulator::maybeAutoCaptureSnapshot() {
     if (snapshotManager_ == nullptr ||
-        snapshotIntervalSeconds_ <= 0.0) {
+        snapshotIntervalSeconds_ <= 0.0 ||
+        deferredDemandRemaining_ > 0u) {
         return;
     }
     if (elapsedTime - lastSnapshotTime_ >=

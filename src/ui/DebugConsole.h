@@ -77,6 +77,10 @@ public:
     // to handleMapClick instead of normal click behavior.
     bool isPicking() const;
 
+    // Handles Escape as a UI cancel action. It never exits the application.
+    // Returns true when an active pick or the Control Center was dismissed.
+    bool handleEscape();
+
     // Called from main's event loop on a left click while isPicking() is true.
     // worldPos must already be converted to world/graph space, i.e.
     // window.mapPixelToCoords(pixel, view).
@@ -89,6 +93,14 @@ public:
     void drawFailedRecalcMarkers(sf::RenderWindow& window,
                                   TrafficSimulator* simulator,
                                   const VisualizationEngine& visualization) const;
+
+    // Draws a short-lived pulse around vehicles created explicitly from the
+    // Control Center. Uses real frame time so it also fades while paused.
+    void drawManualSpawnMarkers(
+        sf::RenderWindow& window,
+        TrafficSimulator* simulator,
+        const VisualizationEngine& visualization,
+        float frameDt);
 
     // Clears picks/messages and invalidates cached snapshots. Call whenever
     // the map is (re)loaded.
@@ -208,6 +220,14 @@ private:
     float spawnVehicleSpeed_ = 20.0f;
     int spawnVehicleCount_ = 1;
     std::string spawnMessage_;
+    struct ManualSpawnHighlight {
+        int vehicleId = -1;
+        float remainingSeconds = 0.0f;
+    };
+    static constexpr float
+        MANUAL_SPAWN_HIGHLIGHT_SECONDS = 5.0f;
+    std::vector<ManualSpawnHighlight>
+        manualSpawnHighlights_;
 
     // Task 4c: Trigger Accident panel state
     int eventTypeIdx_ = 0; // 0=Accident, 1=Congestion, 2=Road Closure

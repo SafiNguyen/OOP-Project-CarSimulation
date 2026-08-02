@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <exception>
+#include <limits>
 
 #include <imgui.h>
 
@@ -24,7 +25,8 @@ using debugconsole_detail::pickIntersectionNear;
 namespace {
 
 constexpr int MINIMUM_SIMULATION_VEHICLES = 1;
-constexpr int MAXIMUM_SIMULATION_VEHICLES = 50000;
+constexpr int MAXIMUM_SIMULATION_VEHICLES =
+    std::numeric_limits<int>::max();
 
 } // namespace
 
@@ -48,6 +50,15 @@ bool DebugConsole::isPicking() const {
     return pickTarget_ != PickTarget::NONE;
 }
 
+bool DebugConsole::handleEscape() {
+    const bool handled = isPicking() || drawerOpen_;
+    pickTarget_ = PickTarget::NONE;
+    if (drawerOpen_) {
+        drawerOpen_ = false;
+    }
+    return handled;
+}
+
 void DebugConsole::onMapChanged() {
     pickTarget_ = PickTarget::NONE;
     addRoadStartId_ = -1;
@@ -56,6 +67,7 @@ void DebugConsole::onMapChanged() {
     spawnStartId_ = -1;
     spawnEndId_ = -1;
     spawnMessage_.clear();
+    manualSpawnHighlights_.clear();
     accidentRoadIdx_ = -1;
     simulationVehicleCountInput_ = std::clamp(
         lockedSimulationVehicleCount_,
@@ -92,13 +104,18 @@ void DebugConsole::handleMapClick(const Graph& graph,
             }
         }
     } else if (pickTarget_ == PickTarget::SPAWN_START || pickTarget_ == PickTarget::SPAWN_END) {
-        std::optional<POIType> filter = std::nullopt;
-        if (spawnVehicleTypeIdx_ == 1) filter = POIType::BUS_STATION;
-        else if (spawnVehicleTypeIdx_ == 3 && pickTarget_ == PickTarget::SPAWN_START) filter = POIType::HOSPITAL;
-        
-        PointOfInterest* pickedPoi = debugconsole_detail::pickPoiNear(graph, visualization, worldPos, filter);
+        const bool originSelection =
+            pickTarget_ == PickTarget::SPAWN_START;
+        PointOfInterest* pickedPoi =
+            debugconsole_detail::pickPoiNear(
+                graph,
+                visualization,
+                worldPos,
+                debugconsole_detail::vehicleKindFromIndex(
+                    spawnVehicleTypeIdx_),
+                originSelection);
         if (pickedPoi != nullptr) {
-            if (pickTarget_ == PickTarget::SPAWN_START) spawnStartId_ = pickedPoi->getId();
+            if (originSelection) spawnStartId_ = pickedPoi->getId();
             else spawnEndId_ = pickedPoi->getId();
         }
     }
@@ -177,9 +194,8 @@ void DebugConsole::drawSimulationSetupPanel(
     }
     ImGui::EndDisabled();
     ImGui::TextDisabled(
-        "Allowed range: %d - %d",
-        MINIMUM_SIMULATION_VEHICLES,
-        MAXIMUM_SIMULATION_VEHICLES);
+        "Minimum: %d. Large demand is streamed while the simulation runs.",
+        MINIMUM_SIMULATION_VEHICLES);
 
     if (!simulationVehicleCountLocked_) {
         if (UiTheme::actionButton(
@@ -250,6 +266,20 @@ void DebugConsole::drawSimulationSetupPanel(
         ImGui::Spacing();
         ImGui::TextWrapped(
             "%s", simulationSetupMessage_.c_str());
+    }
+
+    if (simulator &&
+        simulator->getDeferredDemandCount() > 0u) {
+        ImGui::TextColored(
+            UiTheme::AccentStrong,
+            "Preparing demand: %zu trips remaining",
+            simulator->getDeferredDemandCount());
+    }
+    if (simulator &&
+        !simulator->getDeferredDemandError().empty()) {
+        ImGui::TextWrapped(
+            "Demand generation error: %s",
+            simulator->getDeferredDemandError().c_str());
     }
 
     if (simulator) {
@@ -323,8 +353,7 @@ void DebugConsole::draw(sf::RenderWindow& window,
 
     if (drawerOpen_ && ImGui::IsKeyPressed(ImGuiKey_Escape)
         && !ImGui::IsAnyItemActive()) {
-        drawerOpen_ = false;
-        pickTarget_ = PickTarget::NONE;
+        handleEscape();
     }
 
     drawTopHud(window, simulator, mapPathInput, usingDemoMap, statistics);
@@ -627,4 +656,84 @@ void DebugConsole::drawFailedRecalcMarkers(sf::RenderWindow& window,
         warnDot.setOutlineColor(sf::Color::White);
         window.draw(warnDot);
     }
+}
+
+void DebugConsole::drawManualSpawnMarkers(
+    sf::RenderWindow& window,
+    TrafficSimulator* simulator,
+    const VisualizationEngine& visualization,
+    float frameDt) {
+    const float safeDt = std::clamp(
+        frameDt, 0.0f, 0.25f);
+    for (ManualSpawnHighlight& highlight :
+         manualSpawnHighlights_) {
+        highlight.remainingSeconds = std::max(
+            0.0f,
+            highlight.remainingSeconds - safeDt);
+    }
+    if (simulator != nullptr) {
+        for (const ManualSpawnHighlight& highlight :
+             manualSpawnHighlights_) {
+            if (highlight.remainingSeconds <= 0.0f) {
+                continue;
+            }
+            const auto found = std::find_if(
+                simulator->getVehicles().begin(),
+                simulator->getVehicles().end(),
+                [&highlight](const Vehicle* vehicle) {
+                    return vehicle != nullptr &&
+                           vehicle->getId() ==
+                               highlight.vehicleId;
+                });
+            if (found == simulator->getVehicles().end() ||
+                (*found)->getCurrentRoad() == nullptr) {
+                continue;
+            }
+
+            const Pose2D pose = (*found)->getPose();
+            const sf::Vector2f position =
+                visualization.worldToScreen(
+                    pose.position.x,
+                    pose.position.y);
+            const float elapsed =
+                MANUAL_SPAWN_HIGHLIGHT_SECONDS -
+                highlight.remainingSeconds;
+            const float pulse =
+                0.5f + 0.5f * std::sin(
+                    elapsed * 7.0f);
+            const float radius = 11.0f + pulse * 5.0f;
+            const sf::Uint8 alpha =
+                static_cast<sf::Uint8>(
+                    110.0f + pulse * 130.0f);
+
+            sf::CircleShape ring(radius, 32u);
+            ring.setOrigin(radius, radius);
+            ring.setPosition(position);
+            ring.setFillColor(sf::Color::Transparent);
+            ring.setOutlineThickness(2.5f);
+            ring.setOutlineColor(
+                sf::Color(55, 235, 255, alpha));
+            window.draw(ring);
+
+            sf::CircleShape idBadge(5.5f, 20u);
+            idBadge.setOrigin(5.5f, 5.5f);
+            idBadge.setPosition(
+                position.x,
+                position.y - radius - 7.0f);
+            idBadge.setFillColor(
+                sf::Color(20, 190, 220, alpha));
+            idBadge.setOutlineThickness(1.5f);
+            idBadge.setOutlineColor(sf::Color::White);
+            window.draw(idBadge);
+        }
+    }
+
+    manualSpawnHighlights_.erase(
+        std::remove_if(
+            manualSpawnHighlights_.begin(),
+            manualSpawnHighlights_.end(),
+            [](const ManualSpawnHighlight& highlight) {
+                return highlight.remainingSeconds <= 0.0f;
+            }),
+        manualSpawnHighlights_.end());
 }
