@@ -13,10 +13,23 @@ std::size_t SnapshotManager::capture(const TrafficSimulator& simulator) {
     return snapshots_.size() - 1;
 }
 
-bool SnapshotManager::restore(TrafficSimulator& simulator, std::size_t index) {
+bool SnapshotManager::restore(TrafficSimulator& simulator,
+                              std::size_t index,
+                              std::string* error) {
     if (index >= snapshots_.size()) {
+        if (error != nullptr) {
+            *error = "Snapshot index is out of range.";
+        }
         return false;
     }
-    simulator.restoreSnapshot(snapshots_[index]);
-    return true;
+    return simulator.restoreSnapshot(snapshots_[index], error);
+}
+
+void SnapshotManager::truncateAfter(std::size_t index) {
+    if (index >= snapshots_.size()) {
+        return;
+    }
+    snapshots_.erase(
+        snapshots_.begin() + static_cast<std::ptrdiff_t>(index + 1u),
+        snapshots_.end());
 }

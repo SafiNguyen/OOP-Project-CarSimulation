@@ -760,7 +760,7 @@
         },
         {
             "id": 306,
-            "name": "Northwest Residences",
+            "name": "Residence A",
             "x": 75.0,
             "y": 125.0,
             "type": "residential_area",
@@ -774,7 +774,7 @@
         },
         {
             "id": 307,
-            "name": "North Central Residences",
+            "name": "Residence B",
             "x": 175.0,
             "y": 75.0,
             "type": "residential_area",
@@ -788,7 +788,7 @@
         },
         {
             "id": 308,
-            "name": "Northeast Residences",
+            "name": "Residence C",
             "x": 375.0,
             "y": 75.0,
             "type": "residential_area",
@@ -802,7 +802,7 @@
         },
         {
             "id": 309,
-            "name": "Westside Residences",
+            "name": "Residence D",
             "x": 75.0,
             "y": 225.0,
             "type": "residential_area",
@@ -816,7 +816,7 @@
         },
         {
             "id": 310,
-            "name": "Southwest Residences",
+            "name": "Residence E",
             "x": 75.0,
             "y": 325.0,
             "type": "residential_area",
@@ -830,7 +830,7 @@
         },
         {
             "id": 311,
-            "name": "South Central Residences",
+            "name": "Residence F",
             "x": 275.0,
             "y": 325.0,
             "type": "residential_area",
@@ -844,7 +844,7 @@
         },
         {
             "id": 312,
-            "name": "Southeast Residences",
+            "name": "Residence G",
             "x": 425.0,
             "y": 325.0,
             "type": "residential_area",

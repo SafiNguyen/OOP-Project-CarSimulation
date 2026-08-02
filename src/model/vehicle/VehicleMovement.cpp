@@ -117,10 +117,7 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
     if (allowsDynamicRerouting()) {
         recalculateTimer -= elapsedTimeThisUpdate;
         if (recalculateTimer <= 0.0 && allowDynamicReroute) {
-            recalculateTimer = 10.0 +
-                static_cast<double>(
-                    std::rand() % 50) /
-                    10.0; // 10-15s
+            recalculateTimer = nextRerouteDelaySeconds();
             if (graph && strategy && currentRoad &&
                 movementState_ ==
                     MovementState::OnRoad) {

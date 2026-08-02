@@ -57,12 +57,8 @@ void Bus::restoreSnapshot(const VehicleSnapshot& snap,
     assignedStops_.clear();
     assignedStops_.reserve(snap.assignedStopIds.size());
     for (const int stopId : snap.assignedStopIds) {
-        if (stopId < 0 || currentRoad == nullptr) {
-            assignedStops_.push_back(nullptr);
-            continue;
-        }
         assignedStops_.push_back(
-            currentRoad->findBusStopById(stopId));
+            stopId >= 0 ? graph.getBusStop(stopId) : nullptr);
     }
     assignedStopRouteIndices_ = snap.assignedStopRouteIndices;
     scheduledDepartureTime_ = snap.scheduledDepartureTime;
@@ -70,11 +66,15 @@ void Bus::restoreSnapshot(const VehicleSnapshot& snap,
     servedStopIds_ = snap.servedStopIds;
     missedStopIds_ = snap.missedStopIds;
     tripState_ = static_cast<BusTripState>(snap.tripState);
-    departureSlotHeld_ = snap.departureSlotHeld;
+    departureSlotHeld_ = false;
+    if (snap.departureSlotHeld && originStation_ != nullptr) {
+        departureSlotHeld_ =
+            originStation_->tryAcquireDepartureSlot();
+    }
 
     // Restore nextStop by resolving its id against the current road.
     if (snap.nextStopId >= 0 && currentRoad != nullptr) {
-        nextStop = currentRoad->findBusStopById(snap.nextStopId);
+        nextStop = graph.getBusStop(snap.nextStopId);
         if (nextStop == nullptr ||
             nextStop->getRoad() != currentRoad) {
             nextStop = nullptr;

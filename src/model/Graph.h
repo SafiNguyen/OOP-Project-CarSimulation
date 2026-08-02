@@ -10,6 +10,7 @@
 
 class BusService;
 class BusStation;
+class BusStop;
 
 class Graph {
 private:
@@ -57,6 +58,8 @@ public:
     void addPOI(PointOfInterest* poi);
     const std::vector<PointOfInterest*>& getAllPOIs() const;
     PointOfInterest* getPOI(int id) const;
+    PointOfInterest* getPointOfInterest(int id) const;
+    const BusStop* getBusStop(int id) const;
     std::vector<PointOfInterest*> getSpawnPoints() const;
     std::vector<PointOfInterest*> getDestinations() const;
     

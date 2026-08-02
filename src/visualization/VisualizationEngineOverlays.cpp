@@ -22,20 +22,6 @@ constexpr unsigned int kMaximumRoadLabelSize = 13u;
 constexpr float kRoundaboutCenterCropRadiusFraction = 0.245f;
 constexpr int kRoundaboutCenterSegments = 64;
 
-std::string residenceSuffix(std::size_t index) {
-    std::string suffix;
-    do {
-        suffix.insert(
-            suffix.begin(),
-            static_cast<char>('A' + index % 26));
-        if (index < 26) {
-            break;
-        }
-        index = index / 26 - 1;
-    } while (true);
-    return suffix;
-}
-
 struct RoundaboutCenterAsset {
     sf::Texture texture;
     bool loaded = false;
@@ -1210,7 +1196,6 @@ void VisualizationEngine::drawPOIDriveways(
 
 void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph) const {
     const auto& pois = graph.getAllPOIs();
-    std::size_t residenceIndex = 0;
     for (const auto* poi : pois) {
         if (!poi) continue;
         sf::Vector2f pos = worldToScreen(poi->getX(), poi->getY());
@@ -1234,13 +1219,7 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
         if (font_) {
             sf::Text text;
             text.setFont(*font_);
-            if (poi->getType() == POIType::RESIDENTIAL_AREA) {
-                text.setString(
-                    "Residence " +
-                    residenceSuffix(residenceIndex++));
-            } else {
-                text.setString(poi->getName());
-            }
+            text.setString(poi->getName());
             text.setCharacterSize(10);
             text.setFillColor(sf::Color::White);
             text.setOutlineColor(sf::Color::Black);

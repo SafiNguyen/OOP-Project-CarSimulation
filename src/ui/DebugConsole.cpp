@@ -32,13 +32,13 @@ DebugConsole::DebugConsole(Graph& graph,
                            VisualizationEngine& visualization,
                            LoadMapFn loadAndRefresh,
                            ResetSimulationFn resetSimulation,
-                           ClampViewFn clampViewToMap,
+                           ResetViewFn resetView,
                            FileDialogFn openFileDialog)
     : graph_(graph),
       visualization_(visualization),
       loadAndRefresh_(std::move(loadAndRefresh)),
       resetSimulation_(std::move(resetSimulation)),
-      clampViewToMap_(std::move(clampViewToMap)),
+      resetView_(std::move(resetView)),
       openFileDialog_(std::move(openFileDialog)),
       simulationVehicleCountInput_(
           DEFAULT_DEMO_VEHICLE_COUNT) {
@@ -299,8 +299,6 @@ void DebugConsole::rebuildSnapshotsIfNeeded(const Graph& graph) {
 
 void DebugConsole::draw(sf::RenderWindow& window,
                          std::unique_ptr<TrafficSimulator>& simulator,
-                         sf::View& view,
-                         float& zoomFactor,
                          bool& heatMapEnabled,
                          bool& showParkedVehicles,
                          std::string& mapPathInput,
@@ -330,10 +328,10 @@ void DebugConsole::draw(sf::RenderWindow& window,
     }
 
     drawTopHud(window, simulator, mapPathInput, usingDemoMap, statistics);
-    drawBottomDock(window, simulator, view, zoomFactor, heatMapEnabled,
+    drawBottomDock(window, simulator, heatMapEnabled,
                    showParkedVehicles, mapPathInput, loadError);
     if (drawerOpen_) {
-        drawDrawer(window, simulator, view, zoomFactor, heatMapEnabled,
+        drawDrawer(window, simulator, heatMapEnabled,
                    showParkedVehicles, mapPathInput, usingDemoMap, loadError,
                    statsPanel, statistics);
     }
@@ -357,8 +355,6 @@ void DebugConsole::setNotice(NoticeTone tone, const std::string& message) {
 
 void DebugConsole::drawDrawer(sf::RenderWindow& window,
                               std::unique_ptr<TrafficSimulator>& simulator,
-                              sf::View& view,
-                              float& zoomFactor,
                               bool& heatMapEnabled,
                               bool& showParkedVehicles,
                               std::string& mapPathInput,
@@ -366,8 +362,6 @@ void DebugConsole::drawDrawer(sf::RenderWindow& window,
                               const std::string& loadError,
                               StatsPanel& statsPanel,
                               const StatisticsSummary* statistics) {
-    (void)view;
-    (void)zoomFactor;
     const sf::Vector2u size = window.getSize();
     const float width = static_cast<float>(size.x);
     const float height = static_cast<float>(size.y);

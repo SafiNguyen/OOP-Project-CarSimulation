@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include "TrafficEvent.h"
+#include "SnapshotTypes.h"
 #include "Vehicle.h"
 #include "Graph.h"
 #include "../algorithm/PathFindingStrategy.h"
@@ -28,6 +29,9 @@ public:
     // Observer Pattern: Notify affected vehicles
     void notifyAffectedVehicles(int roadId);
     void setRoutingStrategy(PathFindingStrategy* strategy);
+    std::vector<TrafficEventSnapshot> captureSnapshot() const;
+    void restoreSnapshot(
+        const std::vector<TrafficEventSnapshot>& snapshot);
 
 };
 

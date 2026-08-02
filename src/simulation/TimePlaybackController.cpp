@@ -12,58 +12,70 @@ std::size_t TimePlaybackController::rewind(std::size_t frames) {
     if (manager_ == nullptr || manager_->size() == 0) {
         return SnapshotManager::npos;
     }
-    if (cursor_ == SnapshotManager::npos) {
-        cursor_ = manager_->newestIndex();
+    std::size_t target = currentIndex();
+    if (target == SnapshotManager::npos) {
+        target = manager_->newestIndex();
     }
-    if (cursor_ == SnapshotManager::npos) {
+    if (target == SnapshotManager::npos) {
         return SnapshotManager::npos;
     }
-    if (cursor_ > 0) {
-        const std::size_t steps = frames < cursor_ ? frames : cursor_;
-        cursor_ -= steps;
-        if (simulator_ != nullptr) {
-            manager_->restore(*simulator_, cursor_);
-            simulator_->pause();
-        }
+    if (target > 0) {
+        const std::size_t steps = frames < target ? frames : target;
+        target -= steps;
     }
-    return cursor_;
+    pendingIndex_ = target;
+    return pendingIndex_;
 }
 
 std::size_t TimePlaybackController::forward(std::size_t frames) {
     if (manager_ == nullptr || manager_->size() == 0) {
         return SnapshotManager::npos;
     }
-    if (cursor_ == SnapshotManager::npos) {
-        cursor_ = manager_->newestIndex();
-        if (simulator_ != nullptr && cursor_ != SnapshotManager::npos) {
-            manager_->restore(*simulator_, cursor_);
-            simulator_->pause();
-        }
-        return cursor_;
+    std::size_t target = currentIndex();
+    if (target == SnapshotManager::npos) {
+        target = manager_->newestIndex();
+        pendingIndex_ = target;
+        return pendingIndex_;
     }
     const std::size_t newest = manager_->newestIndex();
-    if (cursor_ < newest) {
-        const std::size_t remaining = newest - cursor_;
+    if (target < newest) {
+        const std::size_t remaining = newest - target;
         const std::size_t steps = frames < remaining ? frames : remaining;
-        cursor_ += steps;
-        if (simulator_ != nullptr) {
-            manager_->restore(*simulator_, cursor_);
-            simulator_->pause();
-        }
+        target += steps;
     }
-    return cursor_;
+    pendingIndex_ = target;
+    return pendingIndex_;
 }
 
 std::size_t TimePlaybackController::seek(std::size_t index) {
     if (manager_ == nullptr || index >= manager_->size()) {
         return SnapshotManager::npos;
     }
-    cursor_ = index;
-    if (simulator_ != nullptr) {
-        manager_->restore(*simulator_, cursor_);
-        simulator_->pause();
+    pendingIndex_ = index;
+    return pendingIndex_;
+}
+
+bool TimePlaybackController::applyPendingSeek(std::string* error) {
+    if (!hasPendingSeek()) {
+        return true;
     }
-    return cursor_;
+    const std::size_t target = pendingIndex_;
+    pendingIndex_ = SnapshotManager::npos;
+    if (manager_ == nullptr || simulator_ == nullptr ||
+        !manager_->restore(*simulator_, target, error)) {
+        return false;
+    }
+    cursor_ = target;
+    simulator_->pause();
+    return true;
+}
+
+void TimePlaybackController::resumeLive() {
+    pendingIndex_ = SnapshotManager::npos;
+    if (manager_ != nullptr && cursor_ != SnapshotManager::npos) {
+        manager_->truncateAfter(cursor_);
+    }
+    cursor_ = SnapshotManager::npos;
 }
 
 std::size_t TimePlaybackController::available() const {
@@ -79,6 +91,7 @@ double TimePlaybackController::timeAt(std::size_t index) const {
 
 void TimePlaybackController::reset() {
     cursor_ = SnapshotManager::npos;
+    pendingIndex_ = SnapshotManager::npos;
     if (manager_ != nullptr) {
         manager_->clear();
     }

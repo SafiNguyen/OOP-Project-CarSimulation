@@ -824,11 +824,11 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
         statistics = simulator->getStatisticsManager()->getSummary();
         statisticsPtr = &statistics;
     }
-    debugConsole.draw(window, simulator, ctx.view, ctx.zoomFactor, ctx.heatMapEnabled,
+    debugConsole.draw(window, simulator, ctx.heatMapEnabled,
                        ctx.showParkedVehicles, ctx.mapPathInput, ctx.usingDemoMap, ctx.loadError,
                        statsPanel, statisticsPtr, dt);
 
-    vehicleInspector.draw(simulator.get(), ctx.visualization);
+    vehicleInspector.draw(simulator.get(), ctx.visualization, ctx);
 
     ImGui::SFML::Render(window);
     window.display();

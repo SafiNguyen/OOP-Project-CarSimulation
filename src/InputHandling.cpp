@@ -49,7 +49,8 @@ void handleEvent(const sf::Event& event, AppContext& ctx, DebugConsole& debugCon
     }
 
     if (event.type == sf::Event::MouseButtonPressed && 
-        (event.mouseButton.button == sf::Mouse::Middle || event.mouseButton.button == sf::Mouse::Right || event.mouseButton.button == sf::Mouse::Left)) {
+        (event.mouseButton.button == sf::Mouse::Middle || event.mouseButton.button == sf::Mouse::Right || event.mouseButton.button == sf::Mouse::Left) &&
+        !isFollowingVehicle(ctx)) {
         // Only allow left click drag if not picking
         if (event.mouseButton.button == sf::Mouse::Left && debugConsole.isPicking()) {
             // Do nothing here, it's handled below
@@ -132,20 +133,27 @@ void handleEvent(const sf::Event& event, AppContext& ctx, DebugConsole& debugCon
         && !debugConsole.isPicking()) {
         const sf::Vector2i pixel(event.mouseButton.x, event.mouseButton.y);
         const sf::Vector2f worldPixel = ctx.window.mapPixelToCoords(pixel, ctx.view);
+        const int previousSelection = vehicleInspector.getSelectedId();
         vehicleInspector.tryPickVehicle(simulator.get(), ctx.visualization, worldPixel);
+        if (vehicleInspector.getSelectedId() != previousSelection) {
+            stopFollowingVehicle(ctx);
+        }
     }
 
-    if (event.type == sf::Event::MouseWheelScrolled) {
+    if (event.type == sf::Event::MouseWheelScrolled &&
+        !isFollowingVehicle(ctx)) {
         const float factor = (event.mouseWheelScroll.delta > 0.0f) ? 0.9f : 1.1f;
         const sf::Vector2i mousePixel(event.mouseWheelScroll.x, event.mouseWheelScroll.y);
         const sf::Vector2f worldPos = ctx.window.mapPixelToCoords(mousePixel, ctx.view);
         zoomBy(ctx, factor, worldPos);
     }
     if (event.type == sf::Event::KeyPressed) {
-        if (event.key.code == sf::Keyboard::Add || event.key.code == sf::Keyboard::Equal) {
+        if (!isFollowingVehicle(ctx) &&
+            (event.key.code == sf::Keyboard::Add || event.key.code == sf::Keyboard::Equal)) {
             zoomBy(ctx, 0.9f);
         }
-        if (event.key.code == sf::Keyboard::Subtract || event.key.code == sf::Keyboard::Hyphen) {
+        if (!isFollowingVehicle(ctx) &&
+            (event.key.code == sf::Keyboard::Subtract || event.key.code == sf::Keyboard::Hyphen)) {
             zoomBy(ctx, 1.1f);
         }
         if (event.key.code == sf::Keyboard::R) {

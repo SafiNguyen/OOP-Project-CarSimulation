@@ -21,6 +21,7 @@ public:
     double getCapacity() const;
     void addVehicle(Vehicle* v);
     void removeVehicle(Vehicle* v);
+    void clearVehicles();
     int getVehicleCount() const;
     const std::vector<Vehicle*>& getVehicles() const;
 

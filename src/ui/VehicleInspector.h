@@ -6,6 +6,7 @@
 class TrafficSimulator;
 class VisualizationEngine;
 class Vehicle;
+struct AppContext;
 
 // Panel hiển thị thông tin chi tiết của MỘT xe được người dùng click chọn.
 // Chỉ lưu vehicle ID (không lưu con trỏ Vehicle*) để tránh dangling pointer
@@ -31,7 +32,9 @@ public:
 
     // Vẽ ImGui panel nếu đang có xe được chọn. Tự động cập nhật số liệu
     // real-time (vì luôn đọc lại Vehicle* mới nhất mỗi frame).
-    void draw(TrafficSimulator* simulator, const VisualizationEngine& visualization);
+    void draw(TrafficSimulator* simulator,
+              const VisualizationEngine& visualization,
+              AppContext& ctx);
 
 private:
     Vehicle* findSelectedVehicle(TrafficSimulator* simulator) const;

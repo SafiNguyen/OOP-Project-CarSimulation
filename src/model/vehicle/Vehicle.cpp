@@ -30,8 +30,24 @@ Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
       currentRouteIndex(0),
       paused(false),
       pauseReason(PauseReason::None) {
-    patienceThreshold = 3.0 + static_cast<double>(std::rand() % 50) / 10.0;
-    recalculateTimer = 5.0 + static_cast<double>(std::rand() % 100) / 10.0;
+    patienceThreshold =
+        3.0 + static_cast<double>(std::rand() % 50) / 10.0;
+    recalculateTimer =
+        5.0 + static_cast<double>(std::rand() % 100) / 10.0;
+    rerouteRandomState_ =
+        static_cast<std::uint32_t>(id) * 747796405u + 2891336453u;
+}
+
+double Vehicle::nextRerouteDelaySeconds() {
+    // Small per-vehicle xorshift generator. Its state is included in the
+    // snapshot so continuing from a rewound point remains deterministic.
+    std::uint32_t value = rerouteRandomState_;
+    value ^= value << 13u;
+    value ^= value >> 17u;
+    value ^= value << 5u;
+    rerouteRandomState_ = value != 0u ? value : 0x9E3779B9u;
+    return 10.0 +
+        static_cast<double>(rerouteRandomState_ % 50u) / 10.0;
 }
 
 Vehicle::~Vehicle() {
@@ -931,7 +947,9 @@ void Vehicle::captureSnapshot(VehicleSnapshot& snap,
                               const Graph& graph) const {
     snap.id = id;
     snap.kind = getVehicleKind();
-    snap.currentRoadId = currentRoad != nullptr ? currentRoad->getId() : -1;
+    snap.currentRoadId = currentRoad != nullptr
+        ? std::optional<int>(currentRoad->getId())
+        : std::nullopt;
     snap.currentLaneIndex = currentLaneIndex;
     snap.progressOnCurrentRoad = progressOnCurrentRoad;
     snap.currentSpeed = currentSpeed;
@@ -939,24 +957,33 @@ void Vehicle::captureSnapshot(VehicleSnapshot& snap,
     snap.currentRoute.clear();
     snap.currentRoute.reserve(currentRoute.size());
     for (const Road* road : currentRoute) {
-        snap.currentRoute.push_back(road != nullptr ? road->getId() : -1);
+        snap.currentRoute.push_back(
+            road != nullptr
+                ? std::optional<int>(road->getId())
+                : std::nullopt);
     }
     snap.currentRouteIndex = currentRouteIndex;
 
     snap.travelHistory.clear();
     snap.travelHistory.reserve(travelHistory.size());
     for (const Road* road : travelHistory) {
-        snap.travelHistory.push_back(road != nullptr ? road->getId() : -1);
+        snap.travelHistory.push_back(
+            road != nullptr
+                ? std::optional<int>(road->getId())
+                : std::nullopt);
     }
 
     snap.paused = paused;
     snap.pauseReason = pauseReason;
     snap.movementState = movementState_;
 
-    snap.junctionIncomingRoadId = currentRoad != nullptr ? currentRoad->getId() : -1;
+    snap.junctionIncomingRoadId = currentRoad != nullptr
+        ? std::optional<int>(currentRoad->getId())
+        : std::nullopt;
     snap.junctionIncomingLane = incomingLaneIndex_;
-    snap.junctionOutgoingRoadId =
-        junctionOutgoingRoad_ != nullptr ? junctionOutgoingRoad_->getId() : -1;
+    snap.junctionOutgoingRoadId = junctionOutgoingRoad_ != nullptr
+        ? std::optional<int>(junctionOutgoingRoad_->getId())
+        : std::nullopt;
     snap.junctionOutgoingLane = outgoingLaneIndex_;
     snap.junctionProgressMetres = junctionProgressMetres_;
     snap.reservedIntersectionId =
@@ -1010,6 +1037,7 @@ void Vehicle::captureSnapshot(VehicleSnapshot& snap,
     snap.spawnLifecycleState = spawnLifecycleState_;
     snap.reservedSpawnPointId =
         reservedSpawnPoint_ != nullptr ? reservedSpawnPoint_->getId() : -1;
+    snap.rerouteRandomState = rerouteRandomState_;
 }
 
 void Vehicle::restoreSnapshot(const VehicleSnapshot& snap,
@@ -1029,8 +1057,9 @@ void Vehicle::restoreSnapshot(const VehicleSnapshot& snap,
     // Restore route (road id -> Road*).
     currentRoute.clear();
     currentRoute.reserve(snap.currentRoute.size());
-    for (const int roadId : snap.currentRoute) {
-        currentRoute.push_back(roadId >= 0 ? graph.getRoad(roadId) : nullptr);
+    for (const std::optional<int>& roadId : snap.currentRoute) {
+        currentRoute.push_back(
+            roadId.has_value() ? graph.getRoad(*roadId) : nullptr);
     }
     currentRouteIndex = snap.currentRouteIndex;
     routeAssigned = true;
@@ -1039,27 +1068,25 @@ void Vehicle::restoreSnapshot(const VehicleSnapshot& snap,
     pauseReason = snap.pauseReason;
     movementState_ = snap.movementState;
 
-    // Restore currentRoad from the route at the current index when OnRoad.
-    currentRoad =
-        (movementState_ != MovementState::TraversingJunction &&
-         currentRouteIndex >= 0 &&
-         static_cast<std::size_t>(currentRouteIndex) < currentRoute.size())
-            ? currentRoute[static_cast<std::size_t>(currentRouteIndex)]
-            : graph.getRoad(snap.currentRoadId);
+    // currentRoadId is authoritative. Pending vehicles can already own a
+    // resolved route while still being detached from every Road.
+    currentRoad = snap.currentRoadId.has_value()
+        ? graph.getRoad(*snap.currentRoadId)
+        : nullptr;
 
     travelHistory.clear();
     travelHistory.reserve(snap.travelHistory.size());
-    for (const int roadId : snap.travelHistory) {
-        travelHistory.push_back(roadId >= 0 ? graph.getRoad(roadId) : nullptr);
+    for (const std::optional<int>& roadId : snap.travelHistory) {
+        travelHistory.push_back(
+            roadId.has_value() ? graph.getRoad(*roadId) : nullptr);
     }
 
     incomingLaneIndex_ = snap.junctionIncomingLane;
     outgoingLaneIndex_ = snap.junctionOutgoingLane;
     junctionProgressMetres_ = snap.junctionProgressMetres;
-    junctionOutgoingRoad_ =
-        snap.junctionOutgoingRoadId >= 0
-            ? graph.getRoad(snap.junctionOutgoingRoadId)
-            : nullptr;
+    junctionOutgoingRoad_ = snap.junctionOutgoingRoadId.has_value()
+        ? graph.getRoad(*snap.junctionOutgoingRoadId)
+        : nullptr;
     reservedIntersection_ =
         snap.reservedIntersectionId >= 0
             ? graph.getIntersection(snap.reservedIntersectionId)
@@ -1110,21 +1137,34 @@ void Vehicle::restoreSnapshot(const VehicleSnapshot& snap,
     isMergingFromPOI = snap.isMergingFromPOI;
     poiMergePhase_ = snap.poiMergePhase;
     isEnteringPOI = snap.isEnteringPOI;
-    mergeSourcePOI_ =
-        snap.mergeSourcePOIId >= 0
-            ? graph.getPOI(snap.mergeSourcePOIId)
-            : nullptr;
+    mergeSourcePOI_ = snap.mergeSourcePOIId >= 0
+        ? graph.getPointOfInterest(snap.mergeSourcePOIId)
+        : nullptr;
     mergeProgressOffset = snap.mergeProgressOffset;
     mergeLaneIndex = snap.mergeLaneIndex;
     poiAnimationTimer = snap.poiAnimationTimer;
     poiAnimationDuration = snap.poiAnimationDuration;
 
     spawnPOI = snap.spawnPOIId >= 0
-        ? graph.getPOI(snap.spawnPOIId)
+        ? graph.getPointOfInterest(snap.spawnPOIId)
         : nullptr;
     targetPOI = snap.targetPOIId >= 0
-        ? graph.getPOI(snap.targetPOIId)
+        ? graph.getPointOfInterest(snap.targetPOIId)
         : nullptr;
     spawnLifecycleState_ = snap.spawnLifecycleState;
+    rerouteRandomState_ = snap.rerouteRandomState != 0u
+        ? snap.rerouteRandomState
+        : static_cast<std::uint32_t>(id) * 747796405u + 2891336453u;
+    currentLeader_ = nullptr;
+
+    reservedSpawnPoint_ = nullptr;
+    if (snap.reservedSpawnPointId >= 0) {
+        PointOfInterest* poi =
+            graph.getPointOfInterest(snap.reservedSpawnPointId);
+        const auto* spawn = dynamic_cast<const SpawnPoint*>(poi);
+        if (spawn != nullptr && spawn->tryReserveSpawnSlot()) {
+            reservedSpawnPoint_ = spawn;
+        }
+    }
 }
 

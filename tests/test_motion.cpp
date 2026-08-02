@@ -628,20 +628,20 @@ void testRoundaboutGeometryAndCapacity() {
               std::to_string(minimumRadius) + ")");
     check(westToNorth != nullptr && westToSouth != nullptr &&
           westUTurn != nullptr &&
-          westToNorth->getLength() < westToEast->getLength() &&
-          westToEast->getLength() < westToSouth->getLength() &&
-          westToSouth->getLength() < westUTurn->getLength(),
-          "Roundabout supports first, second, far and U-turn exits clockwise (" +
-              std::to_string(westToNorth->getLength()) + ", " +
-              std::to_string(westToEast->getLength()) + ", " +
+          westToSouth->getLength() < westToEast->getLength() &&
+          westToEast->getLength() < westToNorth->getLength() &&
+          westToNorth->getLength() < westUTurn->getLength(),
+          "Roundabout supports first, second, far and U-turn exits counter-clockwise (" +
               std::to_string(westToSouth->getLength()) + ", " +
+              std::to_string(westToEast->getLength()) + ", " +
+              std::to_string(westToNorth->getLength()) + ", " +
               std::to_string(westUTurn->getLength()) + ")");
 
     check(roundabout->tryEnterMovement(
               101, westToEast, 3.0),
           "First roundabout movement reserves a gap");
     roundabout->updateReservationProgress(
-        101, westToEast->getLength() * 0.5);
+        101, westToEast->getLength() * 0.25);
     check(roundabout->tryEnterMovement(
               102, southToNorth, 3.0),
           "Separated roundabout movements can coexist");
