@@ -4,6 +4,9 @@
     "defaultSpeedUnit": "km/h",
     "defaultRadiusUnit": "m",
     "defaultLaneWidth": 7.0,
+    "visualization": {
+        "followZoomFactor": 0.10
+    },
     "intersections": [
         {
             "id": 0,

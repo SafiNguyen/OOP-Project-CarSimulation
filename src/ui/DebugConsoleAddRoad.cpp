@@ -99,9 +99,11 @@ void DebugConsole::drawAddRoadPanel(Graph& graph, VisualizationEngine& visualiza
                     : static_cast<double>(addRoadDistance_);
                 const int newId = nextFreeRoadId(graph);
                 Road* road = new Road(newId, "Custom Road", start, end, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
+                road->setRenderBelowExistingRoads(true);
                 graph.addRoad(road);
                 if (addRoadTwoWay_) {
                     Road* revRoad = new Road(-newId, "Custom Road", end, start, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
+                    revRoad->setRenderBelowExistingRoads(true);
                     graph.addRoad(revRoad);
                 }
                 visualization.prepare(graph);

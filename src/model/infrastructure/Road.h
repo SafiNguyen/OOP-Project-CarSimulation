@@ -23,6 +23,7 @@ private:
     int laneCount;
     double laneWidthMetres;
     Road* reverseRoad = nullptr; // non-owning physical-road counterpart
+    bool renderBelowExistingRoads = false;
     std::vector<Lane> lanes;
     std::vector<std::unique_ptr<BusStop>> busStops;
     std::vector<double> busStopPositions;
@@ -59,6 +60,12 @@ public:
     double getLaneWidthMetres() const;
     Road* getReverseRoad() const;
     void setReverseRoad(Road* road);
+    bool shouldRenderBelowExistingRoads() const {
+        return renderBelowExistingRoads;
+    }
+    void setRenderBelowExistingRoads(bool below) {
+        renderBelowExistingRoads = below;
+    }
     // Lane indices are ordered from the road centre/median toward the curb
     // for this directional Road. A reverse Road uses the same ordering in
     // its own direction, so its final lane is also its curb lane.

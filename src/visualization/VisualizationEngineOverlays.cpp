@@ -315,7 +315,7 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
     }
     const sf::View& view = target.getView();
     const float markerScale = functionalMarkerScale_;
-    const float signWidth = clampWorldSizeToPixels(
+    const float signWidth = getFunctionalMarkerSize(
         view,
         8.0f * markerScale,
         1.5f,
@@ -325,7 +325,7 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
     const float poleWidth = 1.25f * visualScale;
     const float poleHeight = 0.0f;
     const float markerOffset = 4.5f * visualScale;
-    const float outlineThickness = clampWorldSizeToPixels(
+    const float outlineThickness = getFunctionalMarkerSize(
         view,
         1.0f * markerScale,
         0.45f,
@@ -374,7 +374,7 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
             drawRoadStrip(
                 target, roadEdge, markerPos,
                 sf::Color(225, 235, 245),
-                clampWorldSizeToPixels(
+                getFunctionalMarkerSize(
                     view,
                     2.5f * markerScale,
                     0.75f,
@@ -544,7 +544,7 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                     2.9f);
             const float unboundedHousingThickness =
                 baseHousingThickness * markerScale;
-            const float housingThickness = clampWorldSizeToPixels(
+            const float housingThickness = getFunctionalMarkerSize(
                 target.getView(),
                 unboundedHousingThickness,
                 1.5f,
@@ -642,7 +642,7 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
             housing.setRotation(housingAngle);
             housing.setFillColor(sf::Color(22, 24, 27, 245));
             housing.setOutlineThickness(
-                clampWorldSizeToPixels(
+                getFunctionalMarkerSize(
                     target.getView(),
                     0.8f * markerScale,
                     0.45f,
@@ -661,7 +661,7 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                     lamp.setPosition(center);
                     lamp.setFillColor(color);
                     lamp.setOutlineThickness(
-                        clampWorldSizeToPixels(
+                        getFunctionalMarkerSize(
                             target.getView(),
                             0.8f * markerScale,
                             0.45f,
@@ -707,7 +707,7 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                 countdownBox.setFillColor(
                     sf::Color(9, 11, 14, 255));
                 countdownBox.setOutlineThickness(
-                    clampWorldSizeToPixels(
+                    getFunctionalMarkerSize(
                         target.getView(),
                         0.8f * markerScale,
                         0.45f,
@@ -780,7 +780,7 @@ void VisualizationEngine::drawBusStations(
 
     const sf::View& view = target.getView();
     const float markerScale = functionalMarkerScale_;
-    const float terminalWidth = clampWorldSizeToPixels(
+    const float terminalWidth = getFunctionalMarkerSize(
         view,
         7.0f * markerScale,
         1.5f,
@@ -789,7 +789,7 @@ void VisualizationEngine::drawBusStations(
     const float terminalHeight = 5.0f * visualScale;
     const float bayWidth = 3.0f * visualScale;
     const float bayHeight = 1.5f * visualScale;
-    const float outlineThickness = clampWorldSizeToPixels(
+    const float outlineThickness = getFunctionalMarkerSize(
         view,
         0.75f * markerScale,
         0.35f,
@@ -1429,7 +1429,7 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
     const sf::View& view = target.getView();
     const float markerScale = functionalMarkerScale_;
     const auto& pois = graph.getAllPOIs();
-    const float buildingSize = clampWorldSizeToPixels(
+    const float buildingSize = getFunctionalMarkerSize(
         view,
         5.0f * markerScale,
         2.0f,
@@ -1439,7 +1439,7 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
         (!denseMap_ || detailScale >= 1.0f) &&
         worldSizeToPixels(view, buildingSize) >= 7.0f;
     const float halfSize = buildingSize * 0.5f;
-    const float outlineThickness = clampWorldSizeToPixels(
+    const float outlineThickness = getFunctionalMarkerSize(
         view,
         0.5f * markerScale,
         0.3f,

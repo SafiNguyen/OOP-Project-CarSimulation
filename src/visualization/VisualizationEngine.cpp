@@ -262,12 +262,26 @@ VisualizationEngine::buildRoadDrawList(const Graph& graph) const {
 
         drawList.push_back(rd);
     }
+    std::stable_sort(
+        drawList.begin(),
+        drawList.end(),
+        [](const RoadDraw& first, const RoadDraw& second) {
+            const bool firstIsBackground =
+                first.road->shouldRenderBelowExistingRoads();
+            const bool secondIsBackground =
+                second.road->shouldRenderBelowExistingRoads();
+            if (firstIsBackground != secondIsBackground) {
+                return firstIsBackground;
+            }
+            return first.road->getId() < second.road->getId();
+        });
     return drawList;
 }
 
 void VisualizationEngine::drawLaneMarkings(
     sf::RenderTarget& target,
-    const std::vector<RoadDraw>& drawList) const {
+    const std::vector<RoadDraw>& drawList,
+    bool backgroundRoads) const {
     // Zoom-aware LOD: when the view is zoomed out far enough that lane
     // dashes would be sub-pixel, skip the whole layer. This is the single
     // most expensive per-frame layer on large maps, and at a small zoom the
@@ -288,6 +302,10 @@ void VisualizationEngine::drawLaneMarkings(
 
     // Lane dividers and carriageway edges.
     for (const RoadDraw& rd : drawList) {
+        if (rd.road->shouldRenderBelowExistingRoads() !=
+            backgroundRoads) {
+            continue;
+        }
         Road* roadObj = rd.road;
         // Lane divider lines for multi-lane roads.
         if (rd.laneCount > 1) {
@@ -357,33 +375,37 @@ void VisualizationEngine::drawLaneMarkings(
             }
         }
 
-        // Solid white carriageway edges use the same model-space boundary
-        // endpoints as lane centres and road surfaces.
-        for (bool rightEdge : {false, true}) {
-            const Vec2 edgeStart =
-                RoadGeometry::roadEdgeEndpoint(
-                    *roadObj, rightEdge, true);
-            const Vec2 edgeEnd =
-                RoadGeometry::roadEdgeEndpoint(
-                    *roadObj, rightEdge, false);
-            const sf::Vector2f edgeA =
-                worldToScreen(edgeStart.x, edgeStart.y);
-            const sf::Vector2f edgeB =
-                worldToScreen(edgeEnd.x, edgeEnd.y);
-            if (!viewportBounds.intersectsSegment(
+        // Background links created through Add Road deliberately omit the
+        // solid white carriageway edges. Even when their surface is layered
+        // correctly, those high-contrast lines make the custom road appear
+        // to sit above the existing network.
+        if (!backgroundRoads) {
+            for (bool rightEdge : {false, true}) {
+                const Vec2 edgeStart =
+                    RoadGeometry::roadEdgeEndpoint(
+                        *roadObj, rightEdge, true);
+                const Vec2 edgeEnd =
+                    RoadGeometry::roadEdgeEndpoint(
+                        *roadObj, rightEdge, false);
+                const sf::Vector2f edgeA =
+                    worldToScreen(edgeStart.x, edgeStart.y);
+                const sf::Vector2f edgeB =
+                    worldToScreen(edgeEnd.x, edgeEnd.y);
+                if (!viewportBounds.intersectsSegment(
+                        edgeA,
+                        edgeB,
+                        2.0f)) {
+                    continue;
+                }
+                appendStripQuad(
+                    laneMarkingVertices_,
                     edgeA,
                     edgeB,
-                    2.0f)) {
-                continue;
+                    sf::Color(245, 245, 245, 205),
+                    std::max(
+                        1.5f,
+                        metresToScreenPixels(0.12, roadObj)));
             }
-            appendStripQuad(
-                laneMarkingVertices_,
-                edgeA,
-                edgeB,
-                sf::Color(245, 245, 245, 205),
-                std::max(
-                    1.5f,
-                    metresToScreenPixels(0.12, roadObj)));
         }
     }
 
@@ -392,6 +414,10 @@ void VisualizationEngine::drawLaneMarkings(
     // pairing itself is cached by Graph from reversed endpoints.
     std::unordered_set<const Road*> centrelineDrawn;
     for (const RoadDraw& rd : drawList) {
+        if (rd.road->shouldRenderBelowExistingRoads() !=
+            backgroundRoads) {
+            continue;
+        }
         const Road* reverse = rd.road->getReverseRoad();
         if (reverse == nullptr ||
             centrelineDrawn.count(rd.road) != 0 ||
@@ -486,6 +512,29 @@ void VisualizationEngine::drawLaneMarkings(
     }
 }
 
+void VisualizationEngine::redrawExistingRoadSurfaces(
+    sf::RenderTarget& target) const {
+    const ViewportBounds viewportBounds(target.getView(), 2.0f);
+    for (const RoadDraw& roadDraw : roadDrawList_) {
+        if (roadDraw.road == nullptr ||
+            roadDraw.road->shouldRenderBelowExistingRoads() ||
+            !viewportBounds.intersectsSegment(
+                roadDraw.offsetA,
+                roadDraw.offsetB,
+                roadDraw.totalWidth * 0.5f)) {
+            continue;
+        }
+        drawRoadStrip(
+            target,
+            roadDraw.offsetA,
+            roadDraw.offsetB,
+            heatMapEnabled_
+                ? colorForRoad(roadDraw.road)
+                : roadDraw.bodyColor,
+            roadDraw.totalWidth);
+    }
+}
+
 void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph& graph) const {
     auto intersections = graph.getAllIntersections();
 
@@ -577,7 +626,30 @@ void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph
     }
 
     drawRoadCongestionOverlay(target, graph);
-    drawBlockedLaneFills(target, graph);
+
+    const bool showLaneMarkings =
+        fullDetail ||
+        (mediumDetail && (!denseMap_ || detailScale >= 0.75f));
+    const bool hasBackgroundRoads =
+        std::any_of(
+            roadDrawList_.begin(),
+            roadDrawList_.end(),
+            [](const RoadDraw& roadDraw) {
+                return roadDraw.road != nullptr &&
+                       roadDraw.road->
+                           shouldRenderBelowExistingRoads();
+            });
+    if (hasBackgroundRoads) {
+        drawBlockedLaneFills(target, graph, true);
+        if (showLaneMarkings) {
+            drawLaneMarkings(target, roadDrawList_, true);
+        }
+
+        // Background-road edge lines are drawn first. Restoring existing
+        // road surfaces clips those lines at crossings and connections.
+        redrawExistingRoadSurfaces(target);
+    }
+    drawBlockedLaneFills(target, graph, false);
 
     auto intersections = graph.getAllIntersections();
     std::sort(intersections.begin(), intersections.end(), [](Intersection* lhs, Intersection* rhs) {
@@ -604,9 +676,8 @@ void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph
         }
     }
 
-    if (fullDetail ||
-        (mediumDetail && (!denseMap_ || detailScale >= 0.75f))) {
-        drawLaneMarkings(target, roadDrawList_);
+    if (showLaneMarkings) {
+        drawLaneMarkings(target, roadDrawList_, false);
     }
     if (fullDetail) {
         drawPOIDriveways(target, graph);
@@ -638,8 +709,8 @@ void VisualizationEngine::drawRoadCongestionOverlay(sf::RenderTarget& target, co
         target.getView(),
         2.0f);
     overlayVertices_.clear();
-    const auto roads = graph.getAllRoads();
-    for (Road* road : roads) {
+    for (const RoadDraw& roadDraw : roadDrawList_) {
+        Road* road = roadDraw.road;
         // Bridges and tunnels both use the heat-map tint (a deep
         // green-to-red gradient) just like ordinary roads.
         if (road == nullptr) {
@@ -650,11 +721,9 @@ void VisualizationEngine::drawRoadCongestionOverlay(sf::RenderTarget& target, co
         if (start == nullptr || end == nullptr) {
             continue;
         }
-        const float laneWidth = getLaneWidthPixels(road);
-        const float totalWidth =
-            static_cast<float>(std::max(1, road->getLaneCount())) * laneWidth;
-        const sf::Vector2f a = getRoadEntryPoint(road, start);
-        const sf::Vector2f b = getRoadEntryPoint(road, end);
+        const float totalWidth = roadDraw.totalWidth;
+        const sf::Vector2f a = roadDraw.offsetA;
+        const sf::Vector2f b = roadDraw.offsetB;
         if (!viewportBounds.intersectsSegment(
                 a,
                 b,
@@ -676,7 +745,10 @@ void VisualizationEngine::drawRoadCongestionOverlay(sf::RenderTarget& target, co
     }
 }
 
-void VisualizationEngine::drawBlockedLaneFills(sf::RenderTarget& target, const Graph& graph) const {
+void VisualizationEngine::drawBlockedLaneFills(
+    sf::RenderTarget& target,
+    const Graph& graph,
+    bool backgroundRoads) const {
     if (!heatMapEnabled_) {
         return;
     }
@@ -686,7 +758,9 @@ void VisualizationEngine::drawBlockedLaneFills(sf::RenderTarget& target, const G
     overlayVertices_.clear();
     const auto roads = graph.getAllRoads();
     for (Road* road : roads) {
-        if (road == nullptr || road->isBlocked()) {
+        if (road == nullptr || road->isBlocked() ||
+            road->shouldRenderBelowExistingRoads() !=
+                backgroundRoads) {
             continue;
         }
         const float laneWidth = getLaneWidthPixels(road);

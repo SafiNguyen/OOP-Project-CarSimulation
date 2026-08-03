@@ -112,6 +112,10 @@ public:
                                  float worldSize,
                                  float minimumPixels,
                                  float maximumPixels) const;
+    float getFunctionalMarkerSize(const sf::View& view,
+                                  float worldSize,
+                                  float minimumPixels,
+                                  float maximumPixels) const;
     float worldSizeToPixels(const sf::View& view,
                             float worldSize) const;
     float getMinimumVehicleLengthPixels() const {
@@ -185,7 +189,9 @@ private:
 
     std::vector<RoadDraw> buildRoadDrawList(const Graph& graph) const;
     void drawLaneMarkings(sf::RenderTarget& target,
-                          const std::vector<RoadDraw>& drawList) const;
+                          const std::vector<RoadDraw>& drawList,
+                          bool backgroundRoads) const;
+    void redrawExistingRoadSurfaces(sf::RenderTarget& target) const;
 
     static sf::Color mixColor(const sf::Color& a, const sf::Color& b, float t);
     static float distanceBetween(const sf::Vector2f& a, const sf::Vector2f& b);
@@ -220,7 +226,9 @@ private:
     void drawIntersectionNode(sf::RenderTarget& target, const Intersection* intersection,
                               bool tintByCongestion) const;
     void drawRoadCongestionOverlay(sf::RenderTarget& target, const Graph& graph) const;
-    void drawBlockedLaneFills(sf::RenderTarget& target, const Graph& graph) const;
+    void drawBlockedLaneFills(sf::RenderTarget& target,
+                              const Graph& graph,
+                              bool backgroundRoads) const;
 
     sf::Color lightColor(LightState state) const;
     sf::Vector2f roadNormal(const sf::Vector2f& a, const sf::Vector2f& b) const;

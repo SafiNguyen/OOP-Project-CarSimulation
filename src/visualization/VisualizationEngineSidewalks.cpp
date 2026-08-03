@@ -15,7 +15,24 @@ void VisualizationEngine::drawSidewalks(
     const sf::Color curbColor(72, 76, 76);
     const sf::Color sidewalkColor(188, 186, 174);
     const ViewportBounds viewportBounds(target.getView(), 24.0f);
-    for (const Road* road : graph.getAllRoads()) {
+    auto roads = graph.getAllRoads();
+    std::stable_sort(
+        roads.begin(),
+        roads.end(),
+        [](const Road* first, const Road* second) {
+            if (first == nullptr || second == nullptr) {
+                return first != nullptr;
+            }
+            const bool firstIsBackground =
+                first->shouldRenderBelowExistingRoads();
+            const bool secondIsBackground =
+                second->shouldRenderBelowExistingRoads();
+            if (firstIsBackground != secondIsBackground) {
+                return firstIsBackground;
+            }
+            return first->getId() < second->getId();
+        });
+    for (const Road* road : roads) {
         if (road == nullptr ||
             drawn.count(road) != 0) {
             continue;

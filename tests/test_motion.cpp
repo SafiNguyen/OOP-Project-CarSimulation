@@ -221,13 +221,13 @@ void testLaneMapping() {
     const LaneMapping rightMap =
         TurnLanePolicy::map(incoming2, 0, right);
     check(leftMap.movement == MovementType::Left &&
-          leftMap.incomingLane == 0 &&
-          leftMap.outgoingLane == 0,
-          "Left turns use median lanes");
+          leftMap.incomingLane == 1 &&
+          leftMap.outgoingLane == 1,
+          "Left turns preserve an eligible inner turn lane");
     check(rightMap.movement == MovementType::Right &&
-          rightMap.incomingLane == 1 &&
-          rightMap.outgoingLane == 1,
-          "Right turns use curb lanes");
+          rightMap.incomingLane == 0 &&
+          rightMap.outgoingLane == 0,
+          "Right turns preserve an eligible outer turn lane");
     check(TurnLanePolicy::map(
               incoming2, 0, reverse, false).valid == false,
           "U-turn policy can reject a prohibited U-turn");
@@ -268,6 +268,7 @@ struct JunctionFixture {
         northOut = graph.getRoad(11);
         southIn = graph.getRoad(12);
         eastOut = graph.getRoad(13);
+        graph.getIntersection(2)->setCapacity(1);
     }
 };
 
@@ -292,9 +293,9 @@ void testConnectorCacheAndVehicleLifecycle() {
               MovementState::TraversingJunction &&
           first.getCurrentRoad() == fixture.westIn &&
           first.getCurrentRouteIndex() == 0 &&
-          fixture.westIn->getLane(0).getVehicleCount() == 0 &&
+          fixture.westIn->getLane(0).getVehicleCount() == 1 &&
           centre->isFull(),
-          "Vehicle retains incoming road identity while traversing");
+          "Vehicle retains incoming road identity and lane occupancy until its body clears");
 
     MotionTestEmergency emergency(
         2, 30.0, fixture.graph.getIntersection(4),
@@ -515,6 +516,7 @@ void testSignalizedMultiLaneQueueDischarge() {
         Road* westIn = graph.getRoad(30);
         Road* eastOut = graph.getRoad(31);
         Intersection* centre = graph.getIntersection(2);
+        centre->setCapacity(2);
         MotionTestCar inner(
             302, 15.0, graph.getIntersection(1),
             graph.getIntersection(3));

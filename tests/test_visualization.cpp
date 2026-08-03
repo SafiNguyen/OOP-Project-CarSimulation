@@ -189,6 +189,65 @@ int main() {
                expectedRoadHeat);
     }
 
+    // Roads created from the debug panel are background links. At a visual
+    // crossing, an existing road must remain on top regardless of graph
+    // hash-map iteration order.
+    Graph layeredRoadGraph;
+    layeredRoadGraph.addIntersection(
+        new Intersection(100, -50.0, 0.0));
+    layeredRoadGraph.addIntersection(
+        new Intersection(101, 50.0, 0.0));
+    layeredRoadGraph.addIntersection(
+        new Intersection(102, 0.0, -50.0));
+    layeredRoadGraph.addIntersection(
+        new Intersection(103, 0.0, 50.0));
+    auto* existingLayerRoad = new Road(
+        501, "Existing", layeredRoadGraph.getIntersection(100),
+        layeredRoadGraph.getIntersection(101), 100.0, 40.0);
+    auto* backgroundLayerRoad = new Road(
+        999, "Custom Road", layeredRoadGraph.getIntersection(102),
+        layeredRoadGraph.getIntersection(103), 100.0, 40.0);
+    backgroundLayerRoad->setRenderBelowExistingRoads(true);
+    backgroundLayerRoad->blockRoad();
+    layeredRoadGraph.addRoad(existingLayerRoad);
+    layeredRoadGraph.addRoad(backgroundLayerRoad);
+    assert(backgroundLayerRoad->shouldRenderBelowExistingRoads());
+
+    VisualizationEngine layeredRoadEngine({800u, 600u});
+    layeredRoadEngine.prepare(layeredRoadGraph);
+    sf::RenderTexture layeredRoadTarget;
+    assert(layeredRoadTarget.create(800u, 600u));
+    layeredRoadTarget.clear(sf::Color(30, 30, 30));
+    layeredRoadEngine.drawGraph(
+        layeredRoadTarget,
+        layeredRoadGraph);
+    layeredRoadTarget.display();
+    const sf::Image layeredRoadImage =
+        layeredRoadTarget.getTexture().copyToImage();
+    const sf::Vector2f crossing =
+        layeredRoadEngine.worldToScreen(0.0, 0.0);
+    assert(layeredRoadImage.getPixel(
+               static_cast<unsigned int>(std::lround(crossing.x)),
+               static_cast<unsigned int>(std::lround(crossing.y))) ==
+           layeredRoadEngine.colorForRoad(existingLayerRoad));
+    const float customEdgeOffset =
+        layeredRoadEngine.metresToScreenPixels(
+            backgroundLayerRoad->getLaneWidthMetres() * 0.5,
+            backgroundLayerRoad);
+    assert(layeredRoadImage.getPixel(
+               static_cast<unsigned int>(std::lround(
+                   crossing.x + customEdgeOffset)),
+               static_cast<unsigned int>(std::lround(crossing.y))) ==
+           layeredRoadEngine.colorForRoad(existingLayerRoad));
+    const sf::Vector2f customRoadInterior =
+        layeredRoadEngine.worldToScreen(0.0, 25.0);
+    assert(layeredRoadImage.getPixel(
+               static_cast<unsigned int>(std::lround(
+                   customRoadInterior.x + customEdgeOffset * 0.82f)),
+               static_cast<unsigned int>(std::lround(
+                   customRoadInterior.y))) ==
+           layeredRoadEngine.colorForRoad(backgroundLayerRoad));
+
     Graph directionalStopGraph;
     directionalStopGraph.addIntersection(new Intersection(12, 0.0, 0.0));
     directionalStopGraph.addIntersection(new Intersection(13, 100.0, 0.0));
@@ -365,7 +424,7 @@ int main() {
         4.0f) < 0.001f);
     assert(std::fabs(
         map4Graph.getRenderSettings().followZoomFactor -
-        0.20f) < 0.001f);
+        0.10f) < 0.001f);
 
     VisualizationEngine map4Engine({800u, 600u});
     map4Engine.prepare(map4Graph);
@@ -399,6 +458,27 @@ int main() {
             map4FarView,
             clampedFarMarker) -
         1.5f) < 0.001f);
+    const float closeFunctionalMarker =
+        map4Engine.getFunctionalMarkerSize(
+            map4CloseView,
+            8.0f,
+            1.5f,
+            18.0f);
+    const float farFunctionalMarker =
+        map4Engine.getFunctionalMarkerSize(
+            map4FarView,
+            8.0f,
+            1.5f,
+            18.0f);
+    assert(std::fabs(closeFunctionalMarker - 8.0f) < 0.001f);
+    assert(std::fabs(farFunctionalMarker - 8.0f) < 0.001f);
+    assert(
+        map4Engine.worldSizeToPixels(
+            map4CloseView,
+            closeFunctionalMarker) >
+        map4Engine.worldSizeToPixels(
+            map4FarView,
+            farFunctionalMarker));
     assert(std::fabs(
         map4Engine.getTextRenderScale(map4CloseView) - 1.0f) < 0.001f);
     sf::RenderTexture map4Target;

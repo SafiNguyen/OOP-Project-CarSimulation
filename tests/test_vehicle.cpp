@@ -50,6 +50,10 @@ public:
     void setTestSpeed(double speed) {
         currentSpeed = speed;
     }
+
+    void allowImmediateLaneChangeForTest() {
+        laneChangeCooldownTimer = 0.0;
+    }
 };
 
 class TestBus : public Bus {
@@ -72,6 +76,10 @@ public:
 
     void setTestProgress(double progress) {
         progressOnCurrentRoad = progress;
+    }
+
+    void allowImmediateLaneChangeForTest() {
+        laneChangeCooldownTimer = 0.0;
     }
 };
 
@@ -578,6 +586,7 @@ void test_Vehicle_IntersectionPauseReasonPersistsAndResumes() {
     car.placeOnLane(road, 0, 78.5);
     car.setTestSpeed(0.0);
 
+    i2.setCapacity(1);
     const bool occupied = i2.tryEnter(900, &road);
     car.update(0.05);
     const double waitingProgress = car.getProgressOnRoad();
@@ -628,6 +637,7 @@ void test_Vehicle_TrafficLightTakesPriorityOverIntersection() {
     car.setRoute({&road});
     car.placeOnLane(road, 0, 78.5);
     car.setTestSpeed(0.0);
+    i2.setCapacity(1);
     const bool occupied = i2.tryEnter(900, &road);
 
     car.update(0.05);
@@ -686,6 +696,7 @@ void test_Vehicle_NonControlObstaclesDoNotUseIntersectionPause() {
         leader.setTestSpeed(0.0);
         follower.placeOnLane(road, 0, 72.0);
         follower.setTestSpeed(0.0);
+        i2.setCapacity(1);
         i2.tryEnter(900, &road);
 
         leader.update(0.05);
@@ -820,6 +831,7 @@ void test_Bus_DwellCompletionDoesNotBypassIntersection() {
     Road road(101, "Reserved bus road", &i1, &i2, 80.0, 20.0);
     road.addBusStop(std::make_unique<BusStop>(
         501, "Before box", &road, 70.0, 0, 1.0));
+    i2.setCapacity(1);
     const bool occupied = i2.tryEnter(900, &road);
 
     TestBus bus(1, 20.0, &i1, &i2);
@@ -863,6 +875,7 @@ void test_Bus_ChangesOneLaneAtATimeTowardStop() {
     bus.setRoute({&road});
     bus.placeOnLane(road, 0, 250.0);
     bus.setTestSpeed(2.0);
+    bus.allowImmediateLaneChangeForTest();
 
     bus.update(0.05);
     const bool signaledBeforeChanging =
@@ -905,6 +918,7 @@ void test_Bus_UsesAdaptiveDistanceAndDwellsInCurbLane() {
     bus.setRoute({&road});
     bus.placeOnLane(road, 0, 150.0);
     bus.setTestSpeed(20.0);
+    bus.allowImmediateLaneChangeForTest();
 
     bus.update(0.05);
     const bool signaledBeforeChanging =
@@ -961,6 +975,7 @@ void test_Bus_RejectsUnsafeFrontGapTowardStopLane() {
     frontVehicle.placeOnLane(road, 1, 60.0);
     bus.setTestSpeed(10.0);
     frontVehicle.setTestSpeed(5.0);
+    bus.allowImmediateLaneChangeForTest();
 
     bus.update(0.05);
     const bool signaledBeforeGapCheck =
@@ -996,6 +1011,7 @@ void test_Bus_RejectsUnsafeRearGapTowardStopLane() {
     rearVehicle.placeOnLane(road, 1, 45.0);
     bus.setTestSpeed(10.0);
     rearVehicle.setTestSpeed(25.0);
+    bus.allowImmediateLaneChangeForTest();
 
     bus.update(0.05);
     const bool signaledBeforeGapCheck =
@@ -1031,6 +1047,7 @@ void test_Bus_RetriesRequiredLaneWhenGapBecomesSafe() {
     blocker.placeOnLane(road, 1, 70.0);
     bus.setTestSpeed(10.0);
     blocker.setTestSpeed(5.0);
+    bus.allowImmediateLaneChangeForTest();
 
     bus.update(0.05);
     const bool signaledBeforeGapCheck =
@@ -1151,6 +1168,7 @@ void test_Bus_ReverseRoadUsesItsOwnCurbStopLane() {
     bus.setRoute({&reverse});
     bus.placeOnLane(reverse, 0, 40.0);
     bus.setTestSpeed(10.0);
+    bus.allowImmediateLaneChangeForTest();
 
     bus.update(0.05);
     const BusStop* selectedStop = bus.getNextBusStop();
@@ -1260,6 +1278,7 @@ void test_YieldLaneChange_CanExitEmergencyLane() {
     LaneTestCar subject(1, 20.0, &i1, &i2);
     subject.setRoute({&road});
     subject.placeOnLane(road, 2, 20.0);
+    subject.allowImmediateLaneChangeForTest();
 
     subject.notifyEmergencyApproaching(2);
     subject.update(0.05);
@@ -1301,6 +1320,7 @@ void test_LaneChange_SelectsBestEligibleLane() {
     currentLeader.setTestSpeed(10.0);
     lane0Leader.setTestSpeed(10.0);
     lane2Leader.setTestSpeed(10.0);
+    subject.allowImmediateLaneChangeForTest();
 
     subject.update(0.05);
     const bool signaledBeforeChanging =
@@ -1408,6 +1428,7 @@ void test_LaneChange_AllowsBlockedLaneEscapeNearIntersection() {
     subject.setRoute({&road});
     subject.placeOnLane(road, 0, 95.0);
     road.blockLane(0);
+    subject.allowImmediateLaneChangeForTest();
 
     subject.update(0.05);
     const bool signaledBeforeChanging =
@@ -1437,6 +1458,7 @@ void test_LaneChange_UsesAdaptiveIntersectionZoneOnShortRoad() {
     leader.setRoute({&road});
     subject.placeOnLane(road, 0, 8.0);
     leader.placeOnLane(road, 0, 14.0);
+    subject.allowImmediateLaneChangeForTest();
 
     subject.update(0.05);
     const bool signaledBeforeChanging =

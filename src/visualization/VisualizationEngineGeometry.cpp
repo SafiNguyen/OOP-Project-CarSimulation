@@ -61,6 +61,25 @@ float VisualizationEngine::clampWorldSizeToPixels(
            unitsPerPixel;
 }
 
+float VisualizationEngine::getFunctionalMarkerSize(
+    const sf::View& view,
+    float worldSize,
+    float minimumPixels,
+    float maximumPixels) const {
+    // Schematic maps such as map4 expect functional markers to behave like
+    // the roads: zooming in makes both larger on screen. Pixel clamping is
+    // reserved for dense imported maps, where it prevents thousands of
+    // markers from overwhelming the viewport.
+    if (!denseMap_) {
+        return std::max(0.0f, worldSize);
+    }
+    return clampWorldSizeToPixels(
+        view,
+        worldSize,
+        minimumPixels,
+        maximumPixels);
+}
+
 float VisualizationEngine::worldSizeToPixels(
     const sf::View& view,
     float worldSize) const {
