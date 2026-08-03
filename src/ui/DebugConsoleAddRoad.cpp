@@ -8,6 +8,7 @@
 #include "Graph.h"
 #include "Intersection.h"
 #include "Road.h"
+#include "RoadGeometry.h"
 #include "UiTheme.h"
 #include "visualization/VisualizationEngine.h"
 
@@ -54,7 +55,7 @@ void DebugConsole::drawAddRoadPanel(Graph& graph, VisualizationEngine& visualiza
         ImGui::InputFloat("Distance", &addRoadDistance_);
         addRoadDistance_ = std::max(1.0f, addRoadDistance_);
     }
-    ImGui::InputFloat("Speed limit", &addRoadSpeedLimit_);
+    ImGui::InputFloat("Speed limit (km/h)", &addRoadSpeedLimit_);
     addRoadSpeedLimit_ = std::max(1.0f, addRoadSpeedLimit_);
     ImGui::InputInt("Lanes", &addRoadLanes_);
     addRoadLanes_ = std::max(1, addRoadLanes_);
@@ -94,15 +95,19 @@ void DebugConsole::drawAddRoadPanel(Graph& graph, VisualizationEngine& visualiza
             }
 
             if (!foundDuplicate) {
-                const double distance = addRoadAutoDistance_
-                    ? graph.calculateDistance(start->getId(), end->getId())
-                    : static_cast<double>(addRoadDistance_);
+                double distance = static_cast<double>(addRoadDistance_);
+                if (addRoadAutoDistance_) {
+                    const double geometryLength = graph.calculateDistance(start->getId(), end->getId());
+                    distance = geometryLength * RoadGeometry::metresPerWorldUnit(*start);
+                }
                 const int newId = nextFreeRoadId(graph);
-                Road* road = new Road(newId, "Custom Road", start, end, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
+                std::string roadName = "Custom Road " + std::to_string(newId);
+                const double speedLimitMS = addRoadSpeedLimit_ / 3.6; // Convert km/h to m/s
+                Road* road = new Road(newId, roadName, start, end, distance, speedLimitMS, 1.0, addRoadLanes_);
                 road->setRenderBelowExistingRoads(true);
                 graph.addRoad(road);
                 if (addRoadTwoWay_) {
-                    Road* revRoad = new Road(-newId, "Custom Road", end, start, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
+                    Road* revRoad = new Road(-newId, roadName, end, start, distance, speedLimitMS, 1.0, addRoadLanes_);
                     revRoad->setRenderBelowExistingRoads(true);
                     graph.addRoad(revRoad);
                 }
