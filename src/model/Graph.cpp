@@ -19,12 +19,14 @@ Graph::Graph(Graph&& other) noexcept
       roads(std::move(other.roads)),
       pois(std::move(other.pois)),
       busStations(std::move(other.busStations)),
-      busServices(std::move(other.busServices)) {
+      busServices(std::move(other.busServices)),
+      renderSettings(other.renderSettings) {
     other.intersections.clear();
     other.roads.clear();
     other.pois.clear();
     other.busStations.clear();
     other.busServices.clear();
+    other.renderSettings = {};
 }
 
 Graph& Graph::operator=(Graph&& other) noexcept {
@@ -36,12 +38,14 @@ Graph& Graph::operator=(Graph&& other) noexcept {
         pois = std::move(other.pois);
         busStations = std::move(other.busStations);
         busServices = std::move(other.busServices);
+        renderSettings = other.renderSettings;
         
         other.intersections.clear();
         other.roads.clear();
         other.pois.clear();
         other.busStations.clear();
         other.busServices.clear();
+        other.renderSettings = {};
     }
     return *this;
 }
@@ -72,6 +76,15 @@ void Graph::clearGraph() {
         delete p.second;
     }
     intersections.clear();
+    renderSettings = {};
+}
+
+void Graph::setRenderSettings(const MapRenderSettings& settings) {
+    renderSettings = settings;
+}
+
+const MapRenderSettings& Graph::getRenderSettings() const {
+    return renderSettings;
 }
 
 // --- Intersection Operations ---

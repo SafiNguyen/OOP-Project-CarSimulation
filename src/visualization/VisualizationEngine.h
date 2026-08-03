@@ -104,6 +104,19 @@ public:
     sf::Vector2f worldToScreen(double x, double y) const;
     float metresToScreenPixels(double metres,
                                const Road* referenceRoad) const;
+    // Converts between the prepared render-space used by every map object
+    // and physical pixels in the supplied view.  Geometry remains in the
+    // same world-space; these helpers are only for readable min/max clamps.
+    float getViewUnitsPerPixel(const sf::View& view) const;
+    float clampWorldSizeToPixels(const sf::View& view,
+                                 float worldSize,
+                                 float minimumPixels,
+                                 float maximumPixels) const;
+    float worldSizeToPixels(const sf::View& view,
+                            float worldSize) const;
+    float getMinimumVehicleLengthPixels() const {
+        return minimumVehicleLengthPixels_;
+    }
     const std::vector<sf::Vector2f>& getRoutePoints() const;
     sf::Color colorForRoad(const Road* road) const;
 
@@ -139,8 +152,9 @@ public:
     // large graphs receive an additional density factor so their overlays
     // can be reduced at overview zoom without degrading small maps.
     float getDetailScale(const sf::View& view) const;
-    // Compensates for view magnification so SFML never upscales a small
-    // rasterized glyph when the user zooms in.
+    // On dense imported maps, compensates for view magnification so labels
+    // remain compact. Schematic maps return 1 so their text continues to
+    // scale with its world-space marker or label plate.
     float getTextRenderScale(const sf::View& view) const;
 private:
     struct RoadDraw {
@@ -215,6 +229,8 @@ private:
                           const Graph& graph) const;
     void drawPOIs(sf::RenderTarget& target, const Graph& graph) const;
     void drawRoadNames(sf::RenderTarget& target, const std::vector<Road*>& roads) const;
+    void improveTextRasterization(sf::Text& text,
+                                  const sf::View& view) const;
     LodLevel selectLodLevel(float detailScale) const;
     float getIntersectionBoxHalfExtent(const Intersection* intersection) const;
     float getLaneWidthPixels(const Road* road) const;
@@ -243,6 +259,9 @@ private:
     int autoHighFpsSamples_ = 0;
     bool denseMap_ = false;
     float mapDetailFactor_ = 1.0f;
+    float functionalMarkerScale_ = 1.0f;
+    float minimumLaneWidthPixels_ = 0.0f;
+    float minimumVehicleLengthPixels_ = 4.0f;
     std::vector<RoadDraw> roadDrawList_;
     mutable std::vector<sf::Vertex> laneMarkingVertices_;
     mutable std::vector<sf::Vertex> overlayVertices_;

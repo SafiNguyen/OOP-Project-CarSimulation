@@ -52,58 +52,43 @@ inline VehicleScreenSize getVehicleScreenSize(
 
 inline VehicleScreenSize getVehicleVisualScreenSize(
     const Vehicle& vehicle,
-    const VisualizationEngine& visualization) {
+    const VisualizationEngine& visualization,
+    float viewUnitsPerPixel = 1.0f) {
     VehicleScreenSize size =
         getVehicleScreenSize(vehicle, visualization);
     if (size.lengthPixels <= 0.0f) {
         return size;
     }
-    const Road* road = vehicle.getCurrentRoad();
-    if (road == nullptr) {
-        return size;
-    }
 
-    float minimumLength = 14.0f;
-    double visualLengthMetres = vehicle.getLength();
-    double visualWidthMetres = vehicle.getWidth();
-    double visualGapMetres = vehicle.getMinGap();
-    constexpr double CAR_VISUAL_LENGTH_METRES = 4.5;
-    constexpr double CAR_VISUAL_WIDTH_METRES = 1.8;
-    constexpr double CAR_VISUAL_GAP_METRES = 3.0;
+    // Vehicles are laid out from their physical metre dimensions.  Only
+    // the final visual footprint receives a small screen-pixel floor, like
+    // point rendering in a GIS, so kilometre-scale overview maps do not
+    // make active vehicles disappear.  This does not affect collision,
+    // following distance, lane occupancy, or any other simulation value.
+    const float mapMinimumLengthPixels =
+        visualization.getMinimumVehicleLengthPixels();
+    float vehicleKindScale = 1.0f;
     switch (vehicle.getVehicleKind()) {
         case VehicleKind::Bus:
-            minimumLength = 20.0f;
+            vehicleKindScale = 1.25f;
             break;
         case VehicleKind::Motorbike:
-            visualLengthMetres = CAR_VISUAL_LENGTH_METRES;
-            visualWidthMetres = CAR_VISUAL_WIDTH_METRES;
-            visualGapMetres = CAR_VISUAL_GAP_METRES;
+            vehicleKindScale = 0.75f;
             break;
         case VehicleKind::Emergency:
-            minimumLength = 17.0f;
+            vehicleKindScale = 1.125f;
             break;
         case VehicleKind::Car:
         default:
             break;
     }
 
-    size = {
-        visualization.metresToScreenPixels(
-            visualLengthMetres, road),
-        visualization.metresToScreenPixels(
-            visualWidthMetres, road)
-    };
-    constexpr double MAX_GAP_VISUALIZATION_SHARE = 0.5;
-    const float maximumLength =
-        visualization.metresToScreenPixels(
-            visualLengthMetres +
-                visualGapMetres *
-                    MAX_GAP_VISUALIZATION_SHARE,
-            road);
-    const float targetLength = std::clamp(
-        minimumLength,
+    const float safeViewUnitsPerPixel =
+        std::max(1e-6f, viewUnitsPerPixel);
+    const float targetLength = std::max(
         size.lengthPixels,
-        std::max(size.lengthPixels, maximumLength));
+        mapMinimumLengthPixels * vehicleKindScale *
+            safeViewUnitsPerPixel);
     const float scale = targetLength / size.lengthPixels;
     size.lengthPixels *= scale;
     size.widthPixels *= scale;

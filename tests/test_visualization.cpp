@@ -276,6 +276,20 @@ int main() {
         busScreenSize.widthPixels /
             carScreenSize.widthPixels -
         visualBus.getWidth() / poseCar.getWidth()) < 1e-4f);
+    // The render-only minimum footprint is expressed in screen pixels and
+    // preserves the physical aspect ratio.  It must not leak into the raw
+    // metre-to-render-space conversion checked above.
+    const VehicleScreenSize overviewCarSize =
+        getVehicleVisualScreenSize(
+            poseCar,
+            poseEngine,
+            100.0f);
+    assert(overviewCarSize.lengthPixels / 100.0f >= 4.0f);
+    assert(std::fabs(
+        overviewCarSize.widthPixels /
+            overviewCarSize.lengthPixels -
+        carScreenSize.widthPixels /
+            carScreenSize.lengthPixels) < 1e-4f);
     VehicleSprite poseSprite(&poseCar, &poseEngine);
     const Pose2D simulationPose = poseCar.getPose();
     const sf::Vector2f expectedScreen = poseEngine.worldToScreen(
@@ -340,9 +354,53 @@ int main() {
         map4Path = "../map4.json";
     }
     assert(MapLoad::loadGraphFromJsonFile(map4Path, map4Graph, &map4Error));
+    assert(std::fabs(
+        map4Graph.getRenderSettings().functionalMarkerScale -
+        1.0f) < 0.001f);
+    assert(std::fabs(
+        map4Graph.getRenderSettings().minimumLaneWidthPixels) <
+        0.001f);
+    assert(std::fabs(
+        map4Graph.getRenderSettings().minimumVehicleLengthPixels -
+        4.0f) < 0.001f);
+    assert(std::fabs(
+        map4Graph.getRenderSettings().followZoomFactor -
+        0.20f) < 0.001f);
 
     VisualizationEngine map4Engine({800u, 600u});
     map4Engine.prepare(map4Graph);
+    sf::View map4CloseView(sf::FloatRect(0.0f, 0.0f, 800.0f, 600.0f));
+    map4CloseView.zoom(0.2f);
+    assert(std::fabs(
+        map4Engine.getViewUnitsPerPixel(map4CloseView) - 0.2f) <
+        0.001f);
+    const float clampedCloseMarker =
+        map4Engine.clampWorldSizeToPixels(
+            map4CloseView,
+            8.0f,
+            1.5f,
+            18.0f);
+    assert(std::fabs(
+        map4Engine.worldSizeToPixels(
+            map4CloseView,
+            clampedCloseMarker) -
+        18.0f) < 0.001f);
+    sf::View map4FarView(
+        sf::FloatRect(0.0f, 0.0f, 800.0f, 600.0f));
+    map4FarView.zoom(8.0f);
+    const float clampedFarMarker =
+        map4Engine.clampWorldSizeToPixels(
+            map4FarView,
+            8.0f,
+            1.5f,
+            18.0f);
+    assert(std::fabs(
+        map4Engine.worldSizeToPixels(
+            map4FarView,
+            clampedFarMarker) -
+        1.5f) < 0.001f);
+    assert(std::fabs(
+        map4Engine.getTextRenderScale(map4CloseView) - 1.0f) < 0.001f);
     sf::RenderTexture map4Target;
     assert(map4Target.create(800u, 600u));
     map4Target.clear(sf::Color(30, 30, 30));
@@ -383,6 +441,11 @@ int main() {
     }
     VisualizationEngine denseEngine({800u, 600u});
     denseEngine.prepare(denseGraph);
+    sf::View denseCloseView(
+        sf::FloatRect(0.0f, 0.0f, 800.0f, 600.0f));
+    denseCloseView.zoom(0.2f);
+    assert(std::fabs(
+        denseEngine.getTextRenderScale(denseCloseView) - 0.2f) < 0.001f);
     const auto& densePoints = denseEngine.getRoutePoints();
     const auto denseMinMaxX = std::minmax_element(
         densePoints.begin(), densePoints.end(),
@@ -428,8 +491,23 @@ int main() {
         vnuPath = "../map_vnu_hcm_filtered.json";
     }
     assert(MapLoad::loadGraphFromJsonFile(vnuPath, vnuGraph, &vnuError));
+    assert(std::fabs(
+        vnuGraph.getRenderSettings().functionalMarkerScale -
+        0.3f) < 0.001f);
+    assert(std::fabs(
+        vnuGraph.getRenderSettings().minimumLaneWidthPixels -
+        1.0f) < 0.001f);
+    assert(std::fabs(
+        vnuGraph.getRenderSettings().minimumVehicleLengthPixels -
+        12.0f) < 0.001f);
+    assert(std::fabs(
+        vnuGraph.getRenderSettings().followZoomFactor -
+        0.0000002f) < 0.00000001f);
     VisualizationEngine vnuEngine({800u, 600u});
     vnuEngine.prepare(vnuGraph);
+    assert(std::fabs(
+        vnuEngine.getMinimumVehicleLengthPixels() - 12.0f) <
+        0.001f);
     vnuEngine.setLodMode(VisualizationEngine::LodMode::Full);
     sf::View vnuCloseView = denseTarget.getDefaultView();
     vnuCloseView.zoom(0.2f);

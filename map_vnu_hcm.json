@@ -4,6 +4,12 @@
   "defaultSpeedUnit": "km/h",
   "defaultRadiusUnit": "m",
   "defaultLaneWidth": 3.5,
+  "visualization": {
+    "functionalMarkerScale": 0.3,
+    "minimumLaneWidthPixels": 1.0,
+    "minimumVehicleLengthPixels": 12.0,
+    "followZoomFactor": 0.0000002
+  },
   "intersections": [
     {
       "id": 0,

@@ -310,21 +310,26 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
     // once the view is zoomed out past a threshold to avoid cluttering the
     // map with hundreds of tiny markers.
     const float detailScale = getDetailScale(target.getView());
-    const float textRenderScale = getTextRenderScale(target.getView());
     if (detailScale < 0.20f) {
         return;
     }
-    // Cap the detail scale so markers never grow unboundedly when zooming
-    // in very far. The base sizes are tuned for detailScale ~1.0.
-    const float cappedScale = std::min(detailScale, 1.5f);
-    const float signWidth = 8.0f * cappedScale;
-    const float signHeight = 7.0f * cappedScale;
-    const float poleWidth = 1.25f * cappedScale;
-    const float poleHeight = 0.0f * cappedScale;
-    const float markerOffset = 4.5f * cappedScale;
-    const float outlineThickness = std::max(0.5f, 1.0f * cappedScale);
-    const unsigned int labelSize = static_cast<unsigned int>(
-        std::clamp(5.0f * cappedScale, 2.5f, 6.0f));
+    const sf::View& view = target.getView();
+    const float markerScale = functionalMarkerScale_;
+    const float signWidth = clampWorldSizeToPixels(
+        view,
+        8.0f * markerScale,
+        1.5f,
+        18.0f);
+    const float visualScale = signWidth / 8.0f;
+    const float signHeight = 7.0f * visualScale;
+    const float poleWidth = 1.25f * visualScale;
+    const float poleHeight = 0.0f;
+    const float markerOffset = 4.5f * visualScale;
+    const float outlineThickness = clampWorldSizeToPixels(
+        view,
+        1.0f * markerScale,
+        0.45f,
+        1.5f);
     const ViewportBounds viewportBounds(target.getView(), 20.0f);
 
     for (const Road* road : graph.getAllRoads()) {
@@ -368,7 +373,12 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
 
             drawRoadStrip(
                 target, roadEdge, markerPos,
-                sf::Color(225, 235, 245), 2.5f * detailScale);
+                sf::Color(225, 235, 245),
+                clampWorldSizeToPixels(
+                    view,
+                    2.5f * markerScale,
+                    0.75f,
+                    2.5f));
 
             sf::RectangleShape pole({poleWidth, poleHeight});
             pole.setOrigin(poleWidth * 0.5f, 0.0f);
@@ -388,18 +398,26 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
                 stop->getCode().empty()
                     ? std::to_string(stop->getId())
                     : stop->getCode();
-            if (font_ &&
+            const bool showStopCode =
+                worldSizeToPixels(view, signHeight) >= 6.0f;
+            if (showStopCode && font_ &&
                 (lodLevel_ == LodLevel::Full || !denseMap_)) {
                 sf::Text number;
                 number.setFont(*font_);
                 number.setString(stopCode);
-                number.setCharacterSize(
-                    stopCode.size() <= 2u ? labelSize : labelSize - 2u);
-                number.setScale(textRenderScale, textRenderScale);
+                number.setCharacterSize(12u);
                 number.setStyle(sf::Text::Bold);
                 number.setFillColor(sf::Color::White);
-                const sf::FloatRect bounds =
+                sf::FloatRect bounds =
                     number.getLocalBounds();
+                const float textScale = std::min(
+                    signWidth * 0.78f /
+                        std::max(1.0f, bounds.width),
+                    signHeight * 0.68f /
+                        std::max(1.0f, bounds.height));
+                number.setScale(textScale, textScale);
+                improveTextRasterization(number, view);
+                bounds = number.getLocalBounds();
                 number.setOrigin(
                     bounds.left + bounds.width * 0.5f,
                     bounds.top + bounds.height * 0.5f);
@@ -407,7 +425,7 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
                     std::round(markerPos.x),
                     std::round(markerPos.y));
                 target.draw(number);
-            } else {
+            } else if (showStopCode) {
                 int numericStopCode = 0;
                 bool codeIsNumeric = !stopCode.empty();
                 for (const char character : stopCode) {
@@ -426,7 +444,7 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
                         ? numericStopCode
                         : std::abs(stop->getId()) % 1000,
                     markerPos,
-                    signHeight - 3.0f,
+                    signHeight * 0.68f,
                     sf::Color::White);
             }
         }
@@ -516,24 +534,42 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
 
             const float laneWidth =
                 getLaneWidthPixels(road);
-            const float housingThickness =
+            const float markerScale = functionalMarkerScale_;
+            const float baseHousingThickness =
                 std::clamp(laneWidth * 0.82f, 8.0f, 11.0f);
-            const float lampRadius =
+            const float baseLampRadius =
                 std::clamp(
-                    housingThickness * 0.27f,
+                    baseHousingThickness * 0.27f,
                     2.0f,
                     2.9f);
+            const float unboundedHousingThickness =
+                baseHousingThickness * markerScale;
+            const float housingThickness = clampWorldSizeToPixels(
+                target.getView(),
+                unboundedHousingThickness,
+                1.5f,
+                12.0f);
+            const float assemblyScale =
+                housingThickness /
+                std::max(0.01f, unboundedHousingThickness);
+            const float lampRadius =
+                baseLampRadius * markerScale * assemblyScale;
             const float lampSpacing =
-                lampRadius * 2.0f + 1.2f;
+                (baseLampRadius * 2.0f + 1.2f) *
+                markerScale * assemblyScale;
             const float housingLength =
-                lampSpacing * 2.0f +
-                lampRadius * 2.0f + 3.0f;
-            const float countdownSize =
+                ((baseLampRadius * 2.0f + 1.2f) * 2.0f +
+                 baseLampRadius * 2.0f + 3.0f) *
+                markerScale * assemblyScale;
+            const float baseCountdownSize =
                 std::clamp(
-                    std::max(housingThickness, laneWidth * 1.05f),
+                    std::max(baseHousingThickness, laneWidth * 1.05f),
                     12.0f,
                     15.0f);
-            const float edgeGap = 2.0f;
+            const float countdownSize =
+                baseCountdownSize * markerScale * assemblyScale;
+            const float edgeGap =
+                2.0f * markerScale * assemblyScale;
             const float housingAngle =
                 std::atan2(
                     outwardDirection.y,
@@ -547,7 +583,8 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                 signalAnchor +
                 outwardDirection *
                     (edgeGap + housingLength +
-                     countdownSize * 0.5f - 0.5f);
+                     countdownSize * 0.5f -
+                     0.5f * markerScale * assemblyScale);
             const float renderedMinimumX =
                 std::min(
                     {stopLeft.x,
@@ -575,7 +612,7 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
             const float renderedHalfThickness =
                 std::max(housingThickness, countdownSize) *
                     0.5f +
-                2.0f;
+                2.0f * markerScale * assemblyScale;
             const sf::FloatRect renderedBounds(
                 renderedMinimumX,
                 renderedMinimumY,
@@ -604,21 +641,31 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
             housing.setPosition(housingCenter);
             housing.setRotation(housingAngle);
             housing.setFillColor(sf::Color(22, 24, 27, 245));
-            housing.setOutlineThickness(0.8f);
+            housing.setOutlineThickness(
+                clampWorldSizeToPixels(
+                    target.getView(),
+                    0.8f * markerScale,
+                    0.45f,
+                    1.2f));
             housing.setOutlineColor(sf::Color(115, 120, 125));
             target.draw(housing);
 
             const LightState state = light->getState();
             const sf::Color offColor(48, 50, 52);
             const auto drawLamp =
-                [&target, lampRadius](
+                [this, &target, lampRadius, markerScale](
                     const sf::Vector2f& center,
                     const sf::Color& color) {
                     sf::CircleShape lamp(lampRadius);
                     lamp.setOrigin(lampRadius, lampRadius);
                     lamp.setPosition(center);
                     lamp.setFillColor(color);
-                    lamp.setOutlineThickness(0.8f);
+                    lamp.setOutlineThickness(
+                        clampWorldSizeToPixels(
+                            target.getView(),
+                            0.8f * markerScale,
+                            0.45f,
+                            1.2f));
                     lamp.setOutlineColor(sf::Color::Black);
                     target.draw(lamp);
                 };
@@ -644,7 +691,13 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
             // Its compact square cell is attached to the outer end of the
             // approach-oriented signal, matching the corner placement.
             // Countdown text is Full-only; Medium retains the signal state.
-            if (lodLevel_ == LodLevel::Full && detailScale >= 0.7f) {
+            const bool showCountdown =
+                lodLevel_ == LodLevel::Full &&
+                detailScale >= 0.7f &&
+                worldSizeToPixels(
+                    target.getView(),
+                    countdownSize) >= 9.0f;
+            if (showCountdown) {
                 sf::RectangleShape countdownBox(
                     {countdownSize, countdownSize});
                 countdownBox.setOrigin(
@@ -653,7 +706,12 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                 countdownBox.setPosition(countdownCenter);
                 countdownBox.setFillColor(
                     sf::Color(9, 11, 14, 255));
-                countdownBox.setOutlineThickness(0.8f);
+                countdownBox.setOutlineThickness(
+                    clampWorldSizeToPixels(
+                        target.getView(),
+                        0.8f * markerScale,
+                        0.45f,
+                        1.2f));
                 countdownBox.setOutlineColor(
                     sf::Color(225, 230, 235));
                 target.draw(countdownBox);
@@ -662,42 +720,47 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
             // The countdown text is the most expensive part of each signal
             // (per-frame text layout). At Medium/Low LOD we keep the lamp
             // housing but drop the countdown to save per-frame work.
-            if (lodLevel_ == LodLevel::Full) {
+            if (showCountdown) {
                 const int displayedSeconds =
                     static_cast<int>(std::ceil(
                         std::max(
                             0.0,
                             light->getRemainingSeconds() -
                                 1e-9)));
-                if (detailScale >= 0.7f) {
-                    if (font_) {
-                        sf::Text countdownText;
-                        countdownText.setFont(*font_);
-                        countdownText.setString(
-                            std::to_string(displayedSeconds));
-                        countdownText.setCharacterSize(
-                            static_cast<unsigned int>(
-                                std::max(8.0f, countdownSize * 0.7f)));
-                        countdownText.setScale(getTextRenderScale(target.getView()), getTextRenderScale(target.getView()));
-                        countdownText.setStyle(sf::Text::Bold);
-                        countdownText.setFillColor(lightColor(state));
-                        const sf::FloatRect bounds =
-                            countdownText.getLocalBounds();
-                        countdownText.setOrigin(
-                            bounds.left + bounds.width * 0.5f,
-                            bounds.top + bounds.height * 0.5f);
-                        countdownText.setPosition(
-                            std::round(countdownCenter.x),
-                            std::round(countdownCenter.y));
-                        target.draw(countdownText);
-                    } else {
-                        drawSevenSegmentNumber(
-                            target,
-                            displayedSeconds,
-                            countdownCenter,
-                            countdownSize,
-                            lightColor(state));
-                    }
+                if (font_) {
+                    sf::Text countdownText;
+                    countdownText.setFont(*font_);
+                    countdownText.setString(
+                        std::to_string(displayedSeconds));
+                    countdownText.setCharacterSize(12u);
+                    countdownText.setStyle(sf::Text::Bold);
+                    countdownText.setFillColor(lightColor(state));
+                    sf::FloatRect bounds =
+                        countdownText.getLocalBounds();
+                    const float textScale = std::min(
+                        countdownSize * 0.72f /
+                            std::max(1.0f, bounds.width),
+                        countdownSize * 0.68f /
+                            std::max(1.0f, bounds.height));
+                    countdownText.setScale(textScale, textScale);
+                    improveTextRasterization(
+                        countdownText,
+                        target.getView());
+                    bounds = countdownText.getLocalBounds();
+                    countdownText.setOrigin(
+                        bounds.left + bounds.width * 0.5f,
+                        bounds.top + bounds.height * 0.5f);
+                    countdownText.setPosition(
+                        std::round(countdownCenter.x),
+                        std::round(countdownCenter.y));
+                    target.draw(countdownText);
+                } else {
+                    drawSevenSegmentNumber(
+                        target,
+                        displayedSeconds,
+                        countdownCenter,
+                        countdownSize,
+                        lightColor(state));
                 }
             }
         }
@@ -715,17 +778,27 @@ void VisualizationEngine::drawBusStations(
         return;
     }
 
-    const float cappedScale = std::min(detailScale, 1.5f);
-    const float terminalWidth = 7.0f * cappedScale;
-    const float terminalHeight = 5.0f * cappedScale;
-    const float bayWidth = 3.0f * cappedScale;
-    const float bayHeight = 1.5f * cappedScale;
-    const float outlineThickness = std::max(0.25f, 0.75f * cappedScale);
-    const unsigned int labelSize = static_cast<unsigned int>(
-        std::clamp(4.0f * cappedScale, 2.5f, 5.0f));
+    const sf::View& view = target.getView();
+    const float markerScale = functionalMarkerScale_;
+    const float terminalWidth = clampWorldSizeToPixels(
+        view,
+        7.0f * markerScale,
+        1.5f,
+        16.0f);
+    const float visualScale = terminalWidth / 7.0f;
+    const float terminalHeight = 5.0f * visualScale;
+    const float bayWidth = 3.0f * visualScale;
+    const float bayHeight = 1.5f * visualScale;
+    const float outlineThickness = clampWorldSizeToPixels(
+        view,
+        0.75f * markerScale,
+        0.35f,
+        1.25f);
+    constexpr unsigned int labelSize = 5u;
     const bool showLabel =
         lodLevel_ == LodLevel::Full &&
-        (!denseMap_ || detailScale >= 0.85f);
+        (!denseMap_ || detailScale >= 0.85f) &&
+        worldSizeToPixels(view, terminalWidth) >= 7.0f;
 
     const ViewportBounds viewportBounds(target.getView(), 10.0f);
     for (const BusStation* station :
@@ -798,8 +871,9 @@ void VisualizationEngine::drawBusStations(
             label.setOutlineColor(sf::Color::Black);
             label.setOutlineThickness(1.0f);
             label.setPosition(
-                marker.x + outward.x * 15.0f * detailScale,
-                marker.y + outward.y * 15.0f * detailScale);
+                marker.x + outward.x * terminalWidth * 2.0f,
+                marker.y + outward.y * terminalWidth * 2.0f);
+            improveTextRasterization(label, target.getView());
             target.draw(label);
         }
     }
@@ -1209,7 +1283,9 @@ float VisualizationEngine::getLaneWidthPixels(
     // Imported maps no longer magnify every coordinate by a hard-coded 10x.
     // A small per-lane floor keeps their roads visible at overview zoom;
     // normal maps retain their physical pixel width unchanged.
-    return denseMap_ ? std::max(1.0f, naturalWidth) : naturalWidth;
+    const float densityFloor = denseMap_ ? 1.0f : 0.0f;
+    return std::max(
+        {naturalWidth, densityFloor, minimumLaneWidthPixels_});
 }
 
 sf::Color VisualizationEngine::getIntersectionBoxColor(const Intersection* intersection, bool tintByCongestion) const {
@@ -1350,18 +1426,25 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
     if (detailScale < 0.20f) {
         return;
     }
-    // Cap the detail scale so POI markers never grow unboundedly when
-    // zooming in very far. The base sizes are tuned for detailScale ~1.0.
-    const float cappedScale = std::min(detailScale, 1.5f);
+    const sf::View& view = target.getView();
+    const float markerScale = functionalMarkerScale_;
     const auto& pois = graph.getAllPOIs();
+    const float buildingSize = clampWorldSizeToPixels(
+        view,
+        5.0f * markerScale,
+        2.0f,
+        14.0f);
     const bool showLabels =
         lodLevel_ == LodLevel::Full &&
-        (!denseMap_ || detailScale >= 1.0f);
-    const float buildingSize = std::max(3.5f, 5.0f * cappedScale);
+        (!denseMap_ || detailScale >= 1.0f) &&
+        worldSizeToPixels(view, buildingSize) >= 7.0f;
     const float halfSize = buildingSize * 0.5f;
-    const float outlineThickness = std::max(0.25f, 0.5f * cappedScale);
-    const unsigned int labelSize = static_cast<unsigned int>(
-        std::clamp(5.0f * cappedScale, 3.0f, 7.0f));
+    const float outlineThickness = clampWorldSizeToPixels(
+        view,
+        0.5f * markerScale,
+        0.3f,
+        1.0f);
+    constexpr unsigned int labelSize = 6u;
 
     const ViewportBounds viewportBounds(target.getView(), 20.0f);
     for (const auto* poi : pois) {
@@ -1388,7 +1471,8 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
         target.draw(building);
 
         if (poi->getType() == POIType::HOSPITAL) {
-            const float crossThickness = std::max(1.0f, buildingSize * 0.18f);
+            const float crossThickness =
+                buildingSize * 0.18f;
             sf::RectangleShape horizontal({buildingSize * 0.7f, crossThickness});
             horizontal.setOrigin(buildingSize * 0.35f, crossThickness * 0.5f);
             horizontal.setPosition(pos);
@@ -1433,7 +1517,8 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
                 labelDirection = {-1.0f, 0.0f};
             }
 
-            const float labelGap = 8.0f * detailScale;
+            const float labelGap =
+                buildingSize * 1.6f;
             const sf::FloatRect bounds =
                 text.getLocalBounds();
             sf::Vector2f labelPosition;
@@ -1458,6 +1543,7 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
                         : pos.y + labelGap - bounds.top;
             }
             text.setPosition(labelPosition);
+            improveTextRasterization(text, target.getView());
             target.draw(text);
         }
     }
@@ -1552,6 +1638,9 @@ void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vec
         // Keep the label at its minimum size even when the road is short;
         // labels are intentionally always visible at every zoom level.
 
+        const sf::FloatRect logicalBounds = bounds;
+        improveTextRasterization(text, target.getView());
+        bounds = text.getLocalBounds();
         text.setOrigin(bounds.left + bounds.width * 0.5f, bounds.top + bounds.height * 0.5f);
         text.setPosition(mid);
         text.setRotation(angle);
@@ -1564,7 +1653,9 @@ void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vec
 
         constexpr float kPlatePaddingX = 3.0f;
         constexpr float kPlatePaddingY = 1.0f;
-        sf::RectangleShape plate({bounds.width + kPlatePaddingX * 2.0f, bounds.height + kPlatePaddingY * 2.0f});
+        sf::RectangleShape plate({
+            logicalBounds.width + kPlatePaddingX * 2.0f,
+            logicalBounds.height + kPlatePaddingY * 2.0f});
         plate.setOrigin(plate.getSize().x * 0.5f, plate.getSize().y * 0.5f);
         plate.setPosition(mid);
         plate.setRotation(angle);

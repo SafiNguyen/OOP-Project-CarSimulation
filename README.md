@@ -2,6 +2,18 @@
 
 A C++ Object-Oriented software application that simulates traffic movement within a virtual city environment.
 
+## Contents
+
+- [1. Title & Description](#1-title--description)
+- [2. Tech Stack](#2-tech-stack)
+- [3. Architecture & Class Diagram](#3-architecture--class-diagram)
+- [4. Folder Structure](#4-folder-structure)
+- [5. Setup & Installation](#5-setup--installation)
+- [6. Feature Usage Guide](#6-feature-usage-guide)
+- [7. Map JSON Reference](#7-map-json-reference)
+- [8. Troubleshooting](#8-troubleshooting)
+- [9. License](#9-license)
+
 ## 1. Title & Description
 
 **Urban Traffic Simulator** is a C++17 / Object-Oriented desktop application that simulates realistic urban traffic within a virtual city. It models a graph-based road network (intersections, multi-lane roads, roundabouts, bridges, tunnels), heterogeneous vehicle types with independent physics (Car, Bus, Motorbike, EmergencyVehicle), signalized/unsignalized junction arbitration, a public-transit (bus) subsystem, dynamic traffic events (accidents, congestion, road closures), and three interchangeable route-planning algorithms (BFS, Dijkstra, A*). A real-time SFML + Dear ImGui front end renders the network and vehicles, exposes a live control HUD, and supports snapshot-based time-travel (rewind/forward) through simulation history.
@@ -16,14 +28,14 @@ The project was built as a group assignment for an Object-Oriented Programming c
 | Build system | CMake ≥ 3.15 (`FetchContent` for dependency management) |
 | Graphics / Windowing | [SFML 2.6.1](https://www.sfml-dev.org/) (graphics, window, system modules) |
 | Immediate-mode GUI | [Dear ImGui v1.89.9](https://github.com/ocornut/imgui) + [imgui-sfml v2.6](https://github.com/SFML/imgui-sfml) (built as a local static library) |
-| JSON parsing | [nlohmann/json v3.11.3](https://github.com/nlohmann/json) — used to load/save map definitions |
+| JSON parsing | [nlohmann/json v3.11.3](https://github.com/nlohmann/json) — used to load map definitions |
 | Rendering backend | OpenGL (required by SFML) |
-| Testing | Lightweight custom `TestFramework.h` + CTest, 7 standalone test executables |
+| Testing | Lightweight custom `TestFramework.h` + CTest, 8 registered test executables |
 | Auxiliary tooling | Python + matplotlib (offline benchmark chart generation, not part of the C++ build) |
 
 ## 3. Architecture & Class Diagram
 
-The codebase follows a **layered, modular OOP architecture**. Each layer only depends on the layers below it, which keeps routing, physics, and rendering independently testable.
+The codebase follows a **layered, modular OOP architecture**. Domain, routing, simulation, loading, rendering, and UI responsibilities are separated so the core behavior can be tested without launching the interactive application.
 
 | Layer | Directory | Responsibility |
 |---|---|---|
@@ -39,10 +51,10 @@ The codebase follows a **layered, modular OOP architecture**. Each layer only de
 ### Design patterns in use
 
 - **Strategy** — `PathFindingStrategy` lets `BFSStrategy` / `DijkstraStrategy` / `AStarStrategy` be swapped at runtime (even mid-simulation) without touching `Vehicle` or `TrafficSimulator` code.
-- **Factory Method** — `VehicleFactory::createVehicle()` instantiates the correct `Vehicle` subclass from a `VehicleKind` enum; `SimulatorFactory::createDemoSimulator()` builds a ready-to-run `TrafficSimulator`.
+- **Simple Factory** — `VehicleFactory::createVehicle()` instantiates the correct `Vehicle` subclass from a `VehicleKind` enum; the free function `createDemoSimulator()` assembles a ready-to-run `TrafficSimulator` and its demand schedule.
 - **Memento** — `SnapshotManager` is the *caretaker* holding a bounded ring buffer of `SimulationSnapshot` *mementos*; `TrafficSimulator::captureSnapshot()/restoreSnapshot()` is the *originator*, enabling full rewind/forward time-travel.
 - **Facade / Command-like** — `TimePlaybackController` wraps `SnapshotManager` + `TrafficSimulator` behind a simple `rewind()/forward()/seek()` API.
-- **Observer** — `EventManager::notifyAffectedVehicles()` broadcasts road-condition changes (accident, congestion, closure) so every affected `Vehicle` can reroute.
+- **Observer-style notification** — `EventManager::notifyAffectedVehicles()` broadcasts road-condition changes (accident, congestion, closure) so every affected `Vehicle` can reroute.
 - **Composite** — `CompositePath` aggregates arbitrary `MotionPath` segments; `RoundaboutTraversalPath` composes entry/circulating/exit segments into one continuous path.
 - **Singleton** — `VehicleAssets::instance()` lazily loads and caches vehicle textures exactly once.
 - **Composition over inheritance (refactor highlight)** — `Vehicle` was refactored from a single 2,100+ line file into a coordinator that delegates to six focused, independently testable components: `VehicleDynamics` (speed integration), `CarFollowingModel` (gap/stopping-distance math), `LaneChangePolicy` (lane-change state machine), `JunctionTraversalState` (junction geometry/traversal), `RouteFollower` (route management/rerouting/U-turns), and `VehicleBehavior` (yielding, POI, signaling). `Vehicle`'s public API is 100% preserved, so `Car`/`Bus`/`Motorbike`/`EmergencyVehicle` and all call sites are untouched.
@@ -285,13 +297,15 @@ classDiagram
     class Cinema
     class Supermarket
     class TouristSpot
+    class ConfigurablePOI
 
     PointOfInterest <|-- SpawnPoint
-    PointOfInterest <|-- Destination
+    SpawnPoint <|-- Destination
     SpawnPoint <|-- ParkingLot
     SpawnPoint <|-- BusStation
     SpawnPoint <|-- HospitalSpawn
     SpawnPoint <|-- ResidentialArea
+    SpawnPoint <|-- ConfigurablePOI
     Destination <|-- Restaurant
     Destination <|-- Cinema
     Destination <|-- Supermarket
@@ -507,6 +521,7 @@ classDiagram
         +sf::View view
     }
     class SimulatorFactory {
+        <<utility>>
         +createDemoSimulator(graph, strategy, vehicleCount) TrafficSimulator$
     }
 
@@ -534,10 +549,16 @@ classDiagram
 UrbanTrafficSimulator/
 ├── CMakeLists.txt              # Build configuration (FetchContent for all deps)
 ├── README.md
+├── class-diagram.mmd           # Standalone source for the Mermaid diagram above
 ├── LICENSE
-├── map.json / map2.json / ...  # Sample map definitions (JSON)
+├── map2.json / map3.json / map4.json
+├── map_vnu_hcm*.json           # Larger VNU-HCM map variants
+├── assets/                     # Vehicle/roundabout textures copied after build
+├── docs/                       # Experiment notes and stress-test material
+├── test_map_parser.cpp         # Map parser test registered by CMake
 ├── src/
 │   ├── main.cpp                # Application entry point / SFML+ImGui event loop
+│   ├── AppContext.h            # Shared interactive application state
 │   ├── InputHandling.cpp/.h    # Keyboard/mouse input routing
 │   │
 │   ├── algorithm/              # --- Strategy Pattern: route planning ---
@@ -557,10 +578,10 @@ UrbanTrafficSimulator/
 │   │   ├── Graph.cpp/.h
 │   │   ├── MotionPath.cpp/.h
 │   │   ├── Geometry.h
-│   │   ├── PointOfInterest.h
-│   │   ├── SpawnPoint.h / Destination.h
 │   │   │
 │   │   ├── infrastructure/
+│   │   │   ├── PointOfInterest.h
+│   │   │   ├── SpawnPoint.h / Destination.h
 │   │   │   ├── Intersection.cpp/.h
 │   │   │   ├── Roundabout.cpp/.h
 │   │   │   ├── Road.cpp/.h
@@ -610,10 +631,9 @@ UrbanTrafficSimulator/
 │       ├── VehicleRenderGeometry.h
 │       ├── Camera.cpp/.h
 │       ├── Rendering.cpp/.h
-│       ├── SimulatorFactory.cpp/.h
-│       └── AppContext.h
+│       └── SimulatorFactory.cpp/.h
 │
-└── tests/                      # 7 CTest-registered executables
+└── tests/                      # Sources for 7 of the 8 CTest executables
     ├── TestFramework.h
     ├── test_graph.cpp
     ├── test_vehicle.cpp
@@ -636,6 +656,7 @@ UrbanTrafficSimulator/
   - Fedora: `sudo dnf install mesa-libGL-devel libX11-devel libXrandr-devel libXcursor-devel libXi-devel systemd-devel`
   - macOS: Xcode Command Line Tools (`xcode-select --install`)
   - Windows: Visual Studio 2019+ with the "Desktop development with C++" workload
+- Optional on Linux: **Zenity** (`sudo apt install zenity`) enables the native-looking **Browse...** map picker. A map path can always be typed manually.
 
 > All C++ dependencies (SFML 2.6.1, nlohmann_json 3.11.3, Dear ImGui 1.89.9, imgui-sfml 2.6) are fetched and built automatically by CMake — no manual `vcpkg`/`conan` install is required.
 
@@ -644,49 +665,58 @@ UrbanTrafficSimulator/
 ```bash
 # 1. Clone the repository
 git clone <repository-url>
-cd UrbanTrafficSimulator
+cd OOP-Project-CarSimulation
 
 # 2. Configure (downloads & configures SFML / imgui / nlohmann_json on first run)
-mkdir build && cd build
-cmake ..
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
 # 3. Build everything (main executable + test binaries)
-cmake --build . --config Release
+cmake --build build --config Release
 
-# 4. Run the test suite
-ctest --test-dir . --output-on-failure
+# 4. Run all 8 registered tests
+ctest --test-dir build -C Release --output-on-failure
 ```
+
+`-DCMAKE_BUILD_TYPE=Release` is used by single-configuration generators such as Makefiles and Ninja. Visual Studio uses the `--config Release` / `-C Release` arguments instead.
 
 ### Running the simulator
 
-The executable `UrbanTrafficSimulator` is generated in `build/bin` (or `build/Debug/bin` on MSVC).
+Run these commands from the repository root so relative map paths are unambiguous:
 
 ```bash
-# Launch with the built-in demo map
-./bin/UrbanTrafficSimulator
+# Linux/macOS with a single-configuration generator
+./build/bin/UrbanTrafficSimulator map4.json
 
-# Launch with a specific JSON map file
-./bin/UrbanTrafficSimulator ../map.json
+# Windows with the Visual Studio Release configuration
+.\build\bin\Release\UrbanTrafficSimulator.exe map4.json
 ```
 
-For headless/deterministic visual QA (no interactive window), the same executable can render a single snapshot image:
+With no map argument, the application also defaults to `map4.json`. To use the small graph compiled into the program, open **Control Center → Map → Demo Map**. If an external map is missing or invalid, the application reports the error and falls back to this built-in graph.
+
+For non-interactive visual QA, the same executable can render one PNG and exit:
 
 ```bash
-./bin/UrbanTrafficSimulator ../map2.json \
+./build/bin/UrbanTrafficSimulator map2.json \
   --snapshot map2.png --width 1600 --height 900 \
   --wall-seconds 5 --speed 2
 ```
+
+On Visual Studio builds, replace `./build/bin/UrbanTrafficSimulator` with `.\build\bin\Release\UrbanTrafficSimulator.exe`. Snapshot mode does not open the normal application window, but SFML still needs a working OpenGL/display environment.
 
 ### Controls
 
 | Input | Action |
 |---|---|
-| Middle Mouse + Drag | Pan the map |
+| Left, Middle, or Right Mouse + Drag | Pan the map when a map-picking tool and camera-follow mode are not active |
+| `WASD` / Arrow keys | Pan the map |
 | Scroll Wheel / `+` / `-` | Zoom in / out |
 | `Space` | Pause / Resume the simulation |
 | `R` | Reset camera view |
 | `Esc` | Close the active UI panel / dialog |
 | Left click on a vehicle | Open the Vehicle Inspector panel |
+| `[` / `]` | Rewind / advance one stored snapshot |
+| `B` | Capture a snapshot immediately |
+| `N` | Clear snapshot history |
 
 The in-app **Control Center** (DebugConsole HUD) also lets you: load a custom map JSON, add roads interactively, spawn individual vehicles, trigger accidents/congestion/road-closure events, switch the active pathfinding algorithm (BFS/Dijkstra/A*) live, and scrub through simulation history via the snapshot timeline.
 
@@ -699,14 +729,14 @@ This section walks through **how to use** every major feature implemented in the
 Two always-visible bars frame the screen:
 
 - **Top HUD** (`DebugConsoleTopBar.cpp`) shows the map name, a status pill (`SETUP` / `READY` / `RUNNING` / `PAUSED` / `ERROR` / `LOADING`), simulated time, active vehicle count, completed trips, FPS (on wide windows), a **Pause/Resume** button, and a speed-multiplier selector (`0.5x / 1x / 2x / 4x`).
-- **Bottom Dock** (always visible) gives one-click access to: **Reset** (reload the current map and rebuild the simulation), **Pause/Resume**, snapshot **Rewind `<<` / Forward `>>`** (each button also shows the time delta it will jump), **Reset View** (recentre the camera), a **Heatmap** toggle, an **LOD** cycle button (`Auto → Full → Medium → Low`), and the **Control Center** toggle that opens/closes the tabbed drawer described below.
+- **Bottom Dock** is always visible and adapts to the window width. It provides **Pause/Resume**, snapshot **Rewind `<<` / Forward `>>`** (each button also shows the time delta it will jump), **Reset View**, and access to the control drawer. Medium/wide layouts also expose **Heatmap** and the `Auto → Full → Medium → Low` **LOD** cycle; wide layouts add **Reset** to reload the current map.
 
 ### 6.2 Loading a map — "Map" tab
 
 1. Open the **Control Center** (bottom-right button, or press `Esc` to close it again) and switch to the **Map** tab.
 2. Type a path to a `.json` map file in the **File Path** box, or click **Browse...** to open a native file picker (Linux only, via `zenity`; on other platforms type the path manually).
 3. Click **Load Map** to replace the current map, or **Demo Map** to fall back to the built-in 5-intersection demo network (`DemoMap.cpp`).
-4. Loading a map always resets the active simulation, re-centres the camera, resets the LOD to `Low`, and clears any pending Add-Road/Spawn-Vehicle picks. If the file fails to parse, the demo map is loaded automatically and the parser error is shown here and on the **Overview** tab.
+4. Loading a map always resets the active simulation, re-centres the camera, and clears any pending Add-Road/Spawn-Vehicle picks. If the file fails to parse, the demo map is loaded automatically and the parser error is shown here and on the **Overview** tab.
 
 ### 6.3 Starting a simulation — "Simulation" tab → Simulation Setup
 
@@ -714,7 +744,7 @@ Vehicle demand is deliberately a two-step process so a large run never starts by
 
 1. Set **Vehicle count** (spinner, default 1000; large counts are streamed in over several frames instead of built all at once).
 2. Click **Lock Vehicle Count** — this freezes the number and unlocks the **Start Simulation** button.
-3. Click **Start Simulation**. This calls `SimulatorFactory::createDemoSimulator`, which schedules civilian traffic, transit buses (if the map defines `busServices`), and pathfinding-strategy benchmarking.
+3. Click **Start Simulation**. This calls `createDemoSimulator`, which schedules civilian traffic, transit buses (if the map defines `busServices`), and per-route pathfinding statistics. Demand above 2,000 trips is materialized in frame-budgeted batches so the UI remains responsive.
 4. Loading a new map (Section 6.2) automatically clears the lock, so you must re-lock a count before the next run.
 
 ### 6.4 Switching the pathfinding algorithm — "Simulation" tab → Pathfinding Algorithm
@@ -756,15 +786,15 @@ Vehicle demand is deliberately a two-step process so a large run never starts by
 
 ### 6.10 Camera, heatmap, and level of detail
 
-- **Pan**: middle-mouse drag, or edge-scroll by moving the cursor to the window border, or `WASD`/arrow keys.
+- **Pan**: left/middle/right-mouse drag, edge-scroll by moving the cursor to the window border, or `WASD`/arrow keys. Panning is disabled while following a vehicle.
 - **Zoom**: scroll wheel, or `+`/`-` keys; zoom is centred on the cursor.
 - **Reset View** (`R` key or dock button): recentres and re-fits the camera to the loaded map bounds.
 - **Heatmap** toggle: colors every road/intersection green→yellow→red by live occupancy and configured congestion.
-- **LOD** button: cycles `Auto → Full → Medium → Low`. `Auto` adapts automatically to the measured frame rate (never escalating past Medium on its own); `Full`/`Medium`/`Low` force a fixed detail level, trading POI/bus-stop/traffic-light/lane-marking detail for frame rate on very large maps.
+- **LOD** button: cycles `Auto → Full → Medium → Low`. `Auto` selects Full/Medium/Low from zoom, map density, and sustained FPS; the other modes cap the maximum detail, trading POI/bus-stop/traffic-light/lane-marking detail for frame rate on very large maps.
 
 ### 6.11 Time-travel / snapshot playback
 
-The simulator automatically records a `SimulationSnapshot` (Memento pattern) every few seconds of simulated time (see `TrafficSimulator::setSnapshotInterval`), kept in a bounded ring buffer (`SnapshotManager`, default capacity 600).
+The simulator automatically records `SimulationSnapshot` mementos at a load-aware interval. Normal runs capture every 5 simulated seconds. Demand above 2,000 trips postpones capture until preparation finishes, then uses a 10-second interval up to 10,000 trips and 30 seconds above that. `SnapshotManager` starts with capacity 600, while `TrafficSimulator` resizes the active history to 120/60/30/12 entries according to population and also enforces a memory budget.
 
 - Press `[` / `]` or use the dock's **Rewind `<<`** / **Forward `>>`** buttons to step one snapshot back/forward. Rewinding automatically pauses the simulation so playback never races with the live update loop.
 - Press `B` to force an immediate manual snapshot capture.
@@ -773,18 +803,98 @@ The simulator automatically records a `SimulationSnapshot` (Memento pattern) eve
 
 ### 6.12 Headless snapshot rendering (CLI)
 
-For automated visual QA without opening an interactive window, pass `--snapshot` on the command line (see `main.cpp`):
+For automated visual QA without opening the interactive application window, pass a map path followed by `--snapshot` (see `main.cpp`):
 
 ```bash
 ./bin/UrbanTrafficSimulator ../map2.json \
   --snapshot output.png --width 1600 --height 900 \
-  --wall-seconds 5 --speed 2 --paused
+  --wall-seconds 5 --speed 2
 ```
 
 - `--snapshot <path>` (required to enable this mode): where to save the rendered PNG.
 - `--width` / `--height`: output image resolution (defaults 800x600).
-- `--wall-seconds`: how much simulated time to advance before capturing (in 0.05s steps).
-- `--speed`: simulation speed multiplier applied during that advance.
-- `--paused`: advance the demand/setup but leave the simulator paused at capture time.
+- `--wall-seconds`: wall-clock update duration to feed the simulator before capture, split into steps no larger than 0.05 seconds.
+- `--speed`: simulation speed multiplier applied during that update loop; for example, `--wall-seconds 5 --speed 2` advances approximately 10 simulated seconds.
+- `--paused`: pause before the update loop and capture the initial state. In the current implementation, combining it with `--wall-seconds` does **not** advance simulation time.
 
 The tool prints a spawn/transit summary to stdout before saving the image, which is useful for scripted regression checks against `run_output.txt`-style logs.
+
+## 7. Map JSON Reference
+
+### Included maps
+
+The repository currently contains these external map files. Counts refer to JSON entries, before any `twoWay` road creates its generated reverse edge.
+
+| File | Intersections | Road entries | POIs | Intended use |
+|---|---:|---:|---:|---|
+| `map3.json` | 3 | 4 | 2 | Smallest readable example; useful when learning the schema |
+| `map2.json` | 9 | 24 | 4 | Compact grid with configured traffic lights |
+| `map4.json` | 20 | 31 | 12 | Default application map; includes transit stops, stations, services, POIs, and signals |
+| `map_vnu_hcm_filtered.json` | 981 | 1,345 | 98 | Reduced VNU-HCM data set for large-map testing |
+| `map_vnu_hcm.json` | 5,026 | 6,557 | 1,943 | Full VNU-HCM data set and renderer stress test |
+
+The built-in fallback graph in `DemoMap.cpp` is separate from these files and contains 5 intersections and 6 roads.
+
+### Minimal valid structure
+
+Only the top-level `intersections` and `roads` arrays are mandatory. A practical minimal map looks like this:
+
+```json
+{
+  "coordinateUnit": "m",
+  "defaultDistanceUnit": "m",
+  "defaultSpeedUnit": "km/h",
+  "defaultRadiusUnit": "m",
+  "defaultLaneWidth": 3.5,
+  "intersections": [
+    { "id": 1, "x": 0.0, "y": 0.0 },
+    { "id": 2, "x": 100.0, "y": 0.0 }
+  ],
+  "roads": [
+    {
+      "id": 101,
+      "name": "Example Street",
+      "start": 1,
+      "end": 2,
+      "distance": 100.0,
+      "speedLimit": 50.0,
+      "lanes": 2,
+      "twoWay": true
+    }
+  ],
+  "pois": [
+    {
+      "id": 201,
+      "name": "Example Parking",
+      "type": "parking",
+      "x": 20.0,
+      "y": 5.0
+    }
+  ]
+}
+```
+
+Important loader rules:
+
+- Intersection IDs and road IDs must be unique. Every road's `start` and `end` must reference existing intersections.
+- `distance`, `speedLimit`, lane width, and lane count must be positive. `congestionLevel`, when present, must be at least `1.0`.
+- Roads are directed. Setting `twoWay: true` creates the reverse road automatically with ID `-id`; do not also add another JSON entry for the same directed pair.
+- Per-road `distanceUnit` and `speedUnit` can override the top-level defaults. The loader normalizes physical values to metres and metres/second internally.
+- Optional top-level sections are `visualization`, `trafficLights`, `busStops`, `busStations`, `busServices`, and `pois`. Use `map4.json` as the complete transit/signal example.
+- A POI can be attached explicitly with `accessRoadId` plus exactly one of `accessProgress` or `positionRatio`. If road access is omitted, the loader binds it to the network automatically.
+
+`GraphBuilder.cpp` validates the schema and returns a specific error message. In the interactive application, that error appears in **Control Center → Map** and the built-in graph remains available.
+
+## 8. Troubleshooting
+
+- **CMake fails during the first configure:** confirm Git and internet access are available. `FetchContent` must download four upstream projects the first time; later builds reuse the populated build directory.
+- **Executable path is not found on Windows:** Visual Studio is a multi-configuration generator, so use `build/bin/Release/UrbanTrafficSimulator.exe` (or `build/bin/Debug/UrbanTrafficSimulator.exe`), not `build/Release/bin`.
+- **The app opens the demo graph instead of the requested file:** run from the repository root or pass an absolute path. The loader checks the requested path and up to three parent-directory levels before falling back.
+- **Road names or POI labels are missing:** install one of the fonts searched by `main.cpp` (DejaVu Sans, Liberation Sans, Ubuntu, Segoe UI, Arial, Calibri, or Noto Sans), or provide `assets/DejaVuSans.ttf`, `assets/LiberationSans-Regular.ttf`, or `assets/arial.ttf` beside the executable.
+- **Browse... does nothing:** the native file picker is currently implemented only for Linux through `zenity`. Type the `.json` path directly on Windows or macOS.
+- **Snapshot or visualization tests fail on a server:** `--snapshot` avoids the interactive window but still creates an SFML OpenGL render texture. Use a machine/session with a valid graphics/display context (or an appropriate virtual display on Linux).
+- **A map is rejected:** start from `map3.json`, preserve the required road fields, avoid duplicate IDs/directed pairs, and read the full loader error in the **Map** tab.
+
+## 9. License
+
+This project is distributed under the [GNU General Public License v3.0](LICENSE).

@@ -11,7 +11,6 @@
 #include "visualization/VisualizationEngine.h"
 
 namespace {
-constexpr float FOLLOW_ZOOM_FACTOR = 0.10f;
 constexpr float FOLLOW_RESPONSE = 10.0f;
 
 const Vehicle* findActiveVehicleById(
@@ -170,11 +169,13 @@ void updateCamera(AppContext& ctx,
                     pose.position.x,
                     pose.position.y);
             const float blend = followBlend(dt);
+            const float targetZoomFactor =
+                ctx.graph.getRenderSettings().followZoomFactor;
 
             ctx.zoomFactor +=
-                (FOLLOW_ZOOM_FACTOR - ctx.zoomFactor) * blend;
-            if (std::abs(FOLLOW_ZOOM_FACTOR - ctx.zoomFactor) < 0.0001f) {
-                ctx.zoomFactor = FOLLOW_ZOOM_FACTOR;
+                (targetZoomFactor - ctx.zoomFactor) * blend;
+            if (std::abs(targetZoomFactor - ctx.zoomFactor) < 0.0001f) {
+                ctx.zoomFactor = targetZoomFactor;
             }
             ctx.view.setSize(
                 static_cast<float>(ctx.windowW) * ctx.zoomFactor,

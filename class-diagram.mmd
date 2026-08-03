@@ -231,13 +231,15 @@ classDiagram
     class Cinema
     class Supermarket
     class TouristSpot
+    class ConfigurablePOI
 
     PointOfInterest <|-- SpawnPoint
-    PointOfInterest <|-- Destination
+    SpawnPoint <|-- Destination
     SpawnPoint <|-- ParkingLot
     SpawnPoint <|-- BusStation
     SpawnPoint <|-- HospitalSpawn
     SpawnPoint <|-- ResidentialArea
+    SpawnPoint <|-- ConfigurablePOI
     Destination <|-- Restaurant
     Destination <|-- Cinema
     Destination <|-- Supermarket
@@ -453,6 +455,7 @@ classDiagram
         +sf::View view
     }
     class SimulatorFactory {
+        <<utility>>
         +createDemoSimulator(graph, strategy, vehicleCount) TrafficSimulator$
     }
 

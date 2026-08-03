@@ -67,6 +67,12 @@ void VisualizationEngine::setWindowSize(sf::Vector2u windowSize) {
 
 void VisualizationEngine::prepare(const Graph& graph) {
     ++revision_;
+    const MapRenderSettings& renderSettings = graph.getRenderSettings();
+    functionalMarkerScale_ = renderSettings.functionalMarkerScale;
+    minimumLaneWidthPixels_ = renderSettings.minimumLaneWidthPixels;
+    minimumVehicleLengthPixels_ =
+        renderSettings.minimumVehicleLengthPixels;
+
     auto intersections = graph.getAllIntersections();
     const auto roads = graph.getAllRoads();
     std::sort(intersections.begin(), intersections.end(), [](Intersection* lhs, Intersection* rhs) {

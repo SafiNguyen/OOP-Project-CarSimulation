@@ -12,6 +12,15 @@ class BusService;
 class BusStation;
 class BusStop;
 
+struct MapRenderSettings {
+    float functionalMarkerScale = 1.0f;
+    float minimumLaneWidthPixels = 0.0f;
+    float minimumVehicleLengthPixels = 4.0f;
+    // Camera view-size multiplier while following a vehicle. Smaller values
+    // zoom farther in. The default preserves the schematic-map behaviour.
+    float followZoomFactor = 0.20f;
+};
+
 class Graph {
 private:
     std::unordered_map<int, Intersection*> intersections;
@@ -19,6 +28,7 @@ private:
     std::vector<PointOfInterest*> pois;
     std::vector<std::unique_ptr<BusStation>> busStations;
     std::vector<std::unique_ptr<BusService>> busServices;
+    MapRenderSettings renderSettings;
 
 public:
     Graph();
@@ -53,6 +63,8 @@ public:
 
     // --- Utility ---
     void clearGraph();
+    void setRenderSettings(const MapRenderSettings& settings);
+    const MapRenderSettings& getRenderSettings() const;
 
     // --- POI Operations ---
     void addPOI(PointOfInterest* poi);

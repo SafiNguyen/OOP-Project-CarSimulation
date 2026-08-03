@@ -32,15 +32,16 @@ void stopFollowingVehicle(AppContext& ctx);
 bool isFollowingVehicle(const AppContext& ctx);
 bool isFollowingVehicle(const AppContext& ctx, int vehicleId);
 
-// Multiplies zoomFactor by `factor` (clamped to [0.35, 2.5]), resizes the
+// Multiplies zoomFactor by `factor` (clamped to [0.02, 5.0]), resizes the
 // view to match, and re-clamps.
 void zoomBy(AppContext& ctx, float factor);
 
 // Overload that zooms centered on a specific world coordinates position.
 void zoomBy(AppContext& ctx, float factor, sf::Vector2f zoomCenter);
 
-// Updates either the vehicle-follow camera or the normal frame-rate
-// independent RTS camera (edge scroll, WASD and arrow-key panning).
+// Updates either the vehicle-follow camera (using the current map's
+// followZoomFactor) or the normal frame-rate independent RTS camera
+// (edge scroll, WASD and arrow-key panning).
 void updateCamera(AppContext& ctx,
                   const TrafficSimulator* simulator,
                   float dt);

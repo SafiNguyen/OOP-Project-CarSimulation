@@ -17,6 +17,7 @@
 #include "simulation/TrafficSimulator.h"
 #include "StatsPanel.h"
 #include "UiTheme.h"
+#include "visualization/VehicleRenderGeometry.h"
 #include "visualization/VisualizationEngine.h"
 #include "visualization/SimulatorFactory.h"
 
@@ -653,6 +654,9 @@ void DebugConsole::drawFailedRecalcMarkers(sf::RenderWindow& window,
     if (failedRecalcIds.empty()) {
         return;
     }
+    const sf::View& view = window.getView();
+    const float viewUnitsPerPixel =
+        visualization.getViewUnitsPerPixel(view);
 
     for (Vehicle* v : simulator->getVehicles()) {
         if (failedRecalcIds.count(v->getId()) == 0 || v->getCurrentRoad() == nullptr) {
@@ -664,12 +668,27 @@ void DebugConsole::drawFailedRecalcMarkers(sf::RenderWindow& window,
         const double wx = rs->getX() + ratio * (re->getX() - rs->getX());
         const double wy = rs->getY() + ratio * (re->getY() - rs->getY());
         const sf::Vector2f pos = visualization.worldToScreen(wx, wy);
+        const VehicleScreenSize vehicleSize =
+            getVehicleVisualScreenSize(
+                *v,
+                visualization,
+                viewUnitsPerPixel);
+        const float radius = visualization.clampWorldSizeToPixels(
+            view,
+            std::max(
+                vehicleSize.widthPixels * 0.75f,
+                vehicleSize.lengthPixels * 0.25f),
+            2.5f,
+            6.0f);
+        const float offset =
+            vehicleSize.lengthPixels * 0.5f +
+            radius + 2.0f * viewUnitsPerPixel;
 
-        sf::CircleShape warnDot(5.0f, 3);
-        warnDot.setOrigin(5.0f, 5.0f);
-        warnDot.setPosition(pos.x, pos.y - 18.0f);
+        sf::CircleShape warnDot(radius, 3);
+        warnDot.setOrigin(radius, radius);
+        warnDot.setPosition(pos.x, pos.y - offset);
         warnDot.setFillColor(sf::Color(230, 30, 30));
-        warnDot.setOutlineThickness(1.0f);
+        warnDot.setOutlineThickness(1.0f * viewUnitsPerPixel);
         warnDot.setOutlineColor(sf::Color::White);
         window.draw(warnDot);
     }
@@ -689,6 +708,9 @@ void DebugConsole::drawManualSpawnMarkers(
             highlight.remainingSeconds - safeDt);
     }
     if (simulator != nullptr) {
+        const sf::View& view = window.getView();
+        const float viewUnitsPerPixel =
+            visualization.getViewUnitsPerPixel(view);
         for (const ManualSpawnHighlight& highlight :
              manualSpawnHighlights_) {
             if (highlight.remainingSeconds <= 0.0f) {
@@ -718,7 +740,25 @@ void DebugConsole::drawManualSpawnMarkers(
             const float pulse =
                 0.5f + 0.5f * std::sin(
                     elapsed * 7.0f);
-            const float radius = 11.0f + pulse * 5.0f;
+            const VehicleScreenSize vehicleSize =
+                getVehicleVisualScreenSize(
+                    **found,
+                    visualization,
+                    viewUnitsPerPixel);
+            const float radius = visualization.clampWorldSizeToPixels(
+                view,
+                std::max(
+                    vehicleSize.lengthPixels,
+                    vehicleSize.widthPixels) *
+                    (0.72f + pulse * 0.18f),
+                5.0f,
+                14.0f);
+            const float badgeRadius =
+                visualization.clampWorldSizeToPixels(
+                    view,
+                    radius * 0.36f,
+                    2.5f,
+                    4.5f);
             const sf::Uint8 alpha =
                 static_cast<sf::Uint8>(
                     110.0f + pulse * 130.0f);
@@ -727,19 +767,22 @@ void DebugConsole::drawManualSpawnMarkers(
             ring.setOrigin(radius, radius);
             ring.setPosition(position);
             ring.setFillColor(sf::Color::Transparent);
-            ring.setOutlineThickness(2.5f);
+            ring.setOutlineThickness(
+                2.0f * viewUnitsPerPixel);
             ring.setOutlineColor(
                 sf::Color(55, 235, 255, alpha));
             window.draw(ring);
 
-            sf::CircleShape idBadge(5.5f, 20u);
-            idBadge.setOrigin(5.5f, 5.5f);
+            sf::CircleShape idBadge(badgeRadius, 20u);
+            idBadge.setOrigin(badgeRadius, badgeRadius);
             idBadge.setPosition(
                 position.x,
-                position.y - radius - 7.0f);
+                position.y - radius -
+                    (badgeRadius + 1.5f * viewUnitsPerPixel));
             idBadge.setFillColor(
                 sf::Color(20, 190, 220, alpha));
-            idBadge.setOutlineThickness(1.5f);
+            idBadge.setOutlineThickness(
+                1.0f * viewUnitsPerPixel);
             idBadge.setOutlineColor(sf::Color::White);
             window.draw(idBadge);
         }

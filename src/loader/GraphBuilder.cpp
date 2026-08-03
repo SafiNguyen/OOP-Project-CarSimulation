@@ -217,6 +217,77 @@ bool buildGraphFromJsonString(const std::string& jsonText, Graph& graph, std::st
 
 	graph.clearGraph();
 
+	MapRenderSettings renderSettings;
+	if (root.contains("visualization")) {
+		const auto& visualization = root.at("visualization");
+		if (!visualization.is_object()) {
+			if (error) {
+				*error = "Invalid 'visualization': expected a JSON object.";
+			}
+			return false;
+		}
+
+		double functionalMarkerScale = renderSettings.functionalMarkerScale;
+		double minimumLaneWidthPixels = renderSettings.minimumLaneWidthPixels;
+		double minimumVehicleLengthPixels =
+			renderSettings.minimumVehicleLengthPixels;
+		double followZoomFactor = renderSettings.followZoomFactor;
+		std::string renderSettingsError;
+		if (!MapParser::getDoubleOptional(
+				visualization,
+				"functionalMarkerScale",
+				functionalMarkerScale,
+				renderSettingsError) ||
+			!MapParser::getDoubleOptional(
+				visualization,
+				"minimumLaneWidthPixels",
+				minimumLaneWidthPixels,
+				renderSettingsError) ||
+			!MapParser::getDoubleOptional(
+				visualization,
+				"minimumVehicleLengthPixels",
+				minimumVehicleLengthPixels,
+				renderSettingsError) ||
+			!MapParser::getDoubleOptional(
+				visualization,
+				"followZoomFactor",
+				followZoomFactor,
+				renderSettingsError)) {
+			if (error) {
+				*error = renderSettingsError;
+			}
+			return false;
+		}
+		if (!std::isfinite(functionalMarkerScale) ||
+			functionalMarkerScale <= 0.0 ||
+			!std::isfinite(minimumLaneWidthPixels) ||
+			minimumLaneWidthPixels < 0.0 ||
+			!std::isfinite(minimumVehicleLengthPixels) ||
+			minimumVehicleLengthPixels <= 0.0 ||
+			!std::isfinite(followZoomFactor) ||
+			followZoomFactor < 0.0000001 ||
+			followZoomFactor > 5.0) {
+			if (error) {
+				*error =
+					"visualization.functionalMarkerScale must be positive and "
+					"visualization.minimumLaneWidthPixels must be non-negative and "
+					"visualization.minimumVehicleLengthPixels must be positive and "
+					"visualization.followZoomFactor must be between 0.0000001 and 5.0.";
+			}
+			return false;
+		}
+
+		renderSettings.functionalMarkerScale =
+			static_cast<float>(functionalMarkerScale);
+		renderSettings.minimumLaneWidthPixels =
+			static_cast<float>(minimumLaneWidthPixels);
+		renderSettings.minimumVehicleLengthPixels =
+			static_cast<float>(minimumVehicleLengthPixels);
+		renderSettings.followZoomFactor =
+			static_cast<float>(followZoomFactor);
+	}
+	graph.setRenderSettings(renderSettings);
+
 	// Explicit boundary contract: the loader normalizes every physical value
 	// to SI. The named legacy distance scale keeps pre-schema maps compatible.
 	std::string defaultDistanceUnit = "legacy";

@@ -44,10 +44,13 @@ struct VehicleVisual {
 VehicleVisual getVehicleVisual(
     const Vehicle& vehicle,
     const VisualizationEngine& visualization,
-    double simulationTime) {
+    double simulationTime,
+    float viewUnitsPerPixel = 1.0f) {
     const VehicleScreenSize size =
         getVehicleVisualScreenSize(
-            vehicle, visualization);
+            vehicle,
+            visualization,
+            viewUnitsPerPixel);
     const float halfLength = size.lengthPixels * 0.5f;
     const float halfWidth = size.widthPixels * 0.5f;
     switch (vehicle.getVehicleKind()) {
@@ -262,6 +265,8 @@ void drawActiveVehicles(sf::RenderWindow& window,
                   static_cast<float>(windowSize.y)
             : 1.0f);
     const bool drawSmallVehicleLights = viewUnitsPerPixel <= 2.0f;
+    const float vehicleOutline =
+        kVehicleOutlinePixels * viewUnitsPerPixel;
 
     for (Vehicle* vehicle : simulator.getVehicles()) {
         if (vehicle == nullptr || vehicle->getCurrentRoad() == nullptr) {
@@ -286,7 +291,10 @@ void drawActiveVehicles(sf::RenderWindow& window,
         const sf::Vector2f side(sine, cosine);
         const VehicleVisual visual =
             getVehicleVisual(
-                *vehicle, visualization, simulationTime);
+                *vehicle,
+                visualization,
+                simulationTime,
+                viewUnitsPerPixel);
         const sf::Texture* texture =
             VehicleAssets::instance().textureFor(
                 vehicle->getVehicleKind());
@@ -308,9 +316,9 @@ void drawActiveVehicles(sf::RenderWindow& window,
                 forward,
                 side,
                 visual.halfLength +
-                    kVehicleOutlinePixels,
+                    vehicleOutline,
                 visual.halfWidth +
-                    kVehicleOutlinePixels,
+                    vehicleOutline,
                 sf::Color::Black);
             appendVehicleQuad(
                 fallbackVehicleVertices,
@@ -431,6 +439,10 @@ void drawParkedVehicles(sf::RenderWindow& window, const VisualizationEngine& vis
     static std::vector<sf::Vertex> parkedVertices;
     parkedVertices.clear();
     const ViewportBounds viewportBounds(window.getView());
+    const float viewUnitsPerPixel =
+        visualization.getViewUnitsPerPixel(window.getView());
+    const float vehicleOutline =
+        kVehicleOutlinePixels * viewUnitsPerPixel;
     const std::size_t requiredVertices =
         simulator.getFinishedVehicles().size() * 8u;
     if (parkedVertices.capacity() < requiredVertices) {
@@ -484,7 +496,8 @@ void drawParkedVehicles(sf::RenderWindow& window, const VisualizationEngine& vis
                 getVehicleVisual(
                     *list[i],
                     visualization,
-                    simulator.getElapsedTime());
+                    simulator.getElapsedTime(),
+                    viewUnitsPerPixel);
             const sf::Vector2f forward(0.0f, -1.0f);
             const sf::Vector2f side(1.0f, 0.0f);
             appendVehicleQuad(
@@ -492,8 +505,8 @@ void drawParkedVehicles(sf::RenderWindow& window, const VisualizationEngine& vis
                 vPos,
                 forward,
                 side,
-                visual.halfLength + kVehicleOutlinePixels,
-                visual.halfWidth + kVehicleOutlinePixels,
+                visual.halfLength + vehicleOutline,
+                visual.halfWidth + vehicleOutline,
                 sf::Color::Black);
             appendVehicleQuad(
                 parkedVertices,
@@ -539,14 +552,31 @@ void drawSelectedVehicleHighlight(sf::RenderWindow& window,
         return; // finished vehicles are drawn inside their "parked" box, not on the road
     }
 
-    VehicleSprite sprite(target, &visualization);
-    const sf::Vector2f pos = sprite.getPosition();
+    const Pose2D pose = target->getPose();
+    const sf::Vector2f pos = visualization.worldToScreen(
+        pose.position.x,
+        pose.position.y);
+    const sf::View& view = window.getView();
+    const float viewUnitsPerPixel =
+        visualization.getViewUnitsPerPixel(view);
+    const VehicleScreenSize vehicleSize =
+        getVehicleVisualScreenSize(
+            *target,
+            visualization,
+            viewUnitsPerPixel);
+    const float ringRadius = visualization.clampWorldSizeToPixels(
+        view,
+        std::max(
+            vehicleSize.lengthPixels,
+            vehicleSize.widthPixels) * 0.8f,
+        5.0f,
+        14.0f);
 
-    sf::CircleShape ring(14.0f);
-    ring.setOrigin(14.0f, 14.0f);
+    sf::CircleShape ring(ringRadius);
+    ring.setOrigin(ringRadius, ringRadius);
     ring.setPosition(pos);
     ring.setFillColor(sf::Color::Transparent);
-    ring.setOutlineThickness(2.0f);
+    ring.setOutlineThickness(2.0f * viewUnitsPerPixel);
     ring.setOutlineColor(sf::Color::Yellow);
     window.draw(ring);
 }
@@ -585,7 +615,12 @@ void drawSelectedVehicleRoute(sf::RenderWindow& window,
     if (currentIdx < 0) currentIdx = 0;
 
     std::vector<sf::Vertex> routeVertices;
-    const float thickness = 6.0f;
+    const float thickness =
+        visualization.clampWorldSizeToPixels(
+            window.getView(),
+            6.0f,
+            2.0f,
+            8.0f);
     const sf::Color color(0, 255, 255, 120); // Cyan semi-transparent
 
     // The route line is drawn inside the lane the vehicle will actually

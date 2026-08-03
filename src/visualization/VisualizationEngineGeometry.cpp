@@ -29,6 +29,45 @@ float VisualizationEngine::metresToScreenPixels(
         naturalPixelsPerMetre);
 }
 
+float VisualizationEngine::getViewUnitsPerPixel(
+    const sf::View& view) const {
+    const float viewWidth = std::abs(view.getSize().x);
+    const float viewHeight = std::abs(view.getSize().y);
+    const float windowWidth =
+        static_cast<float>(std::max(1u, windowSize_.x));
+    const float windowHeight =
+        static_cast<float>(std::max(1u, windowSize_.y));
+    return std::max(
+        viewWidth / windowWidth,
+        viewHeight / windowHeight);
+}
+
+float VisualizationEngine::clampWorldSizeToPixels(
+    const sf::View& view,
+    float worldSize,
+    float minimumPixels,
+    float maximumPixels) const {
+    const float unitsPerPixel = getViewUnitsPerPixel(view);
+    const float safeMinimum = std::max(0.0f, minimumPixels);
+    const float safeMaximum =
+        std::max(safeMinimum, maximumPixels);
+    const float pixelSize =
+        std::max(0.0f, worldSize) /
+        std::max(1e-6f, unitsPerPixel);
+    return std::clamp(
+               pixelSize,
+               safeMinimum,
+               safeMaximum) *
+           unitsPerPixel;
+}
+
+float VisualizationEngine::worldSizeToPixels(
+    const sf::View& view,
+    float worldSize) const {
+    return std::max(0.0f, worldSize) /
+           std::max(1e-6f, getViewUnitsPerPixel(view));
+}
+
 float VisualizationEngine::getDetailScale(
     const sf::View& view) const {
     // The view size is windowSize * zoomFactor. At the default zoom the
@@ -50,12 +89,58 @@ float VisualizationEngine::getDetailScale(
 }
 
 float VisualizationEngine::getTextRenderScale(const sf::View& view) const {
+    // Small, schematic maps use world-space signs, POIs and label plates.
+    // Their text must zoom with those objects; counter-scaling only the
+    // glyphs makes the text look like tiny dots inside enlarged markers.
+    // Dense imported maps are the only case where keeping label text at a
+    // compact screen-space size is useful for avoiding visual clutter.
+    if (!denseMap_) {
+        return 1.0f;
+    }
+
     const float viewWidth = std::abs(view.getSize().x);
     const float viewHeight = std::abs(view.getSize().y);
     const float zoomScale = std::min(
         static_cast<float>(std::max(1u, windowSize_.x)) / std::max(1.0f, viewWidth),
         static_cast<float>(std::max(1u, windowSize_.y)) / std::max(1.0f, viewHeight));
     return 1.0f / std::max(1.0f, zoomScale);
+}
+
+void VisualizationEngine::improveTextRasterization(
+    sf::Text& text,
+    const sf::View& view) const {
+    // SFML rasterizes a glyph at characterSize and then the camera enlarges
+    // that bitmap. On schematic maps this becomes visibly blurry at close
+    // zoom. Rasterize a larger glyph and counter-scale only the Text object;
+    // its effective world-space size therefore stays unchanged.
+    if (denseMap_) {
+        return;
+    }
+
+    constexpr float kMaximumRasterScale = 8.0f;
+    const float zoomScale = std::clamp(
+        1.0f / std::max(1e-6f, getViewUnitsPerPixel(view)),
+        1.0f,
+        kMaximumRasterScale);
+    const unsigned int originalSize = text.getCharacterSize();
+    if (zoomScale <= 1.01f || originalSize == 0u) {
+        return;
+    }
+
+    const unsigned int rasterSize = std::max(
+        originalSize + 1u,
+        static_cast<unsigned int>(std::lround(
+            static_cast<float>(originalSize) * zoomScale)));
+    const float rasterScale =
+        static_cast<float>(rasterSize) /
+        static_cast<float>(originalSize);
+    const sf::Vector2f originalScale = text.getScale();
+    text.setCharacterSize(rasterSize);
+    text.setScale(
+        originalScale.x / rasterScale,
+        originalScale.y / rasterScale);
+    text.setOutlineThickness(
+        text.getOutlineThickness() * rasterScale);
 }
 
 sf::Color VisualizationEngine::mixColor(const sf::Color& a, const sf::Color& b, float t) {
