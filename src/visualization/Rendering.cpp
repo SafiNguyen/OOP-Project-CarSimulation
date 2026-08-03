@@ -32,8 +32,6 @@ namespace {
 
 constexpr float kVehicleOutlinePixels = 0.55f;
 constexpr int kDiscSegments = 10;
-constexpr float kTurnSignalRadiusPixels = 1.8f;
-constexpr float kTurnSignalHaloPixels = 0.6f;
 const sf::Color kTurnSignalAmber(255, 165, 0);
 const sf::Color kTurnSignalHalo(55, 30, 5);
 
@@ -240,28 +238,10 @@ void drawActiveVehicles(sf::RenderWindow& window,
     }
     turnSignalVertices.clear();
     emergencyLightVertices.clear();
-    const std::size_t requiredVertices =
-        simulator.getVehicles().size() * 8u;
-    if (fallbackVehicleVertices.capacity() <
-        requiredVertices) {
-        fallbackVehicleVertices.reserve(requiredVertices);
-    }
-    for (auto& vertices : texturedVehicleVertices) {
-        const std::size_t perTypeReserve =
-            simulator.getVehicles().size() * 4u;
-        if (vertices.capacity() < perTypeReserve) {
-            vertices.reserve(perTypeReserve);
-        }
-    }
-    const std::size_t requiredSignalVertices =
-        simulator.getVehicles().size() *
-        static_cast<std::size_t>(
-            kDiscSegments * 6);
-    if (turnSignalVertices.capacity() <
-        requiredSignalVertices) {
-        turnSignalVertices.reserve(
-            requiredSignalVertices);
-    }
+    // Do not reserve from the total fleet size: on a zoomed-in view only a
+    // small fraction is visible, and reserving for 50k vehicles caused large
+    // allocation spikes before viewport culling even began. These persistent
+    // vectors now grow only to the largest actually visible batch.
 
     const sf::Vector2f viewCenter = view.getCenter();
     const sf::Vector2f viewSize = view.getSize();
@@ -281,6 +261,7 @@ void drawActiveVehicles(sf::RenderWindow& window,
             ? viewSize.y /
                   static_cast<float>(windowSize.y)
             : 1.0f);
+    const bool drawSmallVehicleLights = viewUnitsPerPixel <= 2.0f;
 
     for (Vehicle* vehicle : simulator.getVehicles()) {
         if (vehicle == nullptr || vehicle->getCurrentRoad() == nullptr) {
@@ -341,7 +322,8 @@ void drawActiveVehicles(sf::RenderWindow& window,
                 visual.color);
         }
 
-        if (vehicle->getVehicleKind() ==
+        if (drawSmallVehicleLights &&
+            vehicle->getVehicleKind() ==
             VehicleKind::Emergency) {
             const float lightRadius =
                 1.35f * viewUnitsPerPixel;
@@ -355,16 +337,16 @@ void drawActiveVehicles(sf::RenderWindow& window,
                 visual.color);
         }
 
-        if (vehicle->getTurnSignal() !=
+        if (drawSmallVehicleLights &&
+            vehicle->getTurnSignal() !=
                 TurnSignal::Off &&
             vehicle->isTurnSignalBlinkOn()) {
-            const float radius =
-                kTurnSignalRadiusPixels *
-                viewUnitsPerPixel;
-            const float haloRadius =
-                (kTurnSignalRadiusPixels +
-                 kTurnSignalHaloPixels) *
-                viewUnitsPerPixel;
+            const TurnSignalVisualSize signalSize =
+                getTurnSignalVisualSize(
+                    visual.halfLength,
+                    visual.halfWidth);
+            const float radius = signalSize.radius;
+            const float haloRadius = signalSize.haloRadius;
             const float sideSign =
                 vehicle->getTurnSignal() ==
                         TurnSignal::Right
@@ -867,30 +849,48 @@ void renderFrame(AppContext& ctx, DebugConsole& debugConsole,
 
     window.setView(ctx.view);
     window.clear(sf::Color(34, 42, 48));
-    if (!drawCachedStaticLayer(ctx)) {
-        ctx.visualization.drawStaticLayer(
+    try {
+        if (!drawCachedStaticLayer(ctx)) {
+            ctx.visualization.drawStaticLayer(
+                window,
+                ctx.graph);
+        }
+
+        ctx.visualization.drawDynamicLayer(
             window,
             ctx.graph);
-    }
 
-    ctx.visualization.drawDynamicLayer(
-        window,
-        ctx.graph);
-
-    if (simulator) {
-        drawSelectedVehicleRoute(window, ctx.visualization, *simulator, vehicleInspector);
-        drawActiveVehicles(
-            window, ctx.visualization, *simulator, ctx.view);
-        debugConsole.drawManualSpawnMarkers(
-            window,
-            simulator.get(),
-            ctx.visualization,
-            dt);
-        debugConsole.drawFailedRecalcMarkers(window, simulator.get(), ctx.visualization);
-        drawSelectedVehicleHighlight(window, ctx.visualization, *simulator, vehicleInspector);
-        if (ctx.showParkedVehicles) {
-            drawParkedVehicles(window, ctx.visualization, *simulator);
+        if (simulator) {
+            drawSelectedVehicleRoute(window, ctx.visualization, *simulator, vehicleInspector);
+            drawActiveVehicles(
+                window, ctx.visualization, *simulator, ctx.view);
+            debugConsole.drawManualSpawnMarkers(
+                window,
+                simulator.get(),
+                ctx.visualization,
+                dt);
+            debugConsole.drawFailedRecalcMarkers(window, simulator.get(), ctx.visualization);
+            drawSelectedVehicleHighlight(window, ctx.visualization, *simulator, vehicleInspector);
+            if (ctx.showParkedVehicles) {
+                drawParkedVehicles(window, ctx.visualization, *simulator);
+            }
         }
+    } catch (const std::bad_alloc&) {
+        if (simulator) {
+            simulator->pause();
+        }
+        ctx.visualization.setLodMode(
+            VisualizationEngine::LodMode::Low);
+        debugConsole.reportRuntimeError(
+            "Rendering ran out of memory. Simulation was paused and "
+            "visual detail was reduced; the window remains available.");
+    } catch (const std::exception& exception) {
+        if (simulator) {
+            simulator->pause();
+        }
+        debugConsole.reportRuntimeError(
+            std::string("Rendering recovered from an error: ") +
+            exception.what());
     }
 
     StatisticsSummary statistics;

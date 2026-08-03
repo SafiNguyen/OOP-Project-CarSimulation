@@ -1,7 +1,7 @@
 #ifndef DESTINATION_H
 #define DESTINATION_H
 
-#include "PointOfInterest.h"
+#include "SpawnPoint.h"
 
 /**
  * Destination — A POI subclass representing locations where vehicles
@@ -9,24 +9,19 @@
  *
  * Examples: Restaurant, Cinema, Supermarket, Tourist Spot.
  *
- * OOP: Inheritance (Destination IS-A PointOfInterest),
- *      Polymorphism (overrides isDestination).
+ * OOP: Destination reuses SpawnPoint capacity because map data can configure
+ *      the same physical place as both an origin and a destination.
  */
-class Destination : public PointOfInterest {
-private:
-    int parkingSpaces; // how many vehicles can park at this destination
-
+class Destination : public SpawnPoint {
 public:
     Destination(int id, const std::string& name, POIType type,
                 double x, double y, Intersection* nearest = nullptr,
                 int parkingSpaces = 5)
-        : PointOfInterest(id, name, type, x, y, nearest),
-          parkingSpaces(parkingSpaces) {}
+        : SpawnPoint(id, name, type, x, y, nearest, parkingSpaces) {
+        setSpawnWeight(0.0);
+    }
 
-    bool isSpawnPoint() const override { return false; }
-    bool isDestination() const override { return true; }
-
-    int getParkingSpaces() const { return parkingSpaces; }
+    int getParkingSpaces() const { return getCapacity(); }
 };
 
 // --- Convenience subclasses for specific destination types ---

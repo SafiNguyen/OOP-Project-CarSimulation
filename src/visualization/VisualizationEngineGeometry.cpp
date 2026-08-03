@@ -46,42 +46,16 @@ float VisualizationEngine::getDetailScale(
     const float scaleY = windowHeight / std::max(1.0f, viewHeight);
     float scale = std::clamp(std::min(scaleX, scaleY), 0.0f, 50.0f);
 
-    // Map-density awareness: for large maps like VNU HCM (where scale_ is
-    // small because a huge world area is fitted onto screen), lower the base
-    // detail scale so dense labels naturally hide at overview zoom levels,
-    // and reveal themselves when zooming in.
-    constexpr double kReferencePixelScale = 2.0;
-    if (scale_ > 0.0 && scale_ < kReferencePixelScale) {
-        const float densityFactor = std::clamp(
-            static_cast<float>(scale_ / kReferencePixelScale),
-            0.25f,
-            1.0f);
-        scale *= densityFactor;
-    }
+    return scale * mapDetailFactor_;
+}
 
-    // When the adaptive LOD has dropped the detail level, lower the effective
-    // zoom scale so zoom-based hide thresholds trigger sooner. However, the
-    // heat map, lane markings, and road names are always drawn (regardless
-    // of LOD level) and rely on this scale for zoom-based hiding. So at Low
-    // LOD we use a mild penalty instead of forcing 0.0 -- this lets lane
-    // markings and road names still show when zoomed in, while hiding them
-    // when zoomed out. The expensive overlays (bus stops, POIs, traffic
-    // lights) are gated by the `fullDetail` check in drawDynamicLayer, not
-    // by this scale.
-    if (lodLevel_ == LodLevel::Medium) {
-        scale *= 0.4f;
-    } else if (lodLevel_ == LodLevel::Low) {
-        scale *= 0.3f;
-    }
-
-    // At Full LOD, apply a mild penalty when zoomed out so that overlays
-    // (bus stops, POIs, traffic lights, road names) still hide when the
-    // user zooms out, even though the LOD level itself hasn't changed.
-    if (lodLevel_ == LodLevel::Full && scale < 1.0f) {
-        scale *= 0.6f;
-    }
-
-    return scale;
+float VisualizationEngine::getTextRenderScale(const sf::View& view) const {
+    const float viewWidth = std::abs(view.getSize().x);
+    const float viewHeight = std::abs(view.getSize().y);
+    const float zoomScale = std::min(
+        static_cast<float>(std::max(1u, windowSize_.x)) / std::max(1.0f, viewWidth),
+        static_cast<float>(std::max(1u, windowSize_.y)) / std::max(1.0f, viewHeight));
+    return 1.0f / std::max(1.0f, zoomScale);
 }
 
 sf::Color VisualizationEngine::mixColor(const sf::Color& a, const sf::Color& b, float t) {
@@ -226,6 +200,11 @@ void VisualizationEngine::rasterizeBodyToMask(const sf::Vector2f& a,
                                               unsigned int gridW,
                                               unsigned int gridH,
                                               unsigned int cellSize) const {
+
+    const float maxSpan = std::max(gridW, gridH) * static_cast<float>(cellSize);
+    if (distanceBetween(a, b) > maxSpan * 4.0f || thickness > maxSpan) {
+        return;
+    }
     rasterizeCenterlineToMask(a, b, thickness, bodyMask, gridW, gridH, cellSize);
 }
 

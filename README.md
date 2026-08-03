@@ -689,3 +689,102 @@ For headless/deterministic visual QA (no interactive window), the same executabl
 | Left click on a vehicle | Open the Vehicle Inspector panel |
 
 The in-app **Control Center** (DebugConsole HUD) also lets you: load a custom map JSON, add roads interactively, spawn individual vehicles, trigger accidents/congestion/road-closure events, switch the active pathfinding algorithm (BFS/Dijkstra/A*) live, and scrub through simulation history via the snapshot timeline.
+
+## 6. Feature Usage Guide
+
+This section walks through **how to use** every major feature implemented in the codebase, panel by panel, based on the actual UI code (`ui/DebugConsole*.cpp`, `ui/VehicleInspector.cpp`, `visualization/Camera.cpp`) and the simulation engine (`simulation/TrafficSimulator.cpp`, `simulation/SnapshotManager.cpp`).
+
+### 6.1 Top HUD & Bottom Dock
+
+Two always-visible bars frame the screen:
+
+- **Top HUD** (`DebugConsoleTopBar.cpp`) shows the map name, a status pill (`SETUP` / `READY` / `RUNNING` / `PAUSED` / `ERROR` / `LOADING`), simulated time, active vehicle count, completed trips, FPS (on wide windows), a **Pause/Resume** button, and a speed-multiplier selector (`0.5x / 1x / 2x / 4x`).
+- **Bottom Dock** (always visible) gives one-click access to: **Reset** (reload the current map and rebuild the simulation), **Pause/Resume**, snapshot **Rewind `<<` / Forward `>>`** (each button also shows the time delta it will jump), **Reset View** (recentre the camera), a **Heatmap** toggle, an **LOD** cycle button (`Auto → Full → Medium → Low`), and the **Control Center** toggle that opens/closes the tabbed drawer described below.
+
+### 6.2 Loading a map — "Map" tab
+
+1. Open the **Control Center** (bottom-right button, or press `Esc` to close it again) and switch to the **Map** tab.
+2. Type a path to a `.json` map file in the **File Path** box, or click **Browse...** to open a native file picker (Linux only, via `zenity`; on other platforms type the path manually).
+3. Click **Load Map** to replace the current map, or **Demo Map** to fall back to the built-in 5-intersection demo network (`DemoMap.cpp`).
+4. Loading a map always resets the active simulation, re-centres the camera, resets the LOD to `Low`, and clears any pending Add-Road/Spawn-Vehicle picks. If the file fails to parse, the demo map is loaded automatically and the parser error is shown here and on the **Overview** tab.
+
+### 6.3 Starting a simulation — "Simulation" tab → Simulation Setup
+
+Vehicle demand is deliberately a two-step process so a large run never starts by accident:
+
+1. Set **Vehicle count** (spinner, default 1000; large counts are streamed in over several frames instead of built all at once).
+2. Click **Lock Vehicle Count** — this freezes the number and unlocks the **Start Simulation** button.
+3. Click **Start Simulation**. This calls `SimulatorFactory::createDemoSimulator`, which schedules civilian traffic, transit buses (if the map defines `busServices`), and pathfinding-strategy benchmarking.
+4. Loading a new map (Section 6.2) automatically clears the lock, so you must re-lock a count before the next run.
+
+### 6.4 Switching the pathfinding algorithm — "Simulation" tab → Pathfinding Algorithm
+
+1. Pick **BFS** (fewest roads), **Dijkstra** (congestion-aware shortest cost), or **A\*** (speed-optimized, same cost function as Dijkstra but with an admissible heuristic for fewer node expansions).
+2. Use the **Route preference** slider (Dijkstra/A* only — BFS ignores it) to blend between `0.0` = shortest physical distance and `1.0` = fastest travel time (accounts for each road's speed limit and live congestion).
+3. Changing either control immediately forces every vehicle currently on the road to recalculate its route with the new strategy/weight. Vehicles that fail to find a new route keep their old one and are flagged in **red on the map** (and counted in this panel) until they successfully reroute.
+
+### 6.5 Manually spawning vehicles — "Simulation" tab → Spawn Vehicle
+
+1. Choose a **Vehicle type**: Car, Bus, Motorbike, or Emergency Vehicle. Each type has its own valid origin/destination POI rules (shown as a hint under the dropdown), e.g. Emergency vehicles must start at a Hospital.
+2. Pick a **Start** and **Destination** from the dropdown, or click **Pick** and then click the matching POI marker directly on the map.
+3. Set **Base speed** and **Count to spawn**, then click **Spawn Vehicle**. Newly spawned vehicles are highlighted with a pulsing cyan ring on the map for a few seconds so you can find them.
+
+### 6.6 Building custom roads — "Road Tools" tab → Add Road
+
+1. Pick a **Start** and **End** intersection from the dropdowns, or click **Pick** and then click the intersections directly on the map.
+2. Configure **Auto distance** (computed from intersection coordinates) or a manual **Distance**, plus **Speed limit**, **Lanes**, and whether the road is **Two-way** (creates a second road with a negated id in the reverse direction).
+3. Click **Create Road**. The tool rejects duplicate directed roads between the same pair of intersections and reports the error inline.
+
+### 6.7 Injecting traffic events — "Debug" tab → Trigger Event
+
+1. Choose an **Event Type**: `Accident (Block Lane)`, `Congestion`, or `Road Closure (Block All Lanes)`.
+2. Pick a specific **Road** or leave it on `Random road`.
+3. Set the **Duration**, plus (for Accidents) a **Lane Index** (`-1` = random) or (for Congestion) a **Severity** multiplier.
+4. Click **Trigger Event**. Any vehicle whose upcoming route crosses the affected road automatically recalculates a detour (`EventManager::notifyAffectedVehicles`); vehicles already committed to the blocked road stop and wait instead of teleporting.
+
+### 6.8 Configuring traffic lights — "Debug" tab → Traffic Lights
+
+1. Select an intersection from the dropdown, or click **Pick** and click it on the map.
+2. Use **Add All Lights** / **Remove All Lights** to toggle signals for every incoming road at once, or use the per-road **Add**/**Remove** buttons for individual approaches. Each light shows its live state (`GREEN` / `YELLOW` / `RED`).
+3. Traffic-light timing (green/yellow/all-red durations, and optional custom phase groupings) is normally configured once in the map JSON's `trafficLights` section, but the UI here is useful for quick experiments on any loaded map.
+
+### 6.9 Inspecting and following a vehicle
+
+1. Left-click any moving vehicle on the map (when no other pick mode is active) to open its **Vehicle Inspector** panel: origin/destination (or bus station/stop for transit buses), current status (moving, waiting at a light, dwelling, etc.), current speed, route progress, and the full road-by-road route with the current road highlighted.
+2. Click **Follow** to have the camera smoothly track that vehicle (zooms in automatically); click **Stop following** or **Close** to release the camera. Clicking empty map space deselects the current vehicle.
+3. The selected vehicle's planned route is drawn as a cyan overlay directly on the lane it will use, including through intersections and roundabouts.
+
+### 6.10 Camera, heatmap, and level of detail
+
+- **Pan**: middle-mouse drag, or edge-scroll by moving the cursor to the window border, or `WASD`/arrow keys.
+- **Zoom**: scroll wheel, or `+`/`-` keys; zoom is centred on the cursor.
+- **Reset View** (`R` key or dock button): recentres and re-fits the camera to the loaded map bounds.
+- **Heatmap** toggle: colors every road/intersection green→yellow→red by live occupancy and configured congestion.
+- **LOD** button: cycles `Auto → Full → Medium → Low`. `Auto` adapts automatically to the measured frame rate (never escalating past Medium on its own); `Full`/`Medium`/`Low` force a fixed detail level, trading POI/bus-stop/traffic-light/lane-marking detail for frame rate on very large maps.
+
+### 6.11 Time-travel / snapshot playback
+
+The simulator automatically records a `SimulationSnapshot` (Memento pattern) every few seconds of simulated time (see `TrafficSimulator::setSnapshotInterval`), kept in a bounded ring buffer (`SnapshotManager`, default capacity 600).
+
+- Press `[` / `]` or use the dock's **Rewind `<<`** / **Forward `>>`** buttons to step one snapshot back/forward. Rewinding automatically pauses the simulation so playback never races with the live update loop.
+- Press `B` to force an immediate manual snapshot capture.
+- Press `N` to clear all recorded snapshot history (e.g. after intentionally branching away from a rewound point).
+- Resuming (`Space` or the Pause/Resume button) from a rewound point truncates any snapshots that were "in the future" relative to the point you resumed from, starting a fresh timeline from there.
+
+### 6.12 Headless snapshot rendering (CLI)
+
+For automated visual QA without opening an interactive window, pass `--snapshot` on the command line (see `main.cpp`):
+
+```bash
+./bin/UrbanTrafficSimulator ../map2.json \
+  --snapshot output.png --width 1600 --height 900 \
+  --wall-seconds 5 --speed 2 --paused
+```
+
+- `--snapshot <path>` (required to enable this mode): where to save the rendered PNG.
+- `--width` / `--height`: output image resolution (defaults 800x600).
+- `--wall-seconds`: how much simulated time to advance before capturing (in 0.05s steps).
+- `--speed`: simulation speed multiplier applied during that advance.
+- `--paused`: advance the demand/setup but leave the simulator paused at capture time.
+
+The tool prints a spawn/transit summary to stdout before saving the image, which is useful for scripted regression checks against `run_output.txt`-style logs.

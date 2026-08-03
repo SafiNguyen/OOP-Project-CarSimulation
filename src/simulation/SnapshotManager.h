@@ -51,6 +51,17 @@ public:
     /// Returns the capacity of the ring buffer.
     std::size_t capacity() const { return capacity_; }
 
+    /// Changes the ring-buffer capacity and evicts the oldest snapshots when
+    /// the new limit is smaller than the current history.
+    void setCapacity(std::size_t capacity);
+
+    /// Bounds snapshot history by estimated heap usage as well as count.
+    /// At least the two newest snapshots are retained so rewind remains
+    /// useful even when one unusually large snapshot exceeds the budget.
+    void setMemoryBudgetBytes(std::size_t bytes);
+    std::size_t memoryBudgetBytes() const { return memoryBudgetBytes_; }
+    std::size_t estimatedMemoryBytes() const { return estimatedMemoryBytes_; }
+
     /// Returns the index of the most recent snapshot, or npos if empty.
     std::size_t newestIndex() const {
         return snapshots_.empty() ? npos : snapshots_.size() - 1;
@@ -62,7 +73,11 @@ public:
     }
 
     /// Clears all snapshots.
-    void clear() { snapshots_.clear(); }
+    void clear() {
+        snapshots_.clear();
+        snapshotBytes_.clear();
+        estimatedMemoryBytes_ = 0u;
+    }
 
     /// Returns a const reference to the snapshot at `index`.
     /// Behavior is undefined if index is out of range.
@@ -74,7 +89,13 @@ public:
 
 private:
     std::deque<SimulationSnapshot> snapshots_;
+    std::deque<std::size_t> snapshotBytes_;
     std::size_t capacity_;
+    std::size_t memoryBudgetBytes_ = 384u * 1024u * 1024u;
+    std::size_t estimatedMemoryBytes_ = 0u;
+
+    void evictOldest();
+    void enforceLimits();
 };
 
 #endif // SNAPSHOT_MANAGER_H

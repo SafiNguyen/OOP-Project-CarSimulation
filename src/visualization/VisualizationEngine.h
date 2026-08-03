@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstddef>
 #include <vector>
 #include "TrafficLight.h"
 
@@ -88,16 +89,12 @@ public:
     // expensive per-frame work — lane markings, road-name labels, traffic
     // light countdowns — while keeping the cached static layer intact.
     enum class LodLevel {
-        Full,   // All dynamic detail (lane markings, road names, lights, heat tint)
-        Medium, // Skip lane markings, road names, intersection heat tint, light countdowns
-        Low     // Also skip traffic lights, congestion overlay, blocked-lane fills
+        Full, Medium, Low
     };
 
+    // Manual modes cap the actual tier. Auto also applies a measured-FPS cap.
     enum class LodMode {
-        Auto,   // FPS-based adaptive LOD
-        Full,   // Forced Full LOD
-        Medium, // Forced Medium LOD
-        Low     // Forced Low LOD
+        Auto, Full, Medium, Low
     };
 
     VisualizationEngine(sf::Vector2u windowSize = {800u, 600u}, float margin = 48.0f);
@@ -127,20 +124,24 @@ public:
 
     void setHeatMapEnabled(bool enabled);
     bool isHeatMapEnabled() const;
+    void setRoadNamesVisible(bool visible);
+    bool areRoadNamesVisible() const;
     void setLodLevel(LodLevel level);
     LodLevel getLodLevel() const;
     void setLodMode(LodMode mode);
     LodMode getLodMode() const;
+    void updateAutoLod(float averageFps);
     double getScale() const { return scale_; }
     std::uint64_t getRevision() const;
 
-    // Zoom-aware detail factor. Returns 1.0 at the default zoom level,
-    // >1.0 when zoomed in, and <1.0 when zoomed out. Overlay elements
-    // (POIs, bus stops, road names, traffic lights) use this to scale
-    // their on-screen size with the road/intersection they belong to and
-    // to hide entirely once the view is zoomed out past a threshold.
+    // Zoom-aware detail factor. Returns 1.0 at the default zoom level for
+    // normal maps, >1.0 when zoomed in, and <1.0 when zoomed out. Genuinely
+    // large graphs receive an additional density factor so their overlays
+    // can be reduced at overview zoom without degrading small maps.
     float getDetailScale(const sf::View& view) const;
-
+    // Compensates for view magnification so SFML never upscales a small
+    // rasterized glyph when the user zooms in.
+    float getTextRenderScale(const sf::View& view) const;
 private:
     struct RoadDraw {
         Road* road;
@@ -155,6 +156,17 @@ private:
         bool hasBorder;
         sf::Color borderColor;
         float borderWidth;
+    };
+
+    struct RoadLabelCandidate {
+        const Road* road = nullptr;
+        sf::Vector2f start;
+        sf::Vector2f end;
+        sf::Vector2f midpoint;
+        sf::Vector2f screenMidpoint;
+        float angle = 0.0f;
+        float visibleLengthPixels = 0.0f;
+        bool lowValueName = false;
     };
 
     std::vector<RoadDraw> buildRoadDrawList(const Graph& graph) const;
@@ -203,6 +215,7 @@ private:
                           const Graph& graph) const;
     void drawPOIs(sf::RenderTarget& target, const Graph& graph) const;
     void drawRoadNames(sf::RenderTarget& target, const std::vector<Road*>& roads) const;
+    LodLevel selectLodLevel(float detailScale) const;
     float getIntersectionBoxHalfExtent(const Intersection* intersection) const;
     float getLaneWidthPixels(const Road* road) const;
     sf::Color getIntersectionBoxColor(const Intersection* intersection, bool tintByCongestion) const;
@@ -222,8 +235,20 @@ private:
     sf::Vector2f spriteSize_;
     const sf::Font* font_;
     bool heatMapEnabled_;
-    LodLevel lodLevel_ = LodLevel::Low;
-    LodMode lodMode_ = LodMode::Auto;
+    bool roadNamesVisible_ = true;
+    mutable LodLevel lodLevel_ = LodLevel::Full;
+    LodMode lodMode_ = LodMode::Full;
+    LodLevel autoPerformanceLimit_ = LodLevel::Full;
+    int autoLowFpsSamples_ = 0;
+    int autoHighFpsSamples_ = 0;
+    bool denseMap_ = false;
+    float mapDetailFactor_ = 1.0f;
+    std::vector<RoadDraw> roadDrawList_;
+    mutable std::vector<sf::Vertex> laneMarkingVertices_;
+    mutable std::vector<sf::Vertex> overlayVertices_;
+    mutable std::vector<RoadLabelCandidate> roadLabelCandidates_;
+    mutable std::vector<std::size_t> acceptedRoadLabelIndices_;
+    mutable std::vector<sf::FloatRect> acceptedRoadLabelBounds_;
     std::uint64_t revision_ = 0;
 };
 

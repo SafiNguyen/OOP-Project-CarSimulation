@@ -62,6 +62,8 @@ public:
 
     // How many snapshots are available.
     std::size_t available() const;
+    bool canRewind() const;
+    bool canForward() const;
 
     // The timestamp of the snapshot at `index`.
     double timeAt(std::size_t index) const;

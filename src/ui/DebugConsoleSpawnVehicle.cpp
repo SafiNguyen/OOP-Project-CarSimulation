@@ -1,6 +1,8 @@
 #include "DebugConsole.h"
 
 #include <algorithm>
+#include <exception>
+#include <new>
 #include <sstream>
 #include <vector>
 
@@ -23,15 +25,18 @@ using debugconsole_detail::vehicleKindFromIndex;
 
 namespace {
 
+constexpr int MAX_MANUAL_SPAWN_BATCH = 1000;
+constexpr std::size_t MAX_REPORTED_SPAWN_IDS = 12u;
+
 const char* endpointRuleHint(VehicleKind kind) {
     switch (kind) {
         case VehicleKind::Car:
         case VehicleKind::Motorbike:
-            return "Start: Residence or Parking. Destination: any configured destination except Hospital or Bus Station (for example Residence, Parking, Park or Theater).";
+            return "Start and destination lists use each POI's configured civilian capabilities. OSM places with a positive spawnWeight are valid origins by default.";
         case VehicleKind::Bus:
-            return "Start and destination: Bus Station only.";
+            return "Start and destination require POIs configured for Bus vehicles.";
         case VehicleKind::Emergency:
-            return "Start: City Hospital. Destination: any other configured destination except Bus Station.";
+            return "Start and destination require POIs configured for Emergency vehicles, including hospitals, clinics, police and fire stations.";
     }
     return "";
 }
@@ -70,6 +75,21 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
     const VehicleKind panelKind =
         vehicleKindFromIndex(spawnVehicleTypeIdx_);
     ImGui::TextWrapped("%s", endpointRuleHint(panelKind));
+
+    int eligibleOriginCount = 0;
+    int eligibleDestinationCount = 0;
+    for (PointOfInterest* poi : poisSnapshot_) {
+        if (isManualSpawnOrigin(panelKind, poi)) {
+            ++eligibleOriginCount;
+        }
+        if (isManualSpawnDestination(panelKind, poi)) {
+            ++eligibleDestinationCount;
+        }
+    }
+    ImGui::TextDisabled(
+        "Eligible POIs: %d origins, %d destinations",
+        eligibleOriginCount,
+        eligibleDestinationCount);
 
     {
         std::string previewStart = spawnStartId_ >= 0 ? ("#" + std::to_string(spawnStartId_)) : "(none)";
@@ -138,7 +158,11 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
     ImGui::InputFloat("Base speed", &spawnVehicleSpeed_);
     spawnVehicleSpeed_ = std::max(1.0f, spawnVehicleSpeed_);
     ImGui::InputInt("Count to spawn", &spawnVehicleCount_);
-    if (spawnVehicleCount_ < 1) spawnVehicleCount_ = 1;
+    spawnVehicleCount_ = std::clamp(
+        spawnVehicleCount_, 1, MAX_MANUAL_SPAWN_BATCH);
+    ImGui::TextDisabled(
+        "Maximum per action: %d vehicles",
+        MAX_MANUAL_SPAWN_BATCH);
 
     PointOfInterest* startPoi = graph_.getPOI(spawnStartId_);
     if (!startPoi) startPoi = graph_.getBusStation(spawnStartId_);
@@ -170,6 +194,7 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
         } else if (startPoi == endPoi) {
             spawnMessage_ = "Start and destination must be different.";
         } else {
+          try {
             std::vector<int> spawnedIds;
             spawnedIds.reserve(
                 static_cast<std::size_t>(spawnVehicleCount_));
@@ -213,13 +238,20 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
                 } else {
                     message << "Spawned " << spawnedIds.size()
                             << " vehicles. IDs: ";
+                    const std::size_t displayedIds = std::min(
+                        spawnedIds.size(), MAX_REPORTED_SPAWN_IDS);
                     for (std::size_t index = 0u;
-                         index < spawnedIds.size();
+                         index < displayedIds;
                          ++index) {
                         if (index > 0u) {
                             message << ", ";
                         }
                         message << '#' << spawnedIds[index];
+                    }
+                    if (spawnedIds.size() > displayedIds) {
+                        message << ", ... ("
+                                << (spawnedIds.size() - displayedIds)
+                                << " more)";
                     }
                     message << '.';
                 }
@@ -241,6 +273,19 @@ void DebugConsole::drawSpawnVehiclePanel(std::unique_ptr<TrafficSimulator>& simu
                     "Could not spawn immediately. Check that the route is available and its roads are not blocked.";
                 setNotice(NoticeTone::ERROR, spawnMessage_);
             }
+          } catch (const std::bad_alloc&) {
+            spawnMessage_ =
+                "Spawn stopped because the batch ran out of memory.";
+            setNotice(NoticeTone::ERROR, spawnMessage_);
+          } catch (const std::exception& exception) {
+            spawnMessage_ = std::string("Spawn stopped: ") +
+                exception.what();
+            setNotice(NoticeTone::ERROR, spawnMessage_);
+          } catch (...) {
+            spawnMessage_ =
+                "Spawn stopped after an unknown error.";
+            setNotice(NoticeTone::ERROR, spawnMessage_);
+          }
         }
     }
     ImGui::EndDisabled();

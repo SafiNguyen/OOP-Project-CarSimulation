@@ -160,6 +160,7 @@ double JunctionTraversalState::advance(Vehicle& vehicle, double availableTime) {
     }
     const double consumedTime = constrainedByOccupant ? subDt : (vehicle.currentSpeed > 1e-9 ? travelled / vehicle.currentSpeed : subDt);
     vehicle.junctionProgressMetres_ += travelled;
+    vehicle.recordTravelDistance(travelled);
     if (vehicle.reservedIntersection_ != nullptr) {
         vehicle.reservedIntersection_->updateReservationProgress(vehicle.getId(), vehicle.junctionProgressMetres_);
     }

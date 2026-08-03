@@ -39,7 +39,7 @@ constexpr std::size_t MAXIMUM_STOPS_PER_BUS = 4u;
 // instant startup. Larger demand is streamed through TrafficSimulator's
 // per-frame budget so the window continues processing OS events.
 constexpr int DEFERRED_DEMAND_THRESHOLD = 2000;
-constexpr int MAX_SNAPSHOT_SAFE_DEMAND = 2000;
+constexpr int MEDIUM_PLAYBACK_DEMAND = 10000;
 
 class DemoDemandState {
 public:
@@ -363,13 +363,15 @@ std::unique_ptr<TrafficSimulator> createDemoSimulator(
         return simulator;
     }
 
-    // Large histories would otherwise duplicate thousands of pending
-    // vehicle payloads every five simulated seconds. Playback stays enabled
-    // for normal runs; large-demand mode favors stable, unbounded streaming.
-    if (requestedVehicleCount >
-        MAX_SNAPSHOT_SAFE_DEMAND) {
-        simulator->setSnapshotInterval(0.0);
-    }
+    // Do not duplicate the large pending queue while demand is still being
+    // materialized. Playback is enabled automatically afterwards with a
+    // load-aware interval: ten seconds for 10k trips and thirty seconds for
+    // larger stress runs.
+    simulator->setSnapshotInterval(0.0);
+    simulator->setSnapshotIntervalAfterDeferredDemand(
+        requestedVehicleCount <= MEDIUM_PLAYBACK_DEMAND
+            ? 10.0
+            : 30.0);
     const std::size_t remaining = demand->remaining();
     simulator->setDeferredDemand(
         remaining,

@@ -61,8 +61,34 @@ bool TimePlaybackController::applyPendingSeek(std::string* error) {
     }
     const std::size_t target = pendingIndex_;
     pendingIndex_ = SnapshotManager::npos;
-    if (manager_ == nullptr || simulator_ == nullptr ||
-        !manager_->restore(*simulator_, target, error)) {
+    if (manager_ == nullptr || simulator_ == nullptr) {
+        if (error != nullptr) {
+            *error = "Playback services are unavailable.";
+        }
+        return false;
+    }
+    try {
+        if (!manager_->restore(*simulator_, target, error)) {
+            return false;
+        }
+    } catch (const std::bad_alloc&) {
+        if (error != nullptr) {
+            *error = "Not enough memory to restore this snapshot.";
+        }
+        simulator_->pause();
+        return false;
+    } catch (const std::exception& exception) {
+        if (error != nullptr) {
+            *error = std::string("Snapshot restore failed: ") +
+                     exception.what();
+        }
+        simulator_->pause();
+        return false;
+    } catch (...) {
+        if (error != nullptr) {
+            *error = "Snapshot restore failed with an unknown error.";
+        }
+        simulator_->pause();
         return false;
     }
     cursor_ = target;
@@ -80,6 +106,23 @@ void TimePlaybackController::resumeLive() {
 
 std::size_t TimePlaybackController::available() const {
     return manager_ != nullptr ? manager_->size() : 0;
+}
+
+bool TimePlaybackController::canRewind() const {
+    if (manager_ == nullptr || manager_->size() == 0u) {
+        return false;
+    }
+    const std::size_t index = currentIndex();
+    return index == SnapshotManager::npos || index > 0u;
+}
+
+bool TimePlaybackController::canForward() const {
+    if (manager_ == nullptr || manager_->size() == 0u) {
+        return false;
+    }
+    const std::size_t index = currentIndex();
+    return index != SnapshotManager::npos &&
+           index < manager_->newestIndex();
 }
 
 double TimePlaybackController::timeAt(std::size_t index) const {

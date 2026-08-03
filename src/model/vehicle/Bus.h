@@ -451,7 +451,8 @@ public:
     void captureSnapshot(VehicleSnapshot& snap,
                          const Graph& graph) const override;
     void restoreSnapshot(const VehicleSnapshot& snap,
-                         Graph& graph) override;
+                         Graph& graph,
+                         bool restoreReservations = true) override;
 
     double calculateCurrentSpeed() const override {
         if (currentRoad == nullptr) {

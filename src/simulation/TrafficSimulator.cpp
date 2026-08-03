@@ -17,12 +17,14 @@
 #include <iostream>
 #include <limits>
 #include <sstream>
+#include <stdexcept>
 #include <unordered_set>
 #include <utility>
 #include "EventManager.h"
 #include "StatisticsManager.h"
 #include "SnapshotManager.h"
 #include "TimePlaybackController.h"
+#include "VehicleSpawnPolicy.h"
 
 namespace {
 
@@ -410,6 +412,15 @@ TrafficSimulator::~TrafficSimulator() {
     vehicles.clear();
     pendingVehicles.clear();
     finishedVehicles.clear();
+}
+
+int TrafficSimulator::reserveNextVehicleId() {
+    if (highestReservedVehicleId_ ==
+        std::numeric_limits<int>::max()) {
+        throw std::overflow_error(
+            "No vehicle IDs remain available.");
+    }
+    return ++highestReservedVehicleId_;
 }
 
 void TrafficSimulator::pruneMergingIndex(Road* road)
@@ -975,6 +986,7 @@ bool TrafficSimulator::addVehicleImmediately(
         delete vehicle;
         return false;
     }
+    reserveVehicleIdsThrough(vehicle->getId());
 
     try {
         std::vector<Road*> route;
@@ -1024,6 +1036,7 @@ bool TrafficSimulator::addVehicleWithDelay(
         delete vehicle;
         return false;
     }
+    reserveVehicleIdsThrough(vehicle->getId());
 
     const bool phasedAdmission =
         delaySeconds > 0.0;
@@ -1084,12 +1097,12 @@ bool TrafficSimulator::hasValidEndpoints(
     const PointOfInterest* destinationPOI =
         vehicle->getTargetPOI();
     const bool hasOrigin = originPOI != nullptr
-        ? originPOI->isSpawnPoint() &&
-              originPOI->getConnectedRoad() != nullptr
+        ? VehicleSpawnPolicy::canSpawnFrom(
+              vehicle->getVehicleKind(), *originPOI)
         : vehicle->getSpawnPoint() != nullptr;
     const bool hasDestination = destinationPOI != nullptr
-        ? destinationPOI->isDestination() &&
-              destinationPOI->getConnectedRoad() != nullptr
+        ? VehicleSpawnPolicy::canTravelTo(
+              vehicle->getVehicleKind(), *destinationPOI)
         : vehicle->getDestination() != nullptr;
     return hasOrigin && hasDestination;
 }
@@ -1144,6 +1157,7 @@ bool TrafficSimulator::addVehicleWithFixedRoute(
             return false;
         }
     }
+    reserveVehicleIdsThrough(vehicle->getId());
 
     try {
         double earliestActivationTime =
@@ -1203,6 +1217,7 @@ void TrafficSimulator::setDeferredDemand(
     deferredDemandRemaining_ = vehicleCount;
     deferredDemandProducer_ = std::move(producer);
     deferredDemandError_.clear();
+    refreshSnapshotCapacity();
     if (deferredDemandRemaining_ == 0u ||
         !deferredDemandProducer_) {
         deferredDemandRemaining_ = 0u;
@@ -1251,6 +1266,12 @@ void TrafficSimulator::pumpDeferredDemand() {
 
     if (deferredDemandRemaining_ == 0u) {
         deferredDemandProducer_ = {};
+        if (snapshotIntervalAfterDeferredDemand_ > 0.0) {
+            snapshotIntervalSeconds_ =
+                snapshotIntervalAfterDeferredDemand_;
+            snapshotIntervalAfterDeferredDemand_ = 0.0;
+            snapshotStatusMessage_.clear();
+        }
     }
 }
 
@@ -1356,7 +1377,10 @@ void TrafficSimulator::update(double dt) {
                     step, graph, pathFindingStrategy, allowDynamicReroute);
 
                 if (statisticsManager) {
-                    statisticsManager->recordVehicleTravel(v->getId(), step);
+                    statisticsManager->recordVehicleTravel(
+                        v->getId(),
+                        step,
+                        v->getDistanceTravelledLastUpdateMetres());
                 }
             }
             auto end = std::chrono::high_resolution_clock::now();
@@ -1377,6 +1401,10 @@ void TrafficSimulator::update(double dt) {
     }
 
     leftoverDt = std::min(remaining, MAX_LEFTOVER_DT);
+
+    if (statisticsManager && graph && stepsRun > 0) {
+        statisticsManager->recordNetworkState(*graph, vehicles.size());
+    }
 
     tickCount++;
 
@@ -1634,6 +1662,71 @@ bool TrafficSimulator::restoreSnapshot(const SimulationSnapshot& snapshot,
         return false;
     }
 
+    // Stage every allocation-heavy vehicle payload before touching the live
+    // simulation. A failed allocation therefore leaves the current timeline
+    // intact instead of deleting half the fleet and publishing partial state.
+    std::vector<std::unique_ptr<Vehicle>> stagedVehicleOwners;
+    std::vector<Vehicle*> stagedVehicles;
+    std::vector<std::unique_ptr<Vehicle>> stagedPendingOwners;
+    std::deque<PendingVehicle> stagedPendingVehicles;
+    try {
+        stagedVehicleOwners.reserve(snapshot.vehicles.size());
+        stagedVehicles.reserve(snapshot.vehicles.size());
+        for (const VehicleSnapshot& vehicleSnapshot : snapshot.vehicles) {
+            std::unique_ptr<Vehicle> restored =
+                createSnapshotVehicle(vehicleSnapshot);
+            if (restored == nullptr) {
+                return snapshotError(
+                    error, "Snapshot contains an unsupported vehicle type.");
+            }
+            restored->restoreSnapshot(
+                vehicleSnapshot, *graph, false);
+            stagedVehicles.push_back(restored.get());
+            stagedVehicleOwners.push_back(std::move(restored));
+        }
+
+        stagedPendingOwners.reserve(snapshot.pendingVehicles.size());
+        for (const PendingVehicleSnapshot& pendingSnapshot :
+             snapshot.pendingVehicles) {
+            std::unique_ptr<Vehicle> restored =
+                createSnapshotVehicle(pendingSnapshot.vehicle);
+            if (restored == nullptr) {
+                return snapshotError(
+                    error, "Snapshot contains an unsupported pending vehicle type.");
+            }
+            restored->restoreSnapshot(
+                pendingSnapshot.vehicle, *graph, false);
+
+            PendingVehicle pending;
+            pending.vehicle = restored.get();
+            pending.route.reserve(pendingSnapshot.route.size());
+            for (const std::optional<int>& roadId : pendingSnapshot.route) {
+                pending.route.push_back(
+                    roadId.has_value()
+                        ? graph->getRoad(*roadId)
+                        : nullptr);
+            }
+            pending.earliestActivationTime =
+                pendingSnapshot.earliestActivationTime;
+            pending.nextAttemptTime = pendingSnapshot.nextAttemptTime;
+            pending.deadlineTime = pendingSnapshot.deadlineTime;
+            pending.phasedAdmission = pendingSnapshot.phasedAdmission;
+            pending.routeResolved = pendingSnapshot.routeResolved;
+            pending.fixedRoute = pendingSnapshot.fixedRoute;
+            pending.routeAttempts = pendingSnapshot.routeAttempts;
+            stagedPendingVehicles.push_back(std::move(pending));
+            stagedPendingOwners.push_back(std::move(restored));
+        }
+    } catch (const std::bad_alloc&) {
+        return snapshotError(
+            error, "Not enough memory to prepare the snapshot restore.");
+    } catch (const std::exception& exception) {
+        return snapshotError(
+            error,
+            std::string("Could not prepare snapshot restore: ") +
+                exception.what());
+    }
+
     for (Road* road : graph->getAllRoads()) {
         if (road != nullptr) {
             road->clearRuntimeVehicleReferences();
@@ -1722,13 +1815,18 @@ bool TrafficSimulator::restoreSnapshot(const SimulationSnapshot& snapshot,
         }
     }
 
-    // Restore active vehicles
-    for (const VehicleSnapshot& vs : snapshot.vehicles) {
-        std::unique_ptr<Vehicle> restored =
-            createSnapshotVehicle(vs);
-        if (restored == nullptr) continue;
-        restored->restoreSnapshot(vs, *graph);
-        vehicles.push_back(restored.release());
+    // Publish the fully staged fleet only after all expensive preparation
+    // succeeded. The second restore pass only reacquires runtime slots; the
+    // vectors and strings already own sufficient capacity from staging.
+    vehicles.swap(stagedVehicles);
+    for (std::unique_ptr<Vehicle>& owner : stagedVehicleOwners) {
+        owner.release();
+    }
+    for (std::size_t index = 0u;
+         index < vehicles.size();
+         ++index) {
+        vehicles[index]->restoreSnapshot(
+            snapshot.vehicles[index], *graph, true);
     }
 
     // Rebuild the lane/POI membership indexes from vehicle state instead of
@@ -1751,28 +1849,17 @@ bool TrafficSimulator::restoreSnapshot(const SimulationSnapshot& snapshot,
         }
     }
 
-    // Restore pending vehicles
-    for (const PendingVehicleSnapshot& ps : snapshot.pendingVehicles) {
-        std::unique_ptr<Vehicle> restored =
-            createSnapshotVehicle(ps.vehicle);
-        if (restored == nullptr) continue;
-        restored->restoreSnapshot(ps.vehicle, *graph);
-
-        PendingVehicle pending;
-        pending.vehicle = restored.release();
-        pending.route.clear();
-        for (const std::optional<int>& roadId : ps.route) {
-            pending.route.push_back(
-                roadId.has_value() ? graph->getRoad(*roadId) : nullptr);
-        }
-        pending.earliestActivationTime = ps.earliestActivationTime;
-        pending.nextAttemptTime = ps.nextAttemptTime;
-        pending.deadlineTime = ps.deadlineTime;
-        pending.phasedAdmission = ps.phasedAdmission;
-        pending.routeResolved = ps.routeResolved;
-        pending.fixedRoute = ps.fixedRoute;
-        pending.routeAttempts = ps.routeAttempts;
-        pendingVehicles.push_back(std::move(pending));
+    pendingVehicles.swap(stagedPendingVehicles);
+    for (std::unique_ptr<Vehicle>& owner : stagedPendingOwners) {
+        owner.release();
+    }
+    for (std::size_t index = 0u;
+         index < snapshot.pendingVehicles.size();
+         ++index) {
+        pendingVehicles[index].vehicle->restoreSnapshot(
+            snapshot.pendingVehicles[index].vehicle,
+            *graph,
+            true);
     }
 
     for (const IntersectionSnapshot& is : snapshot.intersections) {
@@ -1799,6 +1886,12 @@ void TrafficSimulator::setSnapshotInterval(double intervalSeconds) {
     snapshotIntervalSeconds_ = std::max(0.0, intervalSeconds);
 }
 
+void TrafficSimulator::setSnapshotIntervalAfterDeferredDemand(
+        double intervalSeconds) {
+    snapshotIntervalAfterDeferredDemand_ =
+        std::max(0.0, intervalSeconds);
+}
+
 void TrafficSimulator::maybeAutoCaptureSnapshot() {
     if (snapshotManager_ == nullptr ||
         snapshotIntervalSeconds_ <= 0.0 ||
@@ -1808,7 +1901,20 @@ void TrafficSimulator::maybeAutoCaptureSnapshot() {
     if (elapsedTime - lastSnapshotTime_ >=
             snapshotIntervalSeconds_) {
         lastSnapshotTime_ = elapsedTime;
-        snapshotManager_->capture(*this);
+        refreshSnapshotCapacity();
+        try {
+            snapshotManager_->capture(*this);
+            snapshotStatusMessage_.clear();
+        } catch (const std::bad_alloc&) {
+            snapshotStatusMessage_ =
+                "Snapshot skipped because the memory budget was exhausted.";
+        } catch (const std::exception& exception) {
+            snapshotStatusMessage_ =
+                std::string("Snapshot capture failed: ") + exception.what();
+        } catch (...) {
+            snapshotStatusMessage_ =
+                "Snapshot capture failed with an unknown error.";
+        }
     }
 }
 
@@ -1816,8 +1922,51 @@ std::size_t TrafficSimulator::captureSnapshotNow() {
     if (snapshotManager_ == nullptr) {
         return SnapshotManager::npos;
     }
+    if (deferredDemandRemaining_ > 0u) {
+        snapshotStatusMessage_ =
+            "Snapshot is waiting for traffic-demand preparation to finish.";
+        return SnapshotManager::npos;
+    }
     lastSnapshotTime_ = elapsedTime;
-    return snapshotManager_->capture(*this);
+    refreshSnapshotCapacity();
+    try {
+        const std::size_t index = snapshotManager_->capture(*this);
+        snapshotStatusMessage_.clear();
+        return index;
+    } catch (const std::bad_alloc&) {
+        snapshotStatusMessage_ =
+            "Snapshot skipped because the memory budget was exhausted.";
+    } catch (const std::exception& exception) {
+        snapshotStatusMessage_ =
+            std::string("Snapshot capture failed: ") + exception.what();
+    } catch (...) {
+        snapshotStatusMessage_ =
+            "Snapshot capture failed with an unknown error.";
+    }
+    return SnapshotManager::npos;
+}
+
+void TrafficSimulator::refreshSnapshotCapacity() {
+    if (snapshotManager_ == nullptr) {
+        return;
+    }
+    const std::size_t population =
+        deferredDemandRemaining_ +
+        vehicles.size() +
+        pendingVehicles.size() +
+        finishedVehicles.size();
+    // At the default five-second interval this retains ten minutes for small
+    // runs and one minute for a 10,000-trip stress run, while bounding RAM.
+    const std::size_t capacity =
+        population >= 5000u ? 12u :
+        population >= 2000u ? 30u :
+        population >= 500u ? 60u : 120u;
+    snapshotManager_->setCapacity(capacity);
+    const std::size_t memoryBudget =
+        population >= 20000u ? 256u * 1024u * 1024u :
+        population >= 5000u ? 384u * 1024u * 1024u :
+        512u * 1024u * 1024u;
+    snapshotManager_->setMemoryBudgetBytes(memoryBudget);
 }
 
 

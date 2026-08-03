@@ -11,7 +11,7 @@
 #include "visualization/VisualizationEngine.h"
 
 namespace {
-constexpr float FOLLOW_ZOOM_FACTOR = 0.18f;
+constexpr float FOLLOW_ZOOM_FACTOR = 0.10f;
 constexpr float FOLLOW_RESPONSE = 10.0f;
 
 const Vehicle* findActiveVehicleById(
