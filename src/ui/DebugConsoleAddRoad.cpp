@@ -8,6 +8,7 @@
 #include "Graph.h"
 #include "Intersection.h"
 #include "Road.h"
+#include "RoadGeometry.h"
 #include "UiTheme.h"
 #include "visualization/VisualizationEngine.h"
 
@@ -94,14 +95,17 @@ void DebugConsole::drawAddRoadPanel(Graph& graph, VisualizationEngine& visualiza
             }
 
             if (!foundDuplicate) {
-                const double distance = addRoadAutoDistance_
-                    ? graph.calculateDistance(start->getId(), end->getId())
-                    : static_cast<double>(addRoadDistance_);
+                double distance = static_cast<double>(addRoadDistance_);
+                if (addRoadAutoDistance_) {
+                    const double geometryLength = graph.calculateDistance(start->getId(), end->getId());
+                    distance = geometryLength * RoadGeometry::metresPerWorldUnit(*start);
+                }
                 const int newId = nextFreeRoadId(graph);
-                Road* road = new Road(newId, "Custom Road", start, end, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
+                std::string roadName = "Custom Road " + std::to_string(newId);
+                Road* road = new Road(newId, roadName, start, end, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
                 graph.addRoad(road);
                 if (addRoadTwoWay_) {
-                    Road* revRoad = new Road(-newId, "Custom Road", end, start, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
+                    Road* revRoad = new Road(-newId, roadName, end, start, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
                     graph.addRoad(revRoad);
                 }
                 visualization.prepare(graph);
