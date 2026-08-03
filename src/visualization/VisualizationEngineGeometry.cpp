@@ -59,28 +59,6 @@ float VisualizationEngine::getDetailScale(
         scale *= densityFactor;
     }
 
-    // When the adaptive LOD has dropped the detail level, lower the effective
-    // zoom scale so zoom-based hide thresholds trigger sooner. However, the
-    // heat map, lane markings, and road names are always drawn (regardless
-    // of LOD level) and rely on this scale for zoom-based hiding. So at Low
-    // LOD we use a mild penalty instead of forcing 0.0 -- this lets lane
-    // markings and road names still show when zoomed in, while hiding them
-    // when zoomed out. The expensive overlays (bus stops, POIs, traffic
-    // lights) are gated by the `fullDetail` check in drawDynamicLayer, not
-    // by this scale.
-    if (lodLevel_ == LodLevel::Medium) {
-        scale *= 0.4f;
-    } else if (lodLevel_ == LodLevel::Low) {
-        scale *= 0.3f;
-    }
-
-    // At Full LOD, apply a mild penalty when zoomed out so that overlays
-    // (bus stops, POIs, traffic lights, road names) still hide when the
-    // user zooms out, even though the LOD level itself hasn't changed.
-    if (lodLevel_ == LodLevel::Full && scale < 1.0f) {
-        scale *= 0.6f;
-    }
-
     return scale;
 }
 

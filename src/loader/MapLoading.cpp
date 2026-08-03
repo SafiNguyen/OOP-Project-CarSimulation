@@ -13,8 +13,8 @@ bool loadGraphFromPath(AppContext& ctx, const std::string& requestedPath) {
     if (requestedPath.empty()) {
         populateDemoGraph(ctx.graph);
         ctx.usingDemoMap = true;
-        ctx.loadError = "No map path supplied, so the built-in demo map is active.";
-        return false;
+        ctx.loadError.clear();
+        return true;
     }
 
     std::string searchPath = requestedPath;
@@ -46,14 +46,11 @@ bool loadGraphFromPath(AppContext& ctx, const std::string& requestedPath) {
 }
 
 void loadAndRefresh(AppContext& ctx, const std::string& requestedPath) {
-    // Always start with the most optimized LOD (Low) in Auto mode when a
-    // map is loaded. This ensures consistent performance regardless of what
-    // LOD mode was active before the map change. The adaptive controller
-    // in main() can escalate to Medium later if the frame rate is high.
+    // Maps start at the requested default: full detail.
     ctx.visualization.setLodMode(
-        VisualizationEngine::LodMode::Auto);
+        VisualizationEngine::LodMode::Full);
     ctx.visualization.setLodLevel(
-        VisualizationEngine::LodLevel::Low);
+        VisualizationEngine::LodLevel::Full);
 
     try {
         loadGraphFromPath(ctx, requestedPath);

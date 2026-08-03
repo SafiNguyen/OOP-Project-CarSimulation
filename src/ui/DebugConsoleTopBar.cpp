@@ -389,6 +389,7 @@ void DebugConsole::drawBottomDock(sf::RenderWindow& window,
             else if (currentMode == VisualizationEngine::LodMode::Low) lodLabel = "LOD: Low";
             else {
                 if (currentLevel == VisualizationEngine::LodLevel::Medium) lodLabel = "LOD: Auto(M)";
+                else if (currentLevel == VisualizationEngine::LodLevel::Minimal) lodLabel = "LOD: Auto(Min)";
                 else if (currentLevel == VisualizationEngine::LodLevel::Low) lodLabel = "LOD: Auto(L)";
                 else lodLabel = "LOD: Auto(F)";
             }
@@ -399,7 +400,7 @@ void DebugConsole::drawBottomDock(sf::RenderWindow& window,
                 else if (currentMode == VisualizationEngine::LodMode::Medium) visualization_.setLodMode(VisualizationEngine::LodMode::Low);
                 else visualization_.setLodMode(VisualizationEngine::LodMode::Auto);
             }
-            UiTheme::tooltip("Level of Detail: Auto -> Full -> Med -> Low");
+            UiTheme::tooltip("Zoom range: Auto -> Full -> Med -> Low");
             next();
         } else {
             // narrow mode: no Map button

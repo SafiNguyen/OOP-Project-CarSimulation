@@ -534,15 +534,34 @@ void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph&
 
 
 void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph& graph) const {
+    const float detailScale = getDetailScale(target.getView());
+    float fullThreshold = 0.35f;
+    float mediumThreshold = 0.18f;
+    // Keep Minimal visible through almost the entire Full-mode zoom range.
+    float minimalThreshold = 0.008f;
+    if (lodMode_ == LodMode::Medium) {
+        fullThreshold = 0.70f;
+        mediumThreshold = 0.28f;
+        minimalThreshold = 0.08f;
+    } else if (lodMode_ == LodMode::Low) {
+        fullThreshold = 0.90f;
+        mediumThreshold = 0.55f;
+        minimalThreshold = 0.22f;
+    }
+    lodLevel_ = detailScale >= fullThreshold ? LodLevel::Full
+              : detailScale >= mediumThreshold ? LodLevel::Medium
+              : detailScale >= minimalThreshold ? LodLevel::Minimal
+              : LodLevel::Low;
     const bool fullDetail = lodLevel_ == LodLevel::Full;
 
-    // Zoom-aware overlays (POIs, bus stops, bus stations) are only drawn at
-    // Full LOD. At Medium/Low LOD they are skipped to keep the frame rate
-    // high on large maps. The zoom-aware getDetailScale() inside each
-    // function still hides them when zoomed out.
+    // Keep the existing Full and Medium behavior. Minimal LOD draws only
+    // compact markers, while Low LOD still hides these overlays.
     if (fullDetail) {
         drawBusStops(target, graph);
         drawBusStations(target, graph);
+        drawPOIs(target, graph);
+    } else if (lodLevel_ == LodLevel::Minimal) {
+        drawBusStops(target, graph);
         drawPOIs(target, graph);
     }
 
@@ -589,15 +608,13 @@ void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph
     //   5. vehicles (drawn in renderFrame)
     drawLaneMarkings(target, buildRoadDrawList(graph));
 
-    // Traffic lights are only drawn at Full LOD.
-    if (fullDetail) {
+    // Minimal LOD retains bare signal lamps; Low still hides them.
+    if (fullDetail || lodLevel_ == LodLevel::Minimal) {
         drawTrafficLights(target, graph);
     }
 
-    // Road names drawn last so they appear on top of the heatmap overlay
-    // and remain readable when heat map mode is active. Always drawn (with
-    // zoom-based hiding inside drawRoadNames).
-    {
+    // Road names are optional from the Overview panel.
+    if (roadNamesVisible_) {
         auto roads = graph.getAllRoads();
         drawRoadNames(target, roads);
     }
@@ -742,6 +759,14 @@ bool VisualizationEngine::isHeatMapEnabled() const {
     return heatMapEnabled_;
 }
 
+void VisualizationEngine::setRoadNamesVisible(bool visible) {
+    roadNamesVisible_ = visible;
+}
+
+bool VisualizationEngine::areRoadNamesVisible() const {
+    return roadNamesVisible_;
+}
+
 void VisualizationEngine::setLodLevel(LodLevel level) {
     if (lodLevel_ == level) {
         return;
@@ -755,13 +780,6 @@ VisualizationEngine::LodLevel VisualizationEngine::getLodLevel() const {
 
 void VisualizationEngine::setLodMode(LodMode mode) {
     lodMode_ = mode;
-    if (mode == LodMode::Full) {
-        setLodLevel(LodLevel::Full);
-    } else if (mode == LodMode::Medium) {
-        setLodLevel(LodLevel::Medium);
-    } else if (mode == LodMode::Low) {
-        setLodLevel(LodLevel::Low);
-    }
 }
 
 VisualizationEngine::LodMode VisualizationEngine::getLodMode() const {

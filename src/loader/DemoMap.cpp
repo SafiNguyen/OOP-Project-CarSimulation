@@ -1,10 +1,998 @@
 #include "DemoMap.h"
 
+#include <string>
+
+#include "Mapload.h"
 #include "Graph.h"
 #include "Intersection.h"
 #include "Road.h"
 
+namespace {
+// Embedded copy of map4.json. The Demo Map therefore remains available even
+// when the external JSON file is missing from the working directory.
+constexpr const char kMap4DemoJson[] = R"MAP4_DEMO_JSON({
+    "coordinateUnit": "world",
+    "defaultDistanceUnit": "m",
+    "defaultSpeedUnit": "km/h",
+    "defaultRadiusUnit": "m",
+    "defaultLaneWidth": 7.0,
+    "intersections": [
+        {
+            "id": 0,
+            "x": 50.0,
+            "y": 50.0
+        },
+        {
+            "id": 1,
+            "x": 150.0,
+            "y": 50.0
+        },
+        {
+            "id": 2,
+            "x": 250.0,
+            "y": 50.0,
+            "type": "roundabout",
+            "radius": 50.0,
+            "roadWidth": 12.0
+        },
+        {
+            "id": 3,
+            "x": 350.0,
+            "y": 50.0
+        },
+        {
+            "id": 4,
+            "x": 450.0,
+            "y": 50.0
+        },
+        {
+            "id": 5,
+            "x": 50.0,
+            "y": 150.0
+        },
+        {
+            "id": 6,
+            "x": 150.0,
+            "y": 150.0
+        },
+        {
+            "id": 7,
+            "x": 250.0,
+            "y": 150.0
+        },
+        {
+            "id": 8,
+            "x": 350.0,
+            "y": 150.0
+        },
+        {
+            "id": 9,
+            "x": 450.0,
+            "y": 150.0,
+            "type": "roundabout",
+            "radius": 40.0,
+            "roadWidth": 12.0
+        },
+        {
+            "id": 10,
+            "x": 50.0,
+            "y": 250.0
+        },
+        {
+            "id": 11,
+            "x": 150.0,
+            "y": 250.0
+        },
+        {
+            "id": 12,
+            "x": 250.0,
+            "y": 250.0
+        },
+        {
+            "id": 13,
+            "x": 350.0,
+            "y": 250.0
+        },
+        {
+            "id": 14,
+            "x": 450.0,
+            "y": 250.0
+        },
+        {
+            "id": 15,
+            "x": 50.0,
+            "y": 350.0
+        },
+        {
+            "id": 16,
+            "x": 150.0,
+            "y": 350.0,
+            "type": "roundabout",
+            "radius": 40.0,
+            "roadWidth": 12.0
+        },
+        {
+            "id": 17,
+            "x": 250.0,
+            "y": 350.0
+        },
+        {
+            "id": 18,
+            "x": 350.0,
+            "y": 350.0
+        },
+        {
+            "id": 19,
+            "x": 450.0,
+            "y": 350.0
+        }
+    ],
+    "roads": [
+        {
+            "id": 100,
+            "name": "North St",
+            "start": 0,
+            "end": 1,
+            "distance": 200.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 101,
+            "name": "North St",
+            "start": 1,
+            "end": 2,
+            "distance": 200.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 102,
+            "name": "North St",
+            "start": 2,
+            "end": 3,
+            "distance": 200.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 103,
+            "name": "North St",
+            "start": 3,
+            "end": 4,
+            "distance": 200.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 104,
+            "name": "Mid Ave",
+            "start": 5,
+            "end": 6,
+            "distance": 200.0,
+            "speedLimit": 50.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 105,
+            "name": "River Bridge",
+            "start": 6,
+            "end": 7,
+            "distance": 200.0,
+            "speedLimit": 60.0,
+            "lanes": 3,
+            "twoWay": true,
+            "type": "bridge",
+            "weightLimit": 40.0
+        },
+        {
+            "id": 106,
+            "name": "Mid Ave",
+            "start": 7,
+            "end": 8,
+            "distance": 200.0,
+            "speedLimit": 50.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 107,
+            "name": "Mid Ave",
+            "start": 8,
+            "end": 9,
+            "distance": 200.0,
+            "speedLimit": 50.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 108,
+            "name": "Market Rd",
+            "start": 10,
+            "end": 11,
+            "distance": 200.0,
+            "speedLimit": 30.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 109,
+            "name": "Market Rd",
+            "start": 11,
+            "end": 12,
+            "distance": 200.0,
+            "speedLimit": 30.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 110,
+            "name": "Underpass",
+            "start": 12,
+            "end": 13,
+            "distance": 200.0,
+            "speedLimit": 60.0,
+            "lanes": 2,
+            "twoWay": true,
+            "type": "tunnel",
+            "heightLimit": 3.0
+        },
+        {
+            "id": 111,
+            "name": "Market Rd",
+            "start": 13,
+            "end": 14,
+            "distance": 200.0,
+            "speedLimit": 30.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 112,
+            "name": "South Blvd",
+            "start": 15,
+            "end": 16,
+            "distance": 200.0,
+            "speedLimit": 60.0,
+            "lanes": 3,
+            "twoWay": true
+        },
+        {
+            "id": 113,
+            "name": "South Blvd",
+            "start": 16,
+            "end": 17,
+            "distance": 200.0,
+            "speedLimit": 60.0,
+            "lanes": 3,
+            "twoWay": true
+        },
+        {
+            "id": 114,
+            "name": "South Blvd",
+            "start": 17,
+            "end": 18,
+            "distance": 200.0,
+            "speedLimit": 60.0,
+            "lanes": 3,
+            "twoWay": true
+        },
+        {
+            "id": 115,
+            "name": "South Blvd",
+            "start": 18,
+            "end": 19,
+            "distance": 200.0,
+            "speedLimit": 60.0,
+            "lanes": 3,
+            "twoWay": true
+        },
+        {
+            "id": 200,
+            "name": "West 1st St",
+            "start": 0,
+            "end": 5,
+            "distance": 200.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 201,
+            "name": "West 1st St",
+            "start": 5,
+            "end": 10,
+            "distance": 200.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 202,
+            "name": "West 1st St",
+            "start": 10,
+            "end": 15,
+            "distance": 200.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 203,
+            "name": "West 2nd St",
+            "start": 1,
+            "end": 6,
+            "distance": 200.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 204,
+            "name": "West 2nd St",
+            "start": 6,
+            "end": 11,
+            "distance": 200.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 205,
+            "name": "West 2nd St",
+            "start": 11,
+            "end": 16,
+            "distance": 200.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 206,
+            "name": "Center Way",
+            "start": 2,
+            "end": 7,
+            "distance": 200.0,
+            "speedLimit": 50.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 207,
+            "name": "Center Way",
+            "start": 7,
+            "end": 12,
+            "distance": 200.0,
+            "speedLimit": 50.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 208,
+            "name": "Center Way",
+            "start": 12,
+            "end": 17,
+            "distance": 200.0,
+            "speedLimit": 50.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 209,
+            "name": "East 1st St",
+            "start": 3,
+            "end": 8,
+            "distance": 200.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 210,
+            "name": "East 1st St",
+            "start": 8,
+            "end": 13,
+            "distance": 200.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 211,
+            "name": "East 1st St",
+            "start": 13,
+            "end": 18,
+            "distance": 200.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 212,
+            "name": "East 2nd St",
+            "start": 4,
+            "end": 9,
+            "distance": 200.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 213,
+            "name": "East 2nd St",
+            "start": 9,
+            "end": 14,
+            "distance": 200.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        },
+        {
+            "id": 214,
+            "name": "East 2nd St",
+            "start": 14,
+            "end": 19,
+            "distance": 200.0,
+            "speedLimit": 40.0,
+            "lanes": 2,
+            "twoWay": true
+        }
+    ],
+    "busStops": [
+        {
+            "id": 501,
+            "code": "1",
+            "name": "West Gate",
+            "roadId": 101,
+            "positionRatio": 0.5,
+            "lane": 1,
+            "dwellTime": 10.0
+        },
+        {
+            "id": 502,
+            "code": "2",
+            "name": "Central Market",
+            "roadId": 103,
+            "positionRatio": 0.5,
+            "lane": 1,
+            "dwellTime": 15.0
+        },
+        {
+            "id": 503,
+            "code": "3",
+            "name": "Central Market Eastbound",
+            "roadId": 106,
+            "positionRatio": 0.5,
+            "lane": 1,
+            "dwellTime": 12.0
+        },
+        {
+            "id": 504,
+            "code": "4",
+            "name": "West Gate Return",
+            "roadId": -100,
+            "positionRatio": 0.5,
+            "lane": 1
+        },
+        {
+            "id": 505,
+            "code": "5",
+            "name": "Mid Avenue Westbound",
+            "roadId": -104,
+            "positionRatio": 0.5,
+            "lane": 1,
+            "dwellTime": 12.0
+        },
+        {
+            "id": 506,
+            "code": "6",
+            "name": "Market Road Eastbound",
+            "roadId": 109,
+            "positionRatio": 0.5,
+            "lane": 1,
+            "dwellTime": 12.0
+        },
+        {
+            "id": 507,
+            "code": "7",
+            "name": "Market Road Westbound",
+            "roadId": -108,
+            "positionRatio": 0.5,
+            "lane": 1,
+            "dwellTime": 12.0
+        },
+        {
+            "id": 508,
+            "code": "8",
+            "name": "South Boulevard Eastbound",
+            "roadId": 114,
+            "positionRatio": 0.5,
+            "lane": 2,
+            "dwellTime": 12.0
+        },
+        {
+            "id": 509,
+            "code": "9",
+            "name": "South Boulevard Westbound",
+            "roadId": -113,
+            "positionRatio": 0.5,
+            "lane": 2,
+            "dwellTime": 12.0
+        }
+    ],
+    "busStations": [
+        {
+            "id": 601,
+            "code": "BS01",
+            "name": "West Bus Station",
+            "x": 10.0,
+            "y": 100.0,
+            "accessIntersectionId": 5,
+            "departureRoadId": -200,
+            "arrivalRoadId": -200,
+            "accessProgress": 100.0,
+            "accessLane": 1,
+            "capacity": 10
+        },
+        {
+            "id": 602,
+            "code": "BS02",
+            "name": "East Bus Station",
+            "x": 490.0,
+            "y": 100.0,
+            "accessIntersectionId": 4,
+            "departureRoadId": 212,
+            "arrivalRoadId": 212,
+            "accessProgress": 100.0,
+            "accessLane": 1,
+            "capacity": 10
+        },
+        {
+            "id": 603,
+            "code": "BS03",
+            "name": "West Mid Bus Station",
+            "x": 10.0,
+            "y": 200.0,
+            "accessIntersectionId": 10,
+            "departureRoadId": -201,
+            "arrivalRoadId": -201,
+            "accessProgress": 100.0,
+            "accessLane": 1,
+            "capacity": 10
+        },
+        {
+            "id": 604,
+            "code": "BS04",
+            "name": "East Mid Bus Station",
+            "x": 490.0,
+            "y": 200.0,
+            "accessIntersectionId": 9,
+            "departureRoadId": 213,
+            "arrivalRoadId": 213,
+            "accessProgress": 100.0,
+            "accessLane": 1,
+            "capacity": 10
+        },
+        {
+            "id": 605,
+            "code": "BS05",
+            "name": "West Market Bus Station",
+            "x": 10.0,
+            "y": 300.0,
+            "accessIntersectionId": 15,
+            "departureRoadId": -202,
+            "arrivalRoadId": -202,
+            "accessProgress": 100.0,
+            "accessLane": 1,
+            "capacity": 10
+        },
+        {
+            "id": 606,
+            "code": "BS06",
+            "name": "East Market Bus Station",
+            "x": 490.0,
+            "y": 300.0,
+            "accessIntersectionId": 14,
+            "departureRoadId": 214,
+            "arrivalRoadId": 214,
+            "accessProgress": 100.0,
+            "accessLane": 1,
+            "capacity": 10
+        },
+        {
+            "id": 607,
+            "code": "BS07",
+            "name": "West South Bus Station",
+            "x": 94.5625,
+            "y": 385.0,
+            "accessIntersectionId": 16,
+            "departureRoadId": -112,
+            "arrivalRoadId": -112,
+            "accessProgress": 100.0,
+            "accessLane": 2,
+            "capacity": 10
+        },
+        {
+            "id": 608,
+            "code": "BS08",
+            "name": "East South Bus Station",
+            "x": 400.0,
+            "y": 363.0,
+            "accessIntersectionId": 19,
+            "departureRoadId": -115,
+            "arrivalRoadId": -115,
+            "accessProgress": 40.0,
+            "accessLane": 2,
+            "capacity": 10
+        }
+    ],
+    "busServices": [
+        {
+            "id": 701,
+            "code": "B1",
+            "name": "West-East Service",
+            "originStationId": 601,
+            "destinationStationId": 602,
+            "roadIds": [-200, 100, 101, 102, 103, 212],
+            "stopIds": [501, 502]
+        },
+        {
+            "id": 702,
+            "code": "B2",
+            "name": "East-West Service",
+            "originStationId": 602,
+            "destinationStationId": 601,
+            "roadIds": [212, -212, -103, -102, -101, -100, 200, -200],
+            "stopIds": [504]
+        },
+        {
+            "id": 703,
+            "code": "B3",
+            "name": "Mid Avenue Eastbound",
+            "originStationId": 603,
+            "destinationStationId": 604,
+            "roadIds": [-201, 104, 105, 106, 107, 213],
+            "stopIds": [503]
+        },
+        {
+            "id": 704,
+            "code": "B4",
+            "name": "Mid Avenue Westbound",
+            "originStationId": 604,
+            "destinationStationId": 603,
+            "roadIds": [213, -213, -107, -106, -105, -104, 201, -201],
+            "stopIds": [505]
+        },
+        {
+            "id": 705,
+            "code": "B5",
+            "name": "Market Road Eastbound",
+            "originStationId": 605,
+            "destinationStationId": 606,
+            "roadIds": [-202, 108, 109, 110, 111, 214],
+            "stopIds": [506]
+        },
+        {
+            "id": 706,
+            "code": "B6",
+            "name": "Market Road Westbound",
+            "originStationId": 606,
+            "destinationStationId": 605,
+            "roadIds": [214, -214, -111, -110, -109, -108, 202, -202],
+            "stopIds": [507]
+        },
+        {
+            "id": 707,
+            "code": "B7",
+            "name": "South Boulevard Eastbound",
+            "originStationId": 607,
+            "destinationStationId": 608,
+            "roadIds": [-112, 112, 113, 114, 115, -115],
+            "stopIds": [508]
+        },
+        {
+            "id": 708,
+            "code": "B8",
+            "name": "South Boulevard Westbound",
+            "originStationId": 608,
+            "destinationStationId": 607,
+            "roadIds": [-115, -114, -113, -112, 112, -112],
+            "stopIds": [509]
+        }
+    ],
+    "pois": [
+        {
+            "id": 300,
+            "name": "City Hospital",
+            "x": 75.0,
+            "y": 75.0,
+            "type": "hospital",
+            "capacity": 6,
+            "spawnWeight": 1.0,
+            "destinationWeight": 0.0,
+            "spawnCooldown": 1.5,
+            "accessRoadId": 200,
+            "accessProgress": 50.0,
+            "accessLane": 1
+        },
+        {
+            "id": 301,
+            "name": "Central Mall",
+            "labelOnLeft": true,
+            "x": 225.0,
+            "y": 225.0,
+            "type": "supermarket",
+            "spawnWeight": 0.0,
+            "destinationWeight": 1.5,
+            "accessRoadId": 109,
+            "accessProgress": 150.0,
+            "accessLane": 1
+        },
+        {
+            "id": 302,
+            "name": "Movie Theater",
+            "x": 425.0,
+            "y": 125.0,
+            "type": "cinema",
+            "spawnWeight": 0.0,
+            "destinationWeight": 1.1,
+            "accessRoadId": -212,
+            "accessProgress": 50.0,
+            "accessLane": 1
+        },
+        {
+            "id": 304,
+            "name": "Downtown Parking",
+            "x": 275.0,
+            "y": 175.0,
+            "type": "parking_lot",
+            "capacity": 12,
+            "spawnWeight": 0.65,
+            "destinationWeight": 0.8,
+            "spawnCooldown": 1.2,
+            "accessRoadId": 207,
+            "accessProgress": 50.0,
+            "accessLane": 1
+        },
+        {
+            "id": 305,
+            "name": "River Park",
+            "labelOnLeft": true,
+            "x": 325.0,
+            "y": 75.0,
+            "type": "tourist_spot",
+            "spawnWeight": 0.0,
+            "destinationWeight": 0.9,
+            "accessRoadId": -102,
+            "accessProgress": 50.0,
+            "accessLane": 1
+        },
+        {
+            "id": 306,
+            "name": "Residence A",
+            "x": 75.0,
+            "y": 125.0,
+            "type": "residential_area",
+            "capacity": 8,
+            "spawnWeight": 1.1,
+            "destinationWeight": 1.0,
+            "spawnCooldown": 1.4,
+            "accessRoadId": 104,
+            "accessProgress": 50.0,
+            "accessLane": 1
+        },
+        {
+            "id": 307,
+            "name": "Residence B",
+            "x": 175.0,
+            "y": 75.0,
+            "type": "residential_area",
+            "capacity": 10,
+            "spawnWeight": 1.25,
+            "destinationWeight": 1.1,
+            "spawnCooldown": 1.3,
+            "accessRoadId": -101,
+            "accessProgress": 150.0,
+            "accessLane": 1
+        },
+        {
+            "id": 308,
+            "name": "Residence C",
+            "x": 375.0,
+            "y": 75.0,
+            "type": "residential_area",
+            "capacity": 9,
+            "spawnWeight": 1.1,
+            "destinationWeight": 1.0,
+            "spawnCooldown": 1.4,
+            "accessRoadId": -103,
+            "accessProgress": 150.0,
+            "accessLane": 1
+        },
+        {
+            "id": 309,
+            "name": "Residence D",
+            "x": 75.0,
+            "y": 225.0,
+            "type": "residential_area",
+            "capacity": 12,
+            "spawnWeight": 1.3,
+            "destinationWeight": 1.15,
+            "spawnCooldown": 1.2,
+            "accessRoadId": 108,
+            "accessProgress": 50.0,
+            "accessLane": 1
+        },
+        {
+            "id": 310,
+            "name": "Residence E",
+            "x": 75.0,
+            "y": 325.0,
+            "type": "residential_area",
+            "capacity": 10,
+            "spawnWeight": 1.15,
+            "destinationWeight": 1.05,
+            "spawnCooldown": 1.3,
+            "accessRoadId": 112,
+            "accessProgress": 50.0,
+            "accessLane": 2
+        },
+        {
+            "id": 311,
+            "name": "Residence F",
+            "x": 275.0,
+            "y": 325.0,
+            "type": "residential_area",
+            "capacity": 12,
+            "spawnWeight": 1.3,
+            "destinationWeight": 1.15,
+            "spawnCooldown": 1.2,
+            "accessRoadId": 114,
+            "accessProgress": 50.0,
+            "accessLane": 2
+        },
+        {
+            "id": 312,
+            "name": "Residence G",
+            "labelOnLeft": true,
+            "x": 425.0,
+            "y": 325.0,
+            "type": "residential_area",
+            "capacity": 10,
+            "spawnWeight": 1.15,
+            "destinationWeight": 1.05,
+            "spawnCooldown": 1.3,
+            "accessRoadId": 115,
+            "accessProgress": 150.0,
+            "accessLane": 2
+        }
+    ],
+    "trafficLights": [
+        {
+            "intersectionId": 1,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
+        },
+        {
+            "intersectionId": 3,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
+        },
+        {
+            "intersectionId": 5,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
+        },
+        {
+            "intersectionId": 6,
+            "enabled": true,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5,
+            "phases": [
+                { "incomingRoadIds": [104, -105] },
+                { "incomingRoadIds": [203, -204] }
+            ]
+        },
+        {
+            "intersectionId": 7,
+            "enabled": true,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5,
+            "phases": [
+                { "incomingRoadIds": [105, -106] },
+                { "incomingRoadIds": [206, -207] }
+            ]
+        },
+        {
+            "intersectionId": 8,
+            "enabled": true,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5,
+            "phases": [
+                { "incomingRoadIds": [106, -107] },
+                { "incomingRoadIds": [209, -210] }
+            ]
+        },
+        {
+            "intersectionId": 10,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
+        },
+        {
+            "intersectionId": 11,
+            "enabled": true,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5,
+            "phases": [
+                { "incomingRoadIds": [108, -109] },
+                { "incomingRoadIds": [204, -205] }
+            ]
+        },
+        {
+            "intersectionId": 12,
+            "enabled": true,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5,
+            "phases": [
+                { "incomingRoadIds": [109, -110] },
+                { "incomingRoadIds": [207, -208] }
+            ]
+        },
+        {
+            "intersectionId": 13,
+            "enabled": true,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5,
+            "phases": [
+                { "incomingRoadIds": [110, -111] },
+                { "incomingRoadIds": [210, -211] }
+            ]
+        },
+        {
+            "intersectionId": 14,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
+        },
+        {
+            "intersectionId": 17,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
+        },
+        {
+            "intersectionId": 18,
+            "greenDuration": 25.0,
+            "yellowDuration": 3.0,
+            "allRedDuration": 1.5
+        }
+    ]
+}
+)MAP4_DEMO_JSON";
+} // namespace
+
 void populateDemoGraph(Graph& graph) {
+    std::string error;
+    if (MapLoad::loadGraphFromJsonString(kMap4DemoJson, graph, &error)) {
+        return;
+    }
+
+    // Emergency fallback only if the embedded map becomes invalid.
     graph.clearGraph();
 
     Intersection* a = new Intersection(1, 15.0, 18.0);

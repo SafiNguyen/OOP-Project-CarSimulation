@@ -1,9 +1,9 @@
 {
   "coordinateUnit": "world",
-  "defaultDistanceUnit": "m",
+  "defaultDistanceUnit": "km",
   "defaultSpeedUnit": "km/h",
   "defaultRadiusUnit": "m",
-  "defaultLaneWidth": 3.5,
+  "defaultLaneWidth": 25000,
   "intersections": [
     {
       "id": 0,

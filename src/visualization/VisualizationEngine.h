@@ -88,16 +88,12 @@ public:
     // expensive per-frame work — lane markings, road-name labels, traffic
     // light countdowns — while keeping the cached static layer intact.
     enum class LodLevel {
-        Full,   // All dynamic detail (lane markings, road names, lights, heat tint)
-        Medium, // Skip lane markings, road names, intersection heat tint, light countdowns
-        Low     // Also skip traffic lights, congestion overlay, blocked-lane fills
+        Full, Medium, Minimal, Low
     };
 
+    // Zoom-range preset, not a forced render tier.
     enum class LodMode {
-        Auto,   // FPS-based adaptive LOD
-        Full,   // Forced Full LOD
-        Medium, // Forced Medium LOD
-        Low     // Forced Low LOD
+        Auto, Full, Medium, Low
     };
 
     VisualizationEngine(sf::Vector2u windowSize = {800u, 600u}, float margin = 48.0f);
@@ -127,6 +123,8 @@ public:
 
     void setHeatMapEnabled(bool enabled);
     bool isHeatMapEnabled() const;
+    void setRoadNamesVisible(bool visible);
+    bool areRoadNamesVisible() const;
     void setLodLevel(LodLevel level);
     LodLevel getLodLevel() const;
     void setLodMode(LodMode mode);
@@ -222,8 +220,9 @@ private:
     sf::Vector2f spriteSize_;
     const sf::Font* font_;
     bool heatMapEnabled_;
-    LodLevel lodLevel_ = LodLevel::Low;
-    LodMode lodMode_ = LodMode::Auto;
+    bool roadNamesVisible_ = true;
+    mutable LodLevel lodLevel_ = LodLevel::Full;
+    LodMode lodMode_ = LodMode::Full;
     std::uint64_t revision_ = 0;
 };
 

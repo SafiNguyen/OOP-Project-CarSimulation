@@ -577,6 +577,13 @@ void DebugConsole::drawOverviewTab(std::unique_ptr<TrafficSimulator>& simulator,
         visualization_.setHeatMapEnabled(heatMapEnabled);
     }
     UiTheme::tooltip("Toggle traffic-density heatmap");
+    ImGui::SameLine();
+    bool roadNamesVisible = visualization_.areRoadNamesVisible();
+    if (UiTheme::toggleButton("overview_road_names", "Road names", roadNamesVisible,
+                              ImVec2(126.0f, 34.0f))) {
+        visualization_.setRoadNamesVisible(!roadNamesVisible);
+    }
+    UiTheme::tooltip("Show or hide road names on the map");
 
     ImGui::Spacing();
     ImGui::Separator();
