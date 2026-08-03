@@ -10,7 +10,7 @@ A C++ Object-Oriented software application that simulates traffic movement withi
 - [4. Folder Structure](#4-folder-structure)
 - [5. Setup & Installation](#5-setup--installation)
 - [6. Feature Usage Guide](#6-feature-usage-guide)
-- [7. Map JSON Reference](#7-map-json-reference)
+- [7. Dataset / External Resources and Map JSON Reference](#7-dataset--external-resources-and-map-json-reference)
 - [8. Troubleshooting](#8-troubleshooting)
 - [9. License](#9-license)
 
@@ -551,8 +551,8 @@ UrbanTrafficSimulator/
 ├── README.md
 ├── class-diagram.mmd           # Standalone source for the Mermaid diagram above
 ├── LICENSE
-├── map2.json / map3.json / map4.json
-├── map_vnu_hcm*.json           # Larger VNU-HCM map variants
+├── map4.json                   # Default feature-complete map
+├── map_hcmus.json              # Reduced HCMUS map for large-map testing
 ├── assets/                     # Vehicle/roundabout textures copied after build
 ├── docs/                       # Experiment notes and stress-test material
 ├── test_map_parser.cpp         # Map parser test registered by CMake
@@ -696,8 +696,8 @@ With no map argument, the application also defaults to `map4.json`. To use the s
 For non-interactive visual QA, the same executable can render one PNG and exit:
 
 ```bash
-./build/bin/UrbanTrafficSimulator map2.json \
-  --snapshot map2.png --width 1600 --height 900 \
+./build/bin/UrbanTrafficSimulator map4.json \
+  --snapshot map4.png --width 1600 --height 900 \
   --wall-seconds 5 --speed 2
 ```
 
@@ -806,7 +806,7 @@ The simulator automatically records `SimulationSnapshot` mementos at a load-awar
 For automated visual QA without opening the interactive application window, pass a map path followed by `--snapshot` (see `main.cpp`):
 
 ```bash
-./bin/UrbanTrafficSimulator ../map2.json \
+./bin/UrbanTrafficSimulator ../map4.json \
   --snapshot output.png --width 1600 --height 900 \
   --wall-seconds 5 --speed 2
 ```
@@ -819,19 +819,20 @@ For automated visual QA without opening the interactive application window, pass
 
 The tool prints a spawn/transit summary to stdout before saving the image, which is useful for scripted regression checks against `run_output.txt`-style logs.
 
-## 7. Map JSON Reference
+## 7. Dataset / External Resources and Map JSON Reference
+
+This project does not require an external dataset. The maps required for the
+submission are included directly in the repository.
 
 ### Included maps
 
-The repository currently contains these external map files. Counts refer to JSON entries, before any `twoWay` road creates its generated reverse edge.
+The submission uses the following two map files. Counts refer to JSON entries,
+before any `twoWay` road creates its generated reverse edge.
 
 | File | Intersections | Road entries | POIs | Intended use |
 |---|---:|---:|---:|---|
-| `map3.json` | 3 | 4 | 2 | Smallest readable example; useful when learning the schema |
-| `map2.json` | 9 | 24 | 4 | Compact grid with configured traffic lights |
 | `map4.json` | 20 | 31 | 12 | Default application map; includes transit stops, stations, services, POIs, and signals |
-| `map_vnu_hcm_filtered.json` | 981 | 1,345 | 98 | Reduced VNU-HCM data set for large-map testing |
-| `map_vnu_hcm.json` | 5,026 | 6,557 | 1,943 | Full VNU-HCM data set and renderer stress test |
+| `map_hcmus.json` | 981 | 1,345 | 98 | Reduced HCMUS map for large-map testing |
 
 The built-in fallback graph in `DemoMap.cpp` is separate from these files and contains 5 intersections and 6 roads.
 
@@ -893,7 +894,7 @@ Important loader rules:
 - **Road names or POI labels are missing:** install one of the fonts searched by `main.cpp` (DejaVu Sans, Liberation Sans, Ubuntu, Segoe UI, Arial, Calibri, or Noto Sans), or provide `assets/DejaVuSans.ttf`, `assets/LiberationSans-Regular.ttf`, or `assets/arial.ttf` beside the executable.
 - **Browse... does nothing:** the native file picker is currently implemented only for Linux through `zenity`. Type the `.json` path directly on Windows or macOS.
 - **Snapshot or visualization tests fail on a server:** `--snapshot` avoids the interactive window but still creates an SFML OpenGL render texture. Use a machine/session with a valid graphics/display context (or an appropriate virtual display on Linux).
-- **A map is rejected:** start from `map3.json`, preserve the required road fields, avoid duplicate IDs/directed pairs, and read the full loader error in the **Map** tab.
+- **A map is rejected:** start from `map4.json`, preserve the required road fields, avoid duplicate IDs/directed pairs, and read the full loader error in the **Map** tab.
 
 ## 9. License
 

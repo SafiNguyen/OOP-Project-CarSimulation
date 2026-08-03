@@ -26,8 +26,8 @@ using Clock = std::chrono::steady_clock;
 // Graph builders
 // ---------------------------------------------------------------------
 
-// The real map.json shipped with the project (5 intersections, 6 roads).
-// Hardcoded here so this test has no JSON dependency.
+// Legacy project map (5 intersections, 6 roads), embedded here so this
+// test has no JSON dependency.
 static void buildRealMapGraph(Graph& graph) {
     graph.clearGraph();
     Intersection* n1 = new Intersection(1, 0.0, 0.0);
@@ -52,7 +52,7 @@ static void buildRealMapGraph(Graph& graph) {
 }
 
 // A synthetic grid map used purely for stress testing at scale
-// (the shipped map.json only has 5 nodes, too small to meaningfully
+// (the legacy project map only has 5 nodes, too small to meaningfully
 // stress 100-1000 vehicles). Two directed roads are added per edge
 // (one each direction) so vehicles can route both ways, matching the
 // directed-graph model used by Graph/Road.
@@ -225,7 +225,7 @@ int main() {
     std::vector<BenchRow> allRows;
     std::vector<int> vehicleCounts = {100, 500, 1000};
 
-    // --- Real map.json (5 intersections / 6 roads) ---
+    // --- Legacy project map (5 intersections / 6 roads) ---
     {
         Graph realGraph;
         buildRealMapGraph(realGraph);

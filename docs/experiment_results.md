@@ -13,9 +13,9 @@ Theo kế hoạch tuần, nhiệm vụ hôm nay là:
 - So sánh BFS / Dijkstra / A* trong điều kiện giao thông bình thường **và** kẹt xe nặng.
 - Tổng hợp bảng/biểu đồ làm nguyên liệu cho phần "Experimentation" của báo cáo cuối kỳ.
 
-Vì `map.json` gốc của dự án chỉ có 5 intersection / 6 road (quá nhỏ để thấy khác biệt rõ giữa các thuật toán ở quy mô 1000 xe), bài đo dùng **hai bản đồ**:
+Vì bản đồ legacy 5 intersection / 6 road quá nhỏ để thấy khác biệt rõ giữa các thuật toán ở quy mô 1000 xe, bài đo dùng **hai bản đồ**:
 
-1. **RealMap** — đúng `map.json` hiện có trong repo, dùng để xác nhận hành vi thật trên dữ liệu chính thức.
+1. **RealMap** — bản đồ legacy 5 intersection / 6 road được nhúng trực tiếp trong `stress_test.cpp`, dùng để xác nhận hành vi trên đồ thị nhỏ.
 2. **Grid20x20** — lưới tổng hợp 20×20 (400 intersection, ~1520 road một chiều) sinh riêng cho stress test, để có đủ "không gian" cho 1000 cặp điểm đi/đến khác nhau và số liệu có ý nghĩa thống kê.
 
 Hai kịch bản giao thông:
@@ -54,7 +54,7 @@ BFS luôn nhanh nhất vì chỉ đếm số hop, bỏ qua chi phí cạnh (ngo�
 
 ![Route availability real map](chart_realmap_found.png)
 
-Trên `map.json` gốc, road duy nhất nối `5 → 3` (id 106) vốn đã bị đánh dấu `blocked` sẵn trong file. Khi mô phỏng "Heavy" (random block thêm ~5% road trên đồ thị chỉ có 6 road), có kịch bản ngẫu nhiên khiến road `2 → 5` (id 105) — con đường duy nhất dẫn tới node 5 — cũng bị chặn, khiến **45% cặp start/goal không còn đường đi** ở cả 3 thuật toán như nhau (found=55/100). Điều này minh họa đúng tính chất: **BFS/Dijkstra/A* đều là thuật toán đúng đắn (correct)** — khi đồ thị thực sự mất kết nối, không thuật toán nào "tìm ra đường" được, khác biệt giữa chúng chỉ nằm ở *tốc độ* và *chất lượng lộ trình* (chi phí), không phải ở việc có tìm ra hay không.
+Trên bản đồ legacy, road duy nhất nối `5 → 3` (id 106) vốn đã bị đánh dấu `blocked`. Khi mô phỏng "Heavy" (random block thêm ~5% road trên đồ thị chỉ có 6 road), có kịch bản ngẫu nhiên khiến road `2 → 5` (id 105) — con đường duy nhất dẫn tới node 5 — cũng bị chặn, khiến **45% cặp start/goal không còn đường đi** ở cả 3 thuật toán như nhau (found=55/100). Điều này minh họa đúng tính chất: **BFS/Dijkstra/A* đều là thuật toán đúng đắn (correct)** — khi đồ thị thực sự mất kết nối, không thuật toán nào "tìm ra đường" được, khác biệt giữa chúng chỉ nằm ở *tốc độ* và *chất lượng lộ trình* (chi phí), không phải ở việc có tìm ra hay không.
 
 ## 5. Chi phí lộ trình tìm được (đường có bị "xấu đi" khi kẹt xe không?)
 

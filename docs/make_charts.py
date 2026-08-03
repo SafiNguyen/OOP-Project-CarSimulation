@@ -47,7 +47,7 @@ plt.tight_layout()
 plt.savefig("chart_nodes_grid.png", dpi=150)
 plt.close()
 
-# ---- Chart 3: found-path rate on real map.json (heavy blocks small graph) ----
+# ---- Chart 3: found-path rate on the legacy 5-node map ----
 fig, ax = plt.subplots(figsize=(6.5, 4.5))
 sub = df[df.scenario.isin(["RealMap-Normal", "RealMap-Heavy"])]
 width = 0.25
@@ -60,7 +60,7 @@ for i, algo in enumerate(["BFS", "Dijkstra", "A*"]):
     ax.bar([x + i * width for x in xs], rate, width=width, label=algo, color=colors[algo])
 ax.set_xticks([x + width for x in xs])
 ax.set_xticklabels(labels)
-ax.set_ylabel("% of routes still findable under heavy congestion\n(real 5-node map.json)")
+ax.set_ylabel("% of routes still findable under heavy congestion\n(legacy 5-node map)")
 ax.set_title("Route availability under heavy traffic (real map)")
 ax.legend()
 plt.tight_layout()

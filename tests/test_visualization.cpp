@@ -566,9 +566,9 @@ int main() {
     // without writing a diagnostic image into the repository.
     Graph vnuGraph;
     std::string vnuError;
-    std::string vnuPath = "map_vnu_hcm_filtered.json";
+    std::string vnuPath = "map_hcmus.json";
     if (!std::filesystem::exists(vnuPath)) {
-        vnuPath = "../map_vnu_hcm_filtered.json";
+        vnuPath = "../map_hcmus.json";
     }
     assert(MapLoad::loadGraphFromJsonFile(vnuPath, vnuGraph, &vnuError));
     assert(std::fabs(

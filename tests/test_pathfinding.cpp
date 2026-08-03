@@ -52,7 +52,7 @@ bool pathEquals(const std::vector<int>& a, const std::vector<int>& b) {
     return a == b;
 }
 
-// Builds the simple square map described in map.json:
+// Builds a simple square map for pathfinding tests:
 //
 //   4 ---- 3
 //   |      |
