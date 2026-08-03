@@ -144,16 +144,21 @@ void VisualizationEngine::prepare(const Graph& graph) {
     const double scaleY = (windowSize_.y > 2 * margin_) ? (windowSize_.y - 2 * margin_) / rangeY : 1.0;
     scale_ = std::min(scaleX, scaleY);
 
-    // World-coordinate scale is not a reliable measure of map complexity:
-    // map4 spans several hundred world units but contains only a few dozen
-    // roads. Applying the large-map density reduction to it made functional
-    // markers tiny or invisible. Restrict that reduction to genuinely large
-    // graphs such as VNU.
+    // World-coordinate span alone is not a reliable measure of complexity:
+    // map4 covers several hundred units but contains only a few dozen roads.
+    // Use graph size to decide whether the imported-map scale and density
+    // adjustments apply, so small maps retain all functional markers.
     constexpr std::size_t kDenseMapIntersectionThreshold = 500u;
     constexpr std::size_t kDenseMapRoadThreshold = 750u;
     const bool denseMap =
         intersections.size() >= kDenseMapIntersectionThreshold ||
         graph.getAllRoads().size() >= kDenseMapRoadThreshold;
+
+    // Preserve the denser visual weight introduced for large imported maps.
+    if (denseMap) {
+        scale_ *= 10.0;
+    }
+
     mapDetailFactor_ = 1.0f;
     if (denseMap && scale_ > 0.0 && scale_ < 2.0) {
         mapDetailFactor_ = std::clamp(
@@ -482,8 +487,6 @@ void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph&
     });
 
     drawSidewalks(target, graph);
-    // Driveways sit above the sidewalk but below the carriageway. Drawing
-    // them here lets the road surface cleanly mask their curb connection.
     drawPOIDriveways(target, graph);
 
     constexpr unsigned int kBorderMaskCellSize = 2; // 2x2 px cells
@@ -494,9 +497,20 @@ void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph&
 
     const std::vector<RoadDraw> drawList = buildRoadDrawList(graph);
 
-    // Pass 1: neutral road bodies. (Blocked-lane fills and congestion tint
-    // moved to drawDynamicLayer() - they depend on live simulation state.)
+    // Viewport cull for the static body/mask passes. Without this, roads
+    // far outside the current view (especially on large maps rendered at
+    // the >=500-intersection 10x scale bump) still pay the full cost of
+    // rasterizeBodyToMask's per-cell rectangle test over their entire
+    // screen-space AABB, which can stall the frame badly enough that the
+    // grey body layer effectively never finishes presenting.
+    const ViewportBounds staticViewportBounds(target.getView(), 2.0f);
+
+    // Pass 1: neutral road bodies.
     for (const RoadDraw& rd : drawList) {
+        if (!staticViewportBounds.intersectsSegment(
+                rd.offsetA, rd.offsetB, rd.totalWidth * 0.5f)) {
+            continue;
+        }
         drawRoadStrip(
             target,
             rd.offsetA,
@@ -507,18 +521,13 @@ void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph&
                             bodyMask, gridW, gridH, kBorderMaskCellSize);
     }
 
-    // Lane markings are intentionally NOT drawn here. They are drawn in
-    // drawDynamicLayer() after the heat-map overlay so the render order is:
-    //   1. gray road bodies
-    //   2. heat-map color block
-    //   3. lane markings
-    //   4. everything else
-    // This keeps the lane dividers, carriageway edges, and centreline
-    // visible on top of the congestion tint.
-
     // Pass 3: borders, skipping any chunk that lands on another road's body.
     for (const RoadDraw& rd : drawList) {
         if (!rd.hasBorder || rd.borderWidth <= 0.0f) {
+            continue;
+        }
+        if (!staticViewportBounds.intersectsSegment(
+                rd.offsetA, rd.offsetB, rd.borderWidth * 0.5f)) {
             continue;
         }
         drawRoadBorderMasked(target, rd.offsetA, rd.offsetB, rd.borderColor, rd.borderWidth,

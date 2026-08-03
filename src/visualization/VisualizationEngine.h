@@ -137,6 +137,9 @@ public:
     // large graphs receive an additional density factor so their overlays
     // can be reduced at overview zoom without degrading small maps.
     float getDetailScale(const sf::View& view) const;
+    // Compensates for view magnification so SFML never upscales a small
+    // rasterized glyph when the user zooms in.
+    float getTextRenderScale(const sf::View& view) const;
 
 private:
     struct RoadDraw {
