@@ -63,22 +63,9 @@ inline int nextFreeRoadId(const Graph& graph) {
 }
 
 inline int nextFreeVehicleId(TrafficSimulator* simulator) {
-    int maxId = 0;
-    if (simulator) {
-        maxId = std::max(
-            maxId,
-            simulator->getHighestReservedVehicleId());
-        for (Vehicle* v : simulator->getVehicles()) {
-            maxId = std::max(maxId, v->getId());
-        }
-        for (Vehicle* v : simulator->getPendingVehicles()) {
-            maxId = std::max(maxId, v->getId());
-        }
-        for (Vehicle* v : simulator->getFinishedVehicles()) {
-            maxId = std::max(maxId, v->getId());
-        }
-    }
-    return maxId + 1;
+    return simulator != nullptr
+        ? simulator->reserveNextVehicleId()
+        : 0;
 }
 
 inline Intersection* pickIntersectionNear(const Graph& graph,
@@ -153,7 +140,8 @@ inline PointOfInterest* pickPoiNear(
 }
 
 inline std::string poiLabel(PointOfInterest* poi) {
-    return "#" + std::to_string(poi->getId()) + " (" + poi->getName() + ")";
+    return "#" + std::to_string(poi->getId()) + " [" +
+           poi->getTypeLabel() + "] " + poi->getName();
 }
 
 } // namespace debugconsole_detail

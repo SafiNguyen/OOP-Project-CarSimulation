@@ -34,56 +34,23 @@ std::size_t VehicleSpawnPolicy::kindIndex(
 bool VehicleSpawnPolicy::canSpawnFrom(
     VehicleKind kind,
     const PointOfInterest& poi) {
-    if (!poi.isSpawnPoint() ||
+    if (!poi.allowsSpawnVehicle(kind) ||
         poi.getConnectedRoad() == nullptr ||
         poi.getSpawnWeight() <= 0.0) {
         return false;
     }
-
-    switch (kind) {
-        case VehicleKind::Car:
-        case VehicleKind::Motorbike:
-            return poi.getType() ==
-                       POIType::RESIDENTIAL_AREA ||
-                   poi.getType() ==
-                       POIType::PARKING_LOT;
-        case VehicleKind::Bus:
-            return poi.getType() ==
-                   POIType::BUS_STATION;
-        case VehicleKind::Emergency:
-            return poi.getType() ==
-                   POIType::HOSPITAL;
-    }
-    return false;
+    return true;
 }
 
 bool VehicleSpawnPolicy::canTravelTo(
     VehicleKind kind,
     const PointOfInterest& poi) {
-    if (!poi.isDestination() ||
+    if (!poi.allowsDestinationVehicle(kind) ||
         poi.getConnectedRoad() == nullptr ||
         poi.getDestinationWeight() <= 0.0) {
         return false;
     }
-
-    switch (kind) {
-        case VehicleKind::Car:
-        case VehicleKind::Motorbike:
-            return poi.getType() !=
-                       POIType::BUS_STATION &&
-                   poi.getType() !=
-                       POIType::HOSPITAL;
-        case VehicleKind::Bus:
-            return poi.getType() ==
-                   POIType::BUS_STATION;
-        case VehicleKind::Emergency:
-            // A destination POI represents the location of an
-            // emergency call until EventManager exposes incident
-            // routing as a public API.
-            return poi.getType() !=
-                   POIType::BUS_STATION;
-    }
-    return false;
+    return true;
 }
 
 std::vector<PointOfInterest*>

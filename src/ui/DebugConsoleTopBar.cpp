@@ -330,36 +330,30 @@ void DebugConsole::drawBottomDock(sf::RenderWindow& window,
             auto* controller = simulator
                 ? simulator->getPlaybackController()
                 : nullptr;
-            const std::size_t playbackIndex = controller
-                ? controller->currentIndex()
-                : SnapshotManager::npos;
-            const bool canRewind = controller &&
-                controller->available() > 1u &&
-                (playbackIndex == SnapshotManager::npos ||
-                 playbackIndex > 0u);
+            const bool canRewind =
+                controller && controller->canRewind();
             ImGui::BeginDisabled(!canRewind);
             const std::string rewindLabel = rewindButtonLabel(controller);
             if (ImGui::Button(rewindLabel.c_str(), buttonSize) && controller) {
                 controller->rewind(1);
             }
             ImGui::EndDisabled();
-            UiTheme::tooltip(controller && controller->available() > 1u
-                                 ? "Rewind one snapshot"
-                                 : "No snapshot history available");
+            UiTheme::tooltip(
+                simulator && simulator->getDeferredDemandCount() > 0u
+                    ? "Playback starts after demand preparation finishes"
+                    : controller && controller->available() > 0u
+                        ? "Rewind one snapshot"
+                        : "Waiting for the first snapshot");
             next();
-            const bool canForward = controller &&
-                controller->currentIndex() != SnapshotManager::npos &&
-                controller->currentIndex() <
-                    (controller->available() > 0
-                         ? controller->available() - 1
-                         : 0);
+            const bool canForward =
+                controller && controller->canForward();
             ImGui::BeginDisabled(!canForward);
             const std::string forwardLabel = forwardButtonLabel(controller);
             if (ImGui::Button(forwardLabel.c_str(), buttonSize) && controller) {
                 controller->forward(1);
             }
             ImGui::EndDisabled();
-            UiTheme::tooltip(controller && controller->available() > 1u
+            UiTheme::tooltip(controller && controller->available() > 0u
                                  ? "Forward one snapshot"
                                  : "No snapshot history available");
         }
@@ -383,16 +377,22 @@ void DebugConsole::drawBottomDock(sf::RenderWindow& window,
 
             const auto currentMode = visualization_.getLodMode();
             const auto currentLevel = visualization_.getLodLevel();
-            std::string lodLabel = "LOD: Auto";
-            if (currentMode == VisualizationEngine::LodMode::Full) lodLabel = "LOD: Full";
-            else if (currentMode == VisualizationEngine::LodMode::Medium) lodLabel = "LOD: Med";
-            else if (currentMode == VisualizationEngine::LodMode::Low) lodLabel = "LOD: Low";
-            else {
-                if (currentLevel == VisualizationEngine::LodLevel::Medium) lodLabel = "LOD: Auto(M)";
-                else if (currentLevel == VisualizationEngine::LodLevel::Minimal) lodLabel = "LOD: Auto(Min)";
-                else if (currentLevel == VisualizationEngine::LodLevel::Low) lodLabel = "LOD: Auto(L)";
-                else lodLabel = "LOD: Auto(F)";
-            }
+            const char* actualTier =
+                currentLevel == VisualizationEngine::LodLevel::Full
+                    ? "F"
+                : currentLevel == VisualizationEngine::LodLevel::Medium
+                    ? "M"
+                    : "L";
+            const char* modeName =
+                currentMode == VisualizationEngine::LodMode::Auto
+                    ? "Auto"
+                : currentMode == VisualizationEngine::LodMode::Full
+                    ? "Full"
+                : currentMode == VisualizationEngine::LodMode::Medium
+                    ? "Med"
+                    : "Low";
+            const std::string lodLabel =
+                std::string("LOD: ") + modeName + "/" + actualTier;
 
             if (ImGui::Button(lodLabel.c_str(), buttonSize)) {
                 if (currentMode == VisualizationEngine::LodMode::Auto) visualization_.setLodMode(VisualizationEngine::LodMode::Full);
@@ -400,7 +400,8 @@ void DebugConsole::drawBottomDock(sf::RenderWindow& window,
                 else if (currentMode == VisualizationEngine::LodMode::Medium) visualization_.setLodMode(VisualizationEngine::LodMode::Low);
                 else visualization_.setLodMode(VisualizationEngine::LodMode::Auto);
             }
-            UiTheme::tooltip("Zoom range: Auto -> Full -> Med -> Low");
+            UiTheme::tooltip(
+                "Mode cap / actual tier. Auto also reacts to sustained FPS.");
             next();
         } else {
             // narrow mode: no Map button

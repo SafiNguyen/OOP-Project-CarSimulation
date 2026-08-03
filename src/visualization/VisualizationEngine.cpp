@@ -33,10 +33,9 @@ void appendStripQuad(std::vector<sf::Vertex>& vertices,
     const float dirY = dy * invLen;
     const float halfThick = thickness * 0.5f;
     const sf::Vector2f lateral(-dirY * halfThick, dirX * halfThick);
-    const sf::Vector2f longitudinal(dirX * len, dirY * len);
-    vertices.emplace_back(a, color);
-    vertices.emplace_back(a + longitudinal, color);
-    vertices.emplace_back(a + longitudinal + lateral, color);
+    vertices.emplace_back(a - lateral, color);
+    vertices.emplace_back(b - lateral, color);
+    vertices.emplace_back(b + lateral, color);
     vertices.emplace_back(a + lateral, color);
 }
 
@@ -68,10 +67,8 @@ void VisualizationEngine::setWindowSize(sf::Vector2u windowSize) {
 
 void VisualizationEngine::prepare(const Graph& graph) {
     ++revision_;
-    if (lodMode_ == LodMode::Auto) {
-        lodLevel_ = LodLevel::Low;
-    }
     auto intersections = graph.getAllIntersections();
+    const auto roads = graph.getAllRoads();
     std::sort(intersections.begin(), intersections.end(), [](Intersection* lhs, Intersection* rhs) {
         return lhs->getId() < rhs->getId();
     });
@@ -94,7 +91,7 @@ void VisualizationEngine::prepare(const Graph& graph) {
             minY_ = std::min(minY_, point.y);
             maxY_ = std::max(maxY_, point.y);
         };
-        for (const Road* road : graph.getAllRoads()) {
+        for (const Road* road : roads) {
             if (road == nullptr) continue;
             for (int lane = 0; lane < road->getLaneCount(); ++lane) {
                 includePoint(
@@ -150,22 +147,19 @@ void VisualizationEngine::prepare(const Graph& graph) {
     // adjustments apply, so small maps retain all functional markers.
     constexpr std::size_t kDenseMapIntersectionThreshold = 500u;
     constexpr std::size_t kDenseMapRoadThreshold = 750u;
-    const bool denseMap =
+    denseMap_ =
         intersections.size() >= kDenseMapIntersectionThreshold ||
-        graph.getAllRoads().size() >= kDenseMapRoadThreshold;
+        roads.size() >= kDenseMapRoadThreshold;
 
-    // Preserve the denser visual weight introduced for large imported maps.
-    if (denseMap) {
-        scale_ *= 10.0;
-    }
-
-    mapDetailFactor_ = 1.0f;
-    if (denseMap && scale_ > 0.0 && scale_ < 2.0) {
-        mapDetailFactor_ = std::clamp(
-            static_cast<float>(scale_ / 2.0),
-            0.25f,
-            1.0f);
-    }
+    const float graphComplexity = std::max(
+        static_cast<float>(intersections.size()) /
+            static_cast<float>(kDenseMapIntersectionThreshold),
+        static_cast<float>(roads.size()) /
+            static_cast<float>(kDenseMapRoadThreshold));
+    mapDetailFactor_ = denseMap_
+        ? std::clamp(1.0f / std::sqrt(std::max(1.0f, graphComplexity)),
+                     0.32f, 1.0f)
+        : 1.0f;
     const double availableWidth =
         std::max(
             0.0,
@@ -197,6 +191,15 @@ void VisualizationEngine::prepare(const Graph& graph) {
         routePoints_.push_back({windowSize_.x * 0.8f, windowSize_.y * 0.2f});
         routePoints_.push_back({windowSize_.x * 0.2f, windowSize_.y * 0.8f});
     }
+
+    roadDrawList_ = buildRoadDrawList(graph);
+    if (lodMode_ == LodMode::Auto) {
+        autoPerformanceLimit_ = denseMap_
+            ? LodLevel::Medium
+            : LodLevel::Full;
+    }
+    autoLowFpsSamples_ = 0;
+    autoHighFpsSamples_ = 0;
 }
 
 std::vector<VisualizationEngine::RoadDraw>
@@ -275,8 +278,7 @@ void VisualizationEngine::drawLaneMarkings(
     const ViewportBounds viewportBounds(
         target.getView(),
         2.0f);
-    std::vector<sf::Vertex> vertices;
-    vertices.reserve(drawList.size() * 16u);
+    laneMarkingVertices_.clear();
 
     // Lane dividers and carriageway edges.
     for (const RoadDraw& rd : drawList) {
@@ -339,7 +341,7 @@ void VisualizationEngine::drawLaneMarkings(
                         laneLineA +
                         laneDirectionUnit * dashEnd;
                     appendStripQuad(
-                        vertices,
+                        laneMarkingVertices_,
                         dashA,
                         dashB,
                         sf::Color(245, 245, 245, 190),
@@ -369,7 +371,7 @@ void VisualizationEngine::drawLaneMarkings(
                 continue;
             }
             appendStripQuad(
-                vertices,
+                laneMarkingVertices_,
                 edgeA,
                 edgeB,
                 sf::Color(245, 245, 245, 205),
@@ -462,7 +464,7 @@ void VisualizationEngine::drawLaneMarkings(
                 continue;
             }
             appendStripQuad(
-                vertices,
+                laneMarkingVertices_,
                 centreA,
                 centreB,
                 sf::Color(245, 195, 45),
@@ -470,24 +472,20 @@ void VisualizationEngine::drawLaneMarkings(
         }
     }
 
-    if (!vertices.empty()) {
+    if (!laneMarkingVertices_.empty()) {
         target.draw(
-            vertices.data(),
-            vertices.size(),
+            laneMarkingVertices_.data(),
+            laneMarkingVertices_.size(),
             sf::Quads);
     }
 }
 
 void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph& graph) const {
-    auto roads = graph.getAllRoads();
     auto intersections = graph.getAllIntersections();
 
     std::sort(intersections.begin(), intersections.end(), [](Intersection* lhs, Intersection* rhs) {
         return lhs->getId() < rhs->getId();
     });
-
-    drawSidewalks(target, graph);
-    drawPOIDriveways(target, graph);
 
     constexpr unsigned int kBorderMaskCellSize = 2; // 2x2 px cells
     const sf::Vector2u targetSize = target.getSize();
@@ -495,11 +493,10 @@ void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph&
     const unsigned int gridH = (targetSize.y + kBorderMaskCellSize - 1u) / kBorderMaskCellSize;
     std::vector<uint8_t> bodyMask(static_cast<std::size_t>(gridW) * static_cast<std::size_t>(gridH), 0u);
 
-    const std::vector<RoadDraw> drawList = buildRoadDrawList(graph);
+    const std::vector<RoadDraw>& drawList = roadDrawList_;
 
     // Viewport cull for the static body/mask passes. Without this, roads
-    // far outside the current view (especially on large maps rendered at
-    // the >=500-intersection 10x scale bump) still pay the full cost of
+    // far outside the current view still pay the full cost of
     // rasterizeBodyToMask's per-cell rectangle test over their entire
     // screen-space AABB, which can stall the frame badly enough that the
     // grey body layer effectively never finishes presenting.
@@ -562,53 +559,26 @@ void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph&
 
 void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph& graph) const {
     const float detailScale = getDetailScale(target.getView());
-    float fullThreshold = 0.35f;
-    float mediumThreshold = 0.18f;
-    // Keep Minimal visible through almost the entire Full-mode zoom range.
-    float minimalThreshold = 0.008f;
-    if (lodMode_ == LodMode::Medium) {
-        fullThreshold = 0.70f;
-        mediumThreshold = 0.28f;
-        minimalThreshold = 0.08f;
-    } else if (lodMode_ == LodMode::Low) {
-        fullThreshold = 0.90f;
-        mediumThreshold = 0.55f;
-        minimalThreshold = 0.22f;
-    }
-    lodLevel_ = detailScale >= fullThreshold ? LodLevel::Full
-              : detailScale >= mediumThreshold ? LodLevel::Medium
-              : detailScale >= minimalThreshold ? LodLevel::Minimal
-              : LodLevel::Low;
+    lodLevel_ = selectLodLevel(detailScale);
     const bool fullDetail = lodLevel_ == LodLevel::Full;
-    const bool standardMarkers =
-        fullDetail || lodLevel_ == LodLevel::Medium;
+    const bool mediumDetail = lodLevel_ == LodLevel::Medium;
 
-    // Medium keeps the map's functional landmarks visible, but the overlay
-    // drawing routines omit expensive Full-only decoration such as traffic
-    // light countdown text. Minimal uses compact markers, while Low is the
-    // only tier that hides these overlays entirely.
-    if (standardMarkers) {
-        drawBusStops(target, graph);
-        drawBusStations(target, graph);
-        drawPOIs(target, graph);
-    } else if (lodLevel_ == LodLevel::Minimal) {
-        drawBusStops(target, graph);
-        drawPOIs(target, graph);
+    const bool showSidewalks =
+        fullDetail ||
+        (!denseMap_ && mediumDetail && detailScale >= 0.55f);
+    if (showSidewalks) {
+        drawSidewalks(target, graph);
     }
 
-    // Layer 2: heat-map color block drawn on top of the gray road bodies.
-    // Always drawn (at all LOD levels) so the heat map works like before.
     drawRoadCongestionOverlay(target, graph);
     drawBlockedLaneFills(target, graph);
 
-    // Layer 3: intersection and roundabout heat-map tint. Drawn before the
-    // lane markings so the road lane markings render on top of the
-    // roundabout surface. Always drawn so the heat map works like before.
     auto intersections = graph.getAllIntersections();
     std::sort(intersections.begin(), intersections.end(), [](Intersection* lhs, Intersection* rhs) {
         return lhs->getId() < rhs->getId();
     });
-    if (heatMapEnabled_) {
+    if (heatMapEnabled_ &&
+        (!denseMap_ || detailScale >= 0.75f)) {
         const ViewportBounds viewportBounds(
             target.getView(),
             2.0f);
@@ -628,27 +598,29 @@ void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph
         }
     }
 
-    // Layer 4: lane markings drawn on top of the heat-map overlay and the
-    // intersection/roundabout tint so the white lane dividers, carriageway
-    // edges, and yellow centreline remain visible. Always drawn (with
-    // zoom-based hiding inside drawLaneMarkings) so the render order is:
-    //   1. gray road bodies (static layer)
-    //   2. heat-map color block
-    //   3. lane markings
-    //   4. road names
-    //   5. vehicles (drawn in renderFrame)
-    drawLaneMarkings(target, buildRoadDrawList(graph));
-
-    // Medium and Minimal both retain signals (without Full-only countdown
-    // text); Low is the only tier that hides them.
-    if (lodLevel_ != LodLevel::Low) {
-        drawTrafficLights(target, graph);
+    if (fullDetail ||
+        (mediumDetail && (!denseMap_ || detailScale >= 0.75f))) {
+        drawLaneMarkings(target, roadDrawList_);
+    }
+    if (fullDetail) {
+        drawPOIDriveways(target, graph);
     }
 
-    // Road names are optional from the Overview panel.
-    if (roadNamesVisible_) {
+    if (roadNamesVisible_ &&
+        lodLevel_ != LodLevel::Low &&
+        detailScale >= (denseMap_ ? 0.75f : 0.45f)) {
         auto roads = graph.getAllRoads();
         drawRoadNames(target, roads);
+    }
+
+    // Functional markers are deliberately above labels so a street name can
+    // never hide a signal, stop, station, or POI.
+    if ((fullDetail || mediumDetail) &&
+        (!denseMap_ || detailScale >= 0.82f)) {
+        drawBusStops(target, graph);
+        drawBusStations(target, graph);
+        drawPOIs(target, graph);
+        drawTrafficLights(target, graph);
     }
 }
 
@@ -659,6 +631,7 @@ void VisualizationEngine::drawRoadCongestionOverlay(sf::RenderTarget& target, co
     const ViewportBounds viewportBounds(
         target.getView(),
         2.0f);
+    overlayVertices_.clear();
     const auto roads = graph.getAllRoads();
     for (Road* road : roads) {
         // Bridges and tunnels both use the heat-map tint (a deep
@@ -682,12 +655,18 @@ void VisualizationEngine::drawRoadCongestionOverlay(sf::RenderTarget& target, co
                 totalWidth * 0.5f)) {
             continue;
         }
-        drawRoadStrip(
-            target,
+        appendStripQuad(
+            overlayVertices_,
             a,
             b,
             colorForRoad(road),
             totalWidth);
+    }
+    if (!overlayVertices_.empty()) {
+        target.draw(
+            overlayVertices_.data(),
+            overlayVertices_.size(),
+            sf::Quads);
     }
 }
 
@@ -698,10 +677,8 @@ void VisualizationEngine::drawBlockedLaneFills(sf::RenderTarget& target, const G
     const ViewportBounds viewportBounds(
         target.getView(),
         2.0f);
-    // Batch blocked-lane fills into a single vertex array.
-    std::vector<sf::Vertex> vertices;
+    overlayVertices_.clear();
     const auto roads = graph.getAllRoads();
-    vertices.reserve(roads.size() * 4u);
     for (Road* road : roads) {
         if (road == nullptr || road->isBlocked()) {
             continue;
@@ -728,17 +705,17 @@ void VisualizationEngine::drawBlockedLaneFills(sf::RenderTarget& target, const G
                 continue;
             }
             appendStripQuad(
-                vertices,
+                overlayVertices_,
                 laneCenterA,
                 laneCenterB,
                 sf::Color(180, 40, 40),
                 laneFillWidth);
         }
     }
-    if (!vertices.empty()) {
+    if (!overlayVertices_.empty()) {
         target.draw(
-            vertices.data(),
-            vertices.size(),
+            overlayVertices_.data(),
+            overlayVertices_.size(),
             sf::Quads);
     }
 }
@@ -812,10 +789,80 @@ VisualizationEngine::LodLevel VisualizationEngine::getLodLevel() const {
 
 void VisualizationEngine::setLodMode(LodMode mode) {
     lodMode_ = mode;
+    autoLowFpsSamples_ = 0;
+    autoHighFpsSamples_ = 0;
+    if (mode == LodMode::Low) {
+        lodLevel_ = LodLevel::Low;
+    } else if (mode == LodMode::Medium &&
+               lodLevel_ == LodLevel::Full) {
+        lodLevel_ = LodLevel::Medium;
+    }
 }
 
 VisualizationEngine::LodMode VisualizationEngine::getLodMode() const {
     return lodMode_;
+}
+
+VisualizationEngine::LodLevel VisualizationEngine::selectLodLevel(
+    float detailScale) const {
+    const LodLevel zoomLevel =
+        detailScale >= 0.85f ? LodLevel::Full
+        : detailScale >= 0.30f ? LodLevel::Medium
+                              : LodLevel::Low;
+
+    LodLevel modeLimit = LodLevel::Full;
+    if (lodMode_ == LodMode::Medium) {
+        modeLimit = LodLevel::Medium;
+    } else if (lodMode_ == LodMode::Low) {
+        modeLimit = LodLevel::Low;
+    } else if (lodMode_ == LodMode::Auto) {
+        modeLimit = autoPerformanceLimit_;
+    }
+
+    return static_cast<LodLevel>(std::max(
+        static_cast<int>(zoomLevel),
+        static_cast<int>(modeLimit)));
+}
+
+void VisualizationEngine::updateAutoLod(float averageFps) {
+    if (lodMode_ != LodMode::Auto ||
+        !std::isfinite(averageFps) || averageFps <= 0.0f) {
+        autoLowFpsSamples_ = 0;
+        autoHighFpsSamples_ = 0;
+        return;
+    }
+
+    constexpr float kDropFps = 35.0f;
+    constexpr float kRestoreFps = 55.0f;
+    constexpr int kDropSamples = 30;
+    constexpr int kRestoreSamples = 90;
+
+    if (averageFps < kDropFps) {
+        ++autoLowFpsSamples_;
+        autoHighFpsSamples_ = 0;
+    } else if (averageFps > kRestoreFps) {
+        ++autoHighFpsSamples_;
+        autoLowFpsSamples_ = 0;
+    } else {
+        autoLowFpsSamples_ = 0;
+        autoHighFpsSamples_ = 0;
+    }
+
+    if (autoLowFpsSamples_ >= kDropSamples &&
+        autoPerformanceLimit_ != LodLevel::Low) {
+        autoPerformanceLimit_ =
+            autoPerformanceLimit_ == LodLevel::Full
+                ? LodLevel::Medium
+                : LodLevel::Low;
+        autoLowFpsSamples_ = 0;
+    } else if (autoHighFpsSamples_ >= kRestoreSamples &&
+               autoPerformanceLimit_ != LodLevel::Full) {
+        autoPerformanceLimit_ =
+            autoPerformanceLimit_ == LodLevel::Low
+                ? LodLevel::Medium
+                : LodLevel::Full;
+        autoHighFpsSamples_ = 0;
+    }
 }
 
 std::uint64_t VisualizationEngine::getRevision() const {

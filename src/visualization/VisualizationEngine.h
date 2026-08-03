@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstddef>
 #include <vector>
 #include "TrafficLight.h"
 
@@ -88,10 +89,10 @@ public:
     // expensive per-frame work — lane markings, road-name labels, traffic
     // light countdowns — while keeping the cached static layer intact.
     enum class LodLevel {
-        Full, Medium, Minimal, Low
+        Full, Medium, Low
     };
 
-    // Zoom-range preset, not a forced render tier.
+    // Manual modes cap the actual tier. Auto also applies a measured-FPS cap.
     enum class LodMode {
         Auto, Full, Medium, Low
     };
@@ -129,6 +130,7 @@ public:
     LodLevel getLodLevel() const;
     void setLodMode(LodMode mode);
     LodMode getLodMode() const;
+    void updateAutoLod(float averageFps);
     double getScale() const { return scale_; }
     std::uint64_t getRevision() const;
 
@@ -140,7 +142,6 @@ public:
     // Compensates for view magnification so SFML never upscales a small
     // rasterized glyph when the user zooms in.
     float getTextRenderScale(const sf::View& view) const;
-
 private:
     struct RoadDraw {
         Road* road;
@@ -155,6 +156,17 @@ private:
         bool hasBorder;
         sf::Color borderColor;
         float borderWidth;
+    };
+
+    struct RoadLabelCandidate {
+        const Road* road = nullptr;
+        sf::Vector2f start;
+        sf::Vector2f end;
+        sf::Vector2f midpoint;
+        sf::Vector2f screenMidpoint;
+        float angle = 0.0f;
+        float visibleLengthPixels = 0.0f;
+        bool lowValueName = false;
     };
 
     std::vector<RoadDraw> buildRoadDrawList(const Graph& graph) const;
@@ -203,6 +215,7 @@ private:
                           const Graph& graph) const;
     void drawPOIs(sf::RenderTarget& target, const Graph& graph) const;
     void drawRoadNames(sf::RenderTarget& target, const std::vector<Road*>& roads) const;
+    LodLevel selectLodLevel(float detailScale) const;
     float getIntersectionBoxHalfExtent(const Intersection* intersection) const;
     float getLaneWidthPixels(const Road* road) const;
     sf::Color getIntersectionBoxColor(const Intersection* intersection, bool tintByCongestion) const;
@@ -225,7 +238,17 @@ private:
     bool roadNamesVisible_ = true;
     mutable LodLevel lodLevel_ = LodLevel::Full;
     LodMode lodMode_ = LodMode::Full;
+    LodLevel autoPerformanceLimit_ = LodLevel::Full;
+    int autoLowFpsSamples_ = 0;
+    int autoHighFpsSamples_ = 0;
+    bool denseMap_ = false;
     float mapDetailFactor_ = 1.0f;
+    std::vector<RoadDraw> roadDrawList_;
+    mutable std::vector<sf::Vertex> laneMarkingVertices_;
+    mutable std::vector<sf::Vertex> overlayVertices_;
+    mutable std::vector<RoadLabelCandidate> roadLabelCandidates_;
+    mutable std::vector<std::size_t> acceptedRoadLabelIndices_;
+    mutable std::vector<sf::FloatRect> acceptedRoadLabelBounds_;
     std::uint64_t revision_ = 0;
 };
 

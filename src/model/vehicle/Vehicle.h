@@ -151,7 +151,8 @@ public:
     // Restores this vehicle's state from `snap`.
     // `graph` is needed to resolve ids back to Road*/Intersection* pointers.
     virtual void restoreSnapshot(const VehicleSnapshot& snap,
-                                 class Graph& graph);
+                                 class Graph& graph,
+                                 bool restoreReservations = true);
 
     virtual double calculateCurrentSpeed() const = 0;
     virtual void onRoadChanged() {}

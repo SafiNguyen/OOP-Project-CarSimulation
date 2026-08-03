@@ -18,6 +18,7 @@
 #include "Intersection.h"
 #include "Motorbike.h"
 #include "Road.h"
+#include "RoadGeometry.h"
 #include "simulation/TrafficSimulator.h"
 
 namespace {
@@ -94,6 +95,17 @@ int countColorComponents(const sf::Image& image,
 } // namespace
 
 int main() {
+    const TurnSignalVisualSize normalSignal =
+        getTurnSignalVisualSize(7.0f, 3.0f);
+    const TurnSignalVisualSize zoomedOutSignal =
+        getTurnSignalVisualSize(3.5f, 1.5f);
+    assert(std::fabs(
+        normalSignal.radius - zoomedOutSignal.radius * 2.0f) < 0.001f);
+    assert(std::fabs(
+        normalSignal.haloRadius -
+        zoomedOutSignal.haloRadius * 2.0f) < 0.001f);
+    assert(normalSignal.haloRadius < 3.0f);
+
     Intersection start(1, 0.0, 0.0);
     Intersection end(2, 10.0, 0.0);
     Road road(101, "Test", &start, &end, 10.0, 50.0, 1.0);
@@ -159,6 +171,23 @@ int main() {
     assert(foundBusStopBlue);
     assert(foundInnerLaneMarker);
     assert(foundOuterLaneMarker);
+
+    // The congestion strip is centred on the carriageway. Both lane
+    // centres must receive the same heat-map color; drawing only from the
+    // centreline to one side leaves the opposite lane gray.
+    const sf::Color expectedRoadHeat = engine.colorForRoad(busRoad);
+    for (int laneIndex = 0;
+         laneIndex < busRoad->getLaneCount();
+         ++laneIndex) {
+        const Pose2D lanePose = RoadGeometry::sampleLane(
+            *busRoad, laneIndex, 70.0);
+        const sf::Vector2f lanePixel = engine.worldToScreen(
+            lanePose.position.x, lanePose.position.y);
+        assert(rendered.getPixel(
+                   static_cast<unsigned int>(std::lround(lanePixel.x)),
+                   static_cast<unsigned int>(std::lround(lanePixel.y))) ==
+               expectedRoadHeat);
+    }
 
     Graph directionalStopGraph;
     directionalStopGraph.addIntersection(new Intersection(12, 0.0, 0.0));
@@ -324,8 +353,7 @@ int main() {
         map4Image, sf::Color(35, 145, 230), 20);
     assert(map4Components >= 4);
 
-    // Regression: Medium LOD used to hide every functional map marker even
-    // though the lower Minimal tier still rendered compact versions. map4
+    // Regression: Medium LOD used to hide every functional map marker. map4
     // must retain its bus stops (and, through the same branch, stations,
     // POIs and traffic lights) when LOD drops from Full to Medium.
     map4Engine.setLodMode(VisualizationEngine::LodMode::Medium);
@@ -342,6 +370,75 @@ int main() {
     const int map4MediumComponents = countColorComponents(
         map4MediumImage, sf::Color(35, 145, 230), 1);
     assert(map4MediumComponents >= 4);
+
+    // Large maps must still fit the prepared viewport. A previous scaling
+    // shortcut multiplied every coordinate by 10, which made the static
+    // cache cover only a small slice of the graph.
+    Graph denseGraph;
+    for (int index = 0; index < 500; ++index) {
+        denseGraph.addIntersection(new Intersection(
+            10000 + index,
+            static_cast<double>(index),
+            static_cast<double>(index % 25)));
+    }
+    VisualizationEngine denseEngine({800u, 600u});
+    denseEngine.prepare(denseGraph);
+    const auto& densePoints = denseEngine.getRoutePoints();
+    const auto denseMinMaxX = std::minmax_element(
+        densePoints.begin(), densePoints.end(),
+        [](const sf::Vector2f& lhs, const sf::Vector2f& rhs) {
+            return lhs.x < rhs.x;
+        });
+    assert(denseMinMaxX.second->x - denseMinMaxX.first->x <= 704.5f);
+
+    // Manual caps are strict even at extreme zoom, and graph-density detail
+    // is invariant under a proportional window resize.
+    denseEngine.setLodMode(VisualizationEngine::LodMode::Low);
+    sf::RenderTexture denseTarget;
+    assert(denseTarget.create(800u, 600u));
+    sf::View closeView = denseTarget.getDefaultView();
+    closeView.zoom(0.1f);
+    denseTarget.setView(closeView);
+    denseEngine.drawDynamicLayer(denseTarget, denseGraph);
+    assert(denseEngine.getLodLevel() ==
+           VisualizationEngine::LodLevel::Low);
+
+    denseEngine.setLodMode(VisualizationEngine::LodMode::Medium);
+    denseEngine.drawDynamicLayer(denseTarget, denseGraph);
+    assert(denseEngine.getLodLevel() ==
+           VisualizationEngine::LodLevel::Medium);
+
+    sf::View initialOverview(sf::FloatRect(0.0f, 0.0f, 800.0f, 600.0f));
+    const float initialDetail = denseEngine.getDetailScale(initialOverview);
+    denseEngine.setWindowSize({1600u, 1200u});
+    denseEngine.prepare(denseGraph);
+    sf::View resizedOverview(
+        sf::FloatRect(0.0f, 0.0f, 1600.0f, 1200.0f));
+    assert(std::fabs(
+        denseEngine.getDetailScale(resizedOverview) - initialDetail) <
+        0.001f);
+
+    // Exercise the real dense-map label/marker path at close zoom. This
+    // catches regressions in screen-space placement and viewport culling
+    // without writing a diagnostic image into the repository.
+    Graph vnuGraph;
+    std::string vnuError;
+    std::string vnuPath = "map_vnu_hcm_filtered.json";
+    if (!std::filesystem::exists(vnuPath)) {
+        vnuPath = "../map_vnu_hcm_filtered.json";
+    }
+    assert(MapLoad::loadGraphFromJsonFile(vnuPath, vnuGraph, &vnuError));
+    VisualizationEngine vnuEngine({800u, 600u});
+    vnuEngine.prepare(vnuGraph);
+    vnuEngine.setLodMode(VisualizationEngine::LodMode::Full);
+    sf::View vnuCloseView = denseTarget.getDefaultView();
+    vnuCloseView.zoom(0.2f);
+    denseTarget.setView(vnuCloseView);
+    denseTarget.clear(sf::Color(30, 30, 30));
+    vnuEngine.drawDynamicLayer(denseTarget, vnuGraph);
+    denseTarget.display();
+    assert(vnuEngine.getLodLevel() ==
+           VisualizationEngine::LodLevel::Full);
 
     std::cout << "Visualization tests passed" << std::endl;
     return 0;

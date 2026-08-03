@@ -382,6 +382,16 @@ void DebugConsole::setNotice(NoticeTone tone, const std::string& message) {
     noticeTimeRemaining_ = 4.0f;
 }
 
+void DebugConsole::reportRuntimeError(const std::string& message) {
+    setNotice(NoticeTone::ERROR, message);
+    noticeTimeRemaining_ = 10.0f;
+}
+
+void DebugConsole::reportRuntimeWarning(const std::string& message) {
+    setNotice(NoticeTone::WARNING, message);
+    noticeTimeRemaining_ = 7.0f;
+}
+
 void DebugConsole::drawDrawer(sf::RenderWindow& window,
                               std::unique_ptr<TrafficSimulator>& simulator,
                               bool& heatMapEnabled,

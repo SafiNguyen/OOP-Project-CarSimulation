@@ -11,6 +11,7 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
+#include <memory>
 
 #include "../tests/TestFramework.h"
 #include "Graph.h"
@@ -1721,6 +1722,56 @@ void test_SimulatorValidatesPoiEndpointsBeforeQueueing() {
       << invalidDestinationRejected << "\n";
     reportResult(testName, passed, d.str());
 }
+
+void test_PoiMergeUsesLocalGapWhenLaneCountIsAtCapacity() {
+    std::string testName =
+        "Vehicle: POI merge uses the local gap when a long lane reaches its count capacity";
+
+    Intersection start(1, 0.0, 0.0);
+    Intersection end(2, 300.0, 0.0);
+    Road road(101, "Long merge road", &start, &end,
+              300.0, 20.0, 1.0, 1);
+    ParkingLot source(201, "Source", 50.0, -20.0, &start);
+    source.configureRoadAccess(&road, 50.0, 0);
+
+    Car merging(1, 20.0, &start, &end);
+    merging.setSpawnPOI(&source);
+    merging.setMergeSourcePOI(&source);
+    merging.setMergingFromPOI(true, 50.0, 0);
+    const bool routeAssigned =
+        merging.setRouteAt({&road}, 0, 50.0);
+
+    std::vector<std::unique_ptr<LaneTestCar>> distantTraffic;
+    for (int index = 0; index < 10; ++index) {
+        auto vehicle = std::make_unique<LaneTestCar>(
+            10 + index, 20.0, &start, &end);
+        vehicle->setRoute({&road});
+        vehicle->placeOnLane(
+            road, 0, 110.0 + static_cast<double>(index) * 17.0);
+        vehicle->setTestSpeed(10.0);
+        distantTraffic.push_back(std::move(vehicle));
+    }
+
+    merging.update(merging.getPoiAnimationDuration());
+    const bool reachedGapCheck =
+        merging.getPoiMergePhase() == PoiMergePhase::WaitingForGap;
+    merging.update(0.05);
+
+    const bool passed =
+        routeAssigned &&
+        road.getLane(0).getVehicleCount() >=
+            road.getLane(0).getCapacity() &&
+        reachedGapCheck &&
+        merging.getPoiMergePhase() == PoiMergePhase::Committed;
+
+    std::ostringstream d;
+    d << "  Expected: commit because the nearest lane vehicle is 60m ahead\n";
+    d << "  Actual: laneCount=" << road.getLane(0).getVehicleCount()
+      << " capacity=" << road.getLane(0).getCapacity()
+      << " phase=" << static_cast<int>(merging.getPoiMergePhase())
+      << "\n";
+    reportResult(testName, passed, d.str());
+}
 // ----------------------------------------------------------------------------
 // main
 // ----------------------------------------------------------------------------
@@ -1771,6 +1822,7 @@ int main() {
     test_MixedLengthVehiclesUseBumperToBumperGap();
     test_SimulatorDefersUnsafeSpawnUntilEntranceIsClear();
     test_SimulatorValidatesPoiEndpointsBeforeQueueing();
+    test_PoiMergeUsesLocalGapWhenLaneCountIsAtCapacity();
 
 
     printSummary();

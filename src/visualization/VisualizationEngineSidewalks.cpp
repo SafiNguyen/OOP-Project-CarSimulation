@@ -14,9 +14,20 @@ void VisualizationEngine::drawSidewalks(
     std::unordered_set<const Road*> drawn;
     const sf::Color curbColor(72, 76, 76);
     const sf::Color sidewalkColor(188, 186, 174);
+    const ViewportBounds viewportBounds(target.getView(), 24.0f);
     for (const Road* road : graph.getAllRoads()) {
         if (road == nullptr ||
             drawn.count(road) != 0) {
+            continue;
+        }
+
+        const Intersection* start = road->getStart();
+        const Intersection* end = road->getEnd();
+        if (start == nullptr || end == nullptr ||
+            !viewportBounds.intersectsSegment(
+                worldToScreen(start->getX(), start->getY()),
+                worldToScreen(end->getX(), end->getY()),
+                24.0f)) {
             continue;
         }
 
@@ -46,14 +57,14 @@ void VisualizationEngine::drawSidewalks(
                         sideRoad.getDistance());
                 const float sidewalkWidth =
                     std::max(
-                        8.0f,
+                        denseMap_ ? 2.0f : 8.0f,
                         metresToScreenPixels(
                             RoadGeometry::
                                 SIDEWALK_WIDTH_METRES,
                             &sideRoad));
                 const float curbWidth =
                     std::max(
-                        1.0f,
+                        denseMap_ ? 0.75f : 1.0f,
                         metresToScreenPixels(
                             RoadGeometry::
                                 SIDEWALK_CURB_WIDTH_METRES,

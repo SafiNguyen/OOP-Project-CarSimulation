@@ -11,8 +11,8 @@
  *
  * Examples: ParkingLot, BusStation, Hospital.
  *
- * OOP: Inheritance (SpawnPoint IS-A PointOfInterest),
- *      Polymorphism (overrides isSpawnPoint).
+ * OOP: Inheritance (SpawnPoint IS-A PointOfInterest) plus shared capacity
+ *      management for every POI that can act as a configured source.
  */
 class SpawnPoint : public PointOfInterest {
 private:
@@ -25,10 +25,9 @@ public:
                int capacity = 10)
         : PointOfInterest(id, name, type, x, y, nearest),
           capacity(capacity),
-          occupiedSpawnSlots(0) {}
-
-    bool isSpawnPoint() const override { return true; }
-    bool isDestination() const override { return false; }
+          occupiedSpawnSlots(0) {
+        configureLegacyRoles();
+    }
 
     int getCapacity() const { return capacity; }
     void setCapacity(int c) { capacity = c; }
@@ -59,8 +58,6 @@ public:
     ParkingLot(int id, const std::string& name, double x, double y,
                Intersection* nearest = nullptr, int capacity = 20)
         : SpawnPoint(id, name, POIType::PARKING_LOT, x, y, nearest, capacity) {}
-
-    bool isDestination() const override { return true; }
 };
 
 class BusStation : public SpawnPoint {
@@ -105,8 +102,6 @@ public:
             accessProgressMetres,
             accessLaneIndex);
     }
-
-    bool isDestination() const override { return true; }
 
     const std::string& getCode() const { return code_; }
     Intersection* getAccessIntersection() const {
@@ -155,8 +150,25 @@ public:
               y,
               nearest,
               capacity) {}
+};
 
-    bool isDestination() const override { return true; }
+/**
+ * A road-connected endpoint whose simulation roles come from map data rather
+ * than from the finite legacy POIType enum. This is used for open-ended OSM
+ * categories such as hotel, bank, school and clinic.
+ */
+class ConfigurablePOI : public SpawnPoint {
+public:
+    ConfigurablePOI(int id, const std::string& name, double x, double y,
+                    Intersection* nearest = nullptr, int capacity = 10)
+        : SpawnPoint(
+              id,
+              name,
+              POIType::GENERIC,
+              x,
+              y,
+              nearest,
+              capacity) {}
 };
 
 #endif

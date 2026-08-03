@@ -36,8 +36,9 @@ void Bus::captureSnapshot(VehicleSnapshot& snap,
 }
 
 void Bus::restoreSnapshot(const VehicleSnapshot& snap,
-                          Graph& graph) {
-    Vehicle::restoreSnapshot(snap, graph);
+                          Graph& graph,
+                          bool restoreReservations) {
+    Vehicle::restoreSnapshot(snap, graph, restoreReservations);
 
     dwellTime = snap.dwellTime;
     dwellTimer = snap.dwellTimer;
@@ -67,7 +68,8 @@ void Bus::restoreSnapshot(const VehicleSnapshot& snap,
     missedStopIds_ = snap.missedStopIds;
     tripState_ = static_cast<BusTripState>(snap.tripState);
     departureSlotHeld_ = false;
-    if (snap.departureSlotHeld && originStation_ != nullptr) {
+    if (restoreReservations && snap.departureSlotHeld &&
+        originStation_ != nullptr) {
         departureSlotHeld_ =
             originStation_->tryAcquireDepartureSlot();
     }

@@ -79,6 +79,105 @@ bool speedUnitToMetresPerSecondFactor(
     return false;
 }
 
+using VehicleKindMask = PointOfInterest::VehicleKindMask;
+
+struct PoiRoleDefaults {
+    bool spawnEnabled = false;
+    bool destinationEnabled = true;
+    VehicleKindMask spawnKinds = PointOfInterest::NO_VEHICLES;
+    VehicleKindMask destinationKinds =
+        PointOfInterest::CIVILIAN_VEHICLES |
+        PointOfInterest::EMERGENCY_VEHICLES;
+};
+
+PoiRoleDefaults inferOpenEndedPoiRoles(const std::string& rawType) {
+    const std::string type = toLowerCopy(rawType);
+    static const std::unordered_set<std::string> accommodationTypes = {
+        "hotel",
+        "hostel",
+        "motel",
+        "guest_house",
+        "apartment",
+        "apartments",
+        "dormitory"
+    };
+    static const std::unordered_set<std::string> healthTypes = {
+        "clinic",
+        "doctors",
+        "doctor",
+        "dentist",
+        "pharmacy"
+    };
+    static const std::unordered_set<std::string> emergencyBaseTypes = {
+        "police",
+        "fire_station",
+        "ambulance_station"
+    };
+
+    PoiRoleDefaults roles;
+    if (accommodationTypes.count(type) != 0u) {
+        roles.spawnEnabled = true;
+        roles.spawnKinds = PointOfInterest::CIVILIAN_VEHICLES;
+        return roles;
+    }
+    if (healthTypes.count(type) != 0u) {
+        roles.spawnEnabled = true;
+        roles.spawnKinds = PointOfInterest::EMERGENCY_VEHICLES;
+        return roles;
+    }
+    if (emergencyBaseTypes.count(type) != 0u) {
+        roles.spawnEnabled = true;
+        roles.spawnKinds = PointOfInterest::EMERGENCY_VEHICLES;
+        roles.destinationKinds = PointOfInterest::EMERGENCY_VEHICLES;
+        return roles;
+    }
+
+    // Unknown OSM amenities remain useful trip destinations, but do not
+    // automatically become traffic sources. Maps can opt them in explicitly
+    // with spawnEnabled/spawnVehicleKinds.
+    return roles;
+}
+
+bool getVehicleKindsOptional(
+        const json& item,
+        const char* key,
+        VehicleKindMask& kinds,
+        bool& configured,
+        std::string& error) {
+    configured = item.contains(key);
+    if (!configured) {
+        return true;
+    }
+    const json& values = item.at(key);
+    if (!values.is_array()) {
+        error = std::string("Field must be an array: ") + key;
+        return false;
+    }
+
+    kinds = PointOfInterest::NO_VEHICLES;
+    for (const auto& value : values) {
+        if (!value.is_string()) {
+            error = std::string("Field must contain strings: ") + key;
+            return false;
+        }
+        const std::string kind = toLowerCopy(value.get<std::string>());
+        if (kind == "car") {
+            kinds |= PointOfInterest::CAR_VEHICLES;
+        } else if (kind == "bus") {
+            kinds |= PointOfInterest::BUS_VEHICLES;
+        } else if (kind == "motorbike" || kind == "motorcycle") {
+            kinds |= PointOfInterest::MOTORBIKE_VEHICLES;
+        } else if (kind == "emergency") {
+            kinds |= PointOfInterest::EMERGENCY_VEHICLES;
+        } else {
+            error = std::string("Unknown vehicle kind '") + kind +
+                "' in field: " + key;
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 namespace GraphBuilder {
@@ -1287,6 +1386,14 @@ bool buildGraphFromJsonString(const std::string& jsonText, Graph& graph, std::st
 			double accessProgress = 0.0;
 			double positionRatio = 0.0;
 			bool labelOnLeft = false;
+			bool spawnEnabled = false;
+			bool destinationEnabled = false;
+			VehicleKindMask spawnVehicleKinds =
+				PointOfInterest::NO_VEHICLES;
+			VehicleKindMask destinationVehicleKinds =
+				PointOfInterest::NO_VEHICLES;
+			bool hasSpawnVehicleKinds = false;
+			bool hasDestinationVehicleKinds = false;
 			std::string localError;
 
 			if (!MapParser::getInt(item, "id", poiId, localError) ||
@@ -1296,6 +1403,13 @@ bool buildGraphFromJsonString(const std::string& jsonText, Graph& graph, std::st
 				!MapParser::getStringOptional(item, "type", poiTypeStr, localError) ||
 				!MapParser::getBoolOptional(
 					item, "labelOnLeft", labelOnLeft, localError) ||
+				!MapParser::getBoolOptional(
+					item, "spawnEnabled", spawnEnabled, localError) ||
+				!MapParser::getBoolOptional(
+					item,
+					"destinationEnabled",
+					destinationEnabled,
+					localError) ||
 				!MapParser::getIntOptional(
 					item, "nearestIntersection", nearestId, localError) ||
 				!MapParser::getIntOptional(item, "capacity", capacity, localError) ||
@@ -1324,6 +1438,18 @@ bool buildGraphFromJsonString(const std::string& jsonText, Graph& graph, std::st
 					item,
 					"positionRatio",
 					positionRatio,
+					localError) ||
+				!getVehicleKindsOptional(
+					item,
+					"spawnVehicleKinds",
+					spawnVehicleKinds,
+					hasSpawnVehicleKinds,
+					localError) ||
+				!getVehicleKindsOptional(
+					item,
+					"destinationVehicleKinds",
+					destinationVehicleKinds,
+					hasDestinationVehicleKinds,
 					localError)) {
 				if (error) {
 					*error =
@@ -1377,6 +1503,13 @@ bool buildGraphFromJsonString(const std::string& jsonText, Graph& graph, std::st
 				return false;
 			}
 			POIType poiType = PointOfInterest::typeFromString(poiTypeStr);
+			if (!item.contains("spawnWeight") &&
+				(poiType == POIType::RESTAURANT ||
+				 poiType == POIType::CINEMA ||
+				 poiType == POIType::SUPERMARKET ||
+				 poiType == POIType::TOURIST_SPOT)) {
+				spawnWeight = 0.0;
+			}
 
 			PointOfInterest* poi = nullptr;
 			switch (poiType) {
@@ -1408,9 +1541,78 @@ bool buildGraphFromJsonString(const std::string& jsonText, Graph& graph, std::st
 					poi = new TouristSpot(poiId, poiName, px, py, nearest);
 					break;
 				default:
-					poi = new PointOfInterest(poiId, poiName, poiType, px, py, nearest);
+					poi = new ConfigurablePOI(
+						poiId, poiName, px, py, nearest);
 					break;
 			}
+			poi->setSourceType(toLowerCopy(poiTypeStr));
+
+			bool resolvedSpawnEnabled = poi->isSpawnPoint();
+			bool resolvedDestinationEnabled = poi->isDestination();
+			VehicleKindMask resolvedSpawnKinds =
+				poi->getSpawnVehicleKinds();
+			VehicleKindMask resolvedDestinationKinds =
+				poi->getDestinationVehicleKinds();
+			if (poiType == POIType::GENERIC) {
+				const PoiRoleDefaults inferred =
+					inferOpenEndedPoiRoles(poiTypeStr);
+				resolvedSpawnEnabled = inferred.spawnEnabled;
+				resolvedDestinationEnabled = inferred.destinationEnabled;
+				resolvedSpawnKinds = inferred.spawnKinds;
+				resolvedDestinationKinds = inferred.destinationKinds;
+				if (!resolvedSpawnEnabled &&
+					item.contains("spawnWeight") &&
+					spawnWeight > 0.0) {
+					resolvedSpawnEnabled = true;
+					resolvedSpawnKinds =
+						PointOfInterest::CIVILIAN_VEHICLES;
+				}
+			} else if (poiType == POIType::RESTAURANT &&
+				item.contains("spawnWeight") &&
+				spawnWeight > 0.0) {
+				// Legacy maps leave Restaurant origin capability disabled. OSM
+				// imports opt in by providing a positive spawnWeight explicitly.
+				resolvedSpawnEnabled = true;
+				resolvedSpawnKinds =
+					PointOfInterest::CIVILIAN_VEHICLES;
+			}
+			if (item.contains("spawnEnabled")) {
+				resolvedSpawnEnabled = spawnEnabled;
+			}
+			if (item.contains("destinationEnabled")) {
+				resolvedDestinationEnabled = destinationEnabled;
+			}
+			if (hasSpawnVehicleKinds) {
+				resolvedSpawnKinds = spawnVehicleKinds;
+			}
+			if (hasDestinationVehicleKinds) {
+				resolvedDestinationKinds = destinationVehicleKinds;
+			}
+			if (resolvedSpawnEnabled &&
+				resolvedSpawnKinds == PointOfInterest::NO_VEHICLES) {
+				resolvedSpawnKinds =
+					poiType == POIType::BUS_STATION
+						? PointOfInterest::BUS_VEHICLES
+						: (poiType == POIType::HOSPITAL
+							? PointOfInterest::EMERGENCY_VEHICLES
+							: PointOfInterest::CIVILIAN_VEHICLES);
+			}
+			if (resolvedDestinationEnabled &&
+				resolvedDestinationKinds ==
+					PointOfInterest::NO_VEHICLES) {
+				resolvedDestinationKinds =
+					poiType == POIType::BUS_STATION
+						? PointOfInterest::BUS_VEHICLES
+						: (poiType == POIType::HOSPITAL
+							? PointOfInterest::EMERGENCY_VEHICLES
+							: PointOfInterest::CIVILIAN_VEHICLES |
+								  PointOfInterest::EMERGENCY_VEHICLES);
+			}
+			poi->configureMobilityRoles(
+				resolvedSpawnEnabled,
+				resolvedDestinationEnabled,
+				resolvedSpawnKinds,
+				resolvedDestinationKinds);
 			poi->setSpawnWeight(spawnWeight);
 			poi->setDestinationWeight(destinationWeight);
 			poi->setSpawnCooldownSeconds(spawnCooldown);

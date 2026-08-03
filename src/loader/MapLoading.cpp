@@ -46,12 +46,6 @@ bool loadGraphFromPath(AppContext& ctx, const std::string& requestedPath) {
 }
 
 void loadAndRefresh(AppContext& ctx, const std::string& requestedPath) {
-    // Maps start at the requested default: full detail.
-    ctx.visualization.setLodMode(
-        VisualizationEngine::LodMode::Full);
-    ctx.visualization.setLodLevel(
-        VisualizationEngine::LodLevel::Full);
-
     try {
         loadGraphFromPath(ctx, requestedPath);
         ctx.visualization.prepare(ctx.graph);

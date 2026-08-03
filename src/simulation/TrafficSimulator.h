@@ -78,6 +78,8 @@ public:
             highestReservedVehicleId_,
             highestVehicleId);
     }
+    // Reserves and returns one globally unique runtime vehicle id in O(1).
+    int reserveNextVehicleId();
     int getHighestReservedVehicleId() const {
         return highestReservedVehicleId_;
     }
@@ -140,6 +142,9 @@ public:
     // simulated time so playback history is always available. Setting
     // intervalSeconds <= 0 disables auto-capture.
     void setSnapshotInterval(double intervalSeconds);
+    // Keeps capture disabled while a large deferred demand is materialized,
+    // then enables the requested interval as soon as preparation completes.
+    void setSnapshotIntervalAfterDeferredDemand(double intervalSeconds);
     double getSnapshotInterval() const { return snapshotIntervalSeconds_; }
     // Time of the last auto-snapshot (for deciding when to capture next).
     double getLastSnapshotTime() const { return lastSnapshotTime_; }
@@ -156,13 +161,19 @@ public:
     // Captures a snapshot right now (manual trigger from UI/keyboard).
     // Returns the new snapshot index.
     std::size_t captureSnapshotNow();
+    const std::string& getSnapshotStatusMessage() const {
+        return snapshotStatusMessage_;
+    }
 
 private:
     // Called from update() once per frame; applies auto-capture policy.
     void maybeAutoCaptureSnapshot();
+    void refreshSnapshotCapacity();
 
     double snapshotIntervalSeconds_ = 5.0;
+    double snapshotIntervalAfterDeferredDemand_ = 0.0;
     double lastSnapshotTime_ = 0.0;
+    std::string snapshotStatusMessage_;
     std::unique_ptr<SnapshotManager> snapshotManager_;
     std::unique_ptr<TimePlaybackController> playbackController_;
     friend class SnapshotManager;

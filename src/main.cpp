@@ -86,10 +86,9 @@ std::string resolveInitialMapPath(int argc, char** argv) {
     if (argc > 1) {
         return argv[1];
     }
-    if (std::filesystem::exists("map.json")) {
-        return "map.json";
-    }
-    return "";
+    // Map loading searches parent directories, so keep the default stable
+    // even when the executable is launched from build-msvc/bin/Debug.
+    return "map4.json";
 }
 
 bool loadSnapshotFont(sf::Font& font) {
@@ -541,7 +540,7 @@ int main(int argc, char** argv) {
 
     AppContext ctx(graph, visualization, window, windowW, windowH);
     ctx.view = window.getDefaultView();
-    ctx.mapPathInput = path.empty() ? "map.json" : path;
+    ctx.mapPathInput = path.empty() ? "map4.json" : path;
     visualization.setHeatMapEnabled(ctx.heatMapEnabled);
 
     std::function<std::unique_ptr<TrafficSimulator>(int)>
@@ -570,37 +569,34 @@ int main(int argc, char** argv) {
     std::unique_ptr<TrafficSimulator> simulator;
     StatsPanel statsPanel;
     VehicleInspector vehicleInspector;
+    std::string lastRuntimeMessage;
+    std::string lastSnapshotMessage;
+
+    const auto reportRecoverableError =
+        [&](const std::string& message) {
+            if (message.empty() || message == lastRuntimeMessage) {
+                return;
+            }
+            lastRuntimeMessage = message;
+            std::cerr << "[Runtime] " << message << std::endl;
+            if (simulator) {
+                simulator->pause();
+            }
+            debugConsole.reportRuntimeError(message);
+        };
 
     sf::Clock clock;
 
-    // Adaptive level-of-detail controller. Tracks a sliding window of frame
-    // times and adjusts the renderer's LOD based on measured performance.
-    //
-    // Design goals:
-    //   * The default LOD when a map loads is always Low (most optimized).
-    //     prepare() resets lodLevel_ to Low, and this controller picks that
-    //     up by syncing currentLod from the engine each frame.
-    //   * In Auto mode the controller only ever escalates to Medium — never
-    //     Full. Full LOD is exclusively a manual user choice (via the LOD
-    //     button in the bottom dock). This prevents the "LOD bumps to Full,
-    //     FPS collapses, LOD drops back" oscillation that previously left
-    //     bus stops / POIs / traffic lights / road names permanently visible.
-    //   * Hysteresis: the restore threshold (58 FPS) is deliberately very
-    //     close to the 60 FPS frame-rate cap so the controller only escalates
-    //     when performance is genuinely and consistently high.
+    // FPS is averaged here; zoom/density policy and hysteresis live in the
+    // visualization engine so UI modes and rendered tiers cannot diverge.
     constexpr int kLodWindowFrames = 30;
-    constexpr float kLodDropFps = 35.0f;
-    constexpr float kLodRestoreFps = 58.0f;
     std::vector<float> lodFrameTimes;
     lodFrameTimes.reserve(kLodWindowFrames);
-    VisualizationEngine::LodLevel currentLod =
-        VisualizationEngine::LodLevel::Full;
-    visualization.setLodLevel(VisualizationEngine::LodLevel::Full);
 
     while (window.isOpen()) {
         const float dt = clock.restart().asSeconds();
 
-        // Update the FPS sliding window and adapt the LOD level if in Auto mode.
+        // Feed a smoothed sample to Auto mode. Manual modes ignore it.
         if (dt > 0.0f) {
             lodFrameTimes.push_back(dt);
             if (static_cast<int>(lodFrameTimes.size()) >
@@ -618,43 +614,37 @@ int main(int argc, char** argv) {
                     ? 1.0f / averageFrameTime
                     : 999.0f;
 
-            if (visualization.getLodMode() ==
-                VisualizationEngine::LodMode::Auto) {
-                // Sync with the engine so that prepare() resetting lodLevel_
-                // to Low on map load is immediately reflected here.
-                currentLod = visualization.getLodLevel();
-
-                if (averageFps < kLodDropFps &&
-                    currentLod != VisualizationEngine::LodLevel::Low) {
-                    // Drop one step: Medium -> Minimal -> Low.
-                    currentLod = currentLod == VisualizationEngine::LodLevel::Medium
-                        ? VisualizationEngine::LodLevel::Minimal
-                        : VisualizationEngine::LodLevel::Low;
-                    visualization.setLodLevel(currentLod);
-                } else if (averageFps > kLodRestoreFps &&
-                           currentLod != VisualizationEngine::LodLevel::Medium) {
-                    // Restore one step: Low -> Minimal -> Medium.
-                    currentLod = currentLod == VisualizationEngine::LodLevel::Low
-                        ? VisualizationEngine::LodLevel::Minimal
-                        : VisualizationEngine::LodLevel::Medium;
-                    visualization.setLodLevel(currentLod);
-                }
-            } else {
-                currentLod = visualization.getLodLevel();
-            }
+            visualization.updateAutoLod(averageFps);
         }
 
         sf::Event event;
         while (window.pollEvent(event)) {
-            handleEvent(event, ctx, debugConsole, simulator, vehicleInspector);
+            try {
+                handleEvent(
+                    event, ctx, debugConsole,
+                    simulator, vehicleInspector);
+            } catch (const std::bad_alloc&) {
+                reportRecoverableError(
+                    "The requested action ran out of memory. "
+                    "Simulation was paused and the window remains open.");
+            } catch (const std::exception& exception) {
+                reportRecoverableError(
+                    std::string("Input action failed: ") +
+                    exception.what());
+            } catch (...) {
+                reportRecoverableError(
+                    "Input action failed with an unknown error.");
+            }
         }
 
         if (simulator) {
             if (auto* playback = simulator->getPlaybackController()) {
                 std::string playbackError;
                 if (!playback->applyPendingSeek(&playbackError)) {
-                    std::cerr << "Playback restore failed: "
-                              << playbackError << std::endl;
+                    reportRecoverableError(
+                        playbackError.empty()
+                            ? "Playback restore failed."
+                            : playbackError);
                 }
             }
         }
@@ -662,10 +652,46 @@ int main(int argc, char** argv) {
         ImGui::SFML::Update(window, sf::seconds(dt));
 
         if (simulator) {
-            simulator->update(dt);
+            try {
+                simulator->update(dt);
+            } catch (const std::bad_alloc&) {
+                reportRecoverableError(
+                    "Simulation ran out of memory and was paused. "
+                    "Reduce the active load or clear playback history.");
+            } catch (const std::exception& exception) {
+                reportRecoverableError(
+                    std::string("Simulation update failed: ") +
+                    exception.what());
+            } catch (...) {
+                reportRecoverableError(
+                    "Simulation update failed with an unknown error.");
+            }
+
+            const std::string& snapshotMessage =
+                simulator->getSnapshotStatusMessage();
+            if (!snapshotMessage.empty() &&
+                snapshotMessage != lastSnapshotMessage) {
+                lastSnapshotMessage = snapshotMessage;
+                std::cerr << "[Snapshot] "
+                          << snapshotMessage << std::endl;
+                debugConsole.reportRuntimeWarning(snapshotMessage);
+            } else if (snapshotMessage.empty()) {
+                lastSnapshotMessage.clear();
+            }
         }
 
-        updateCamera(ctx, simulator.get(), dt);
+        try {
+            updateCamera(ctx, simulator.get(), dt);
+        } catch (const std::exception& exception) {
+            stopFollowingVehicle(ctx);
+            reportRecoverableError(
+                std::string("Camera follow was stopped: ") +
+                exception.what());
+        } catch (...) {
+            stopFollowingVehicle(ctx);
+            reportRecoverableError(
+                "Camera follow was stopped after an unknown error.");
+        }
 
         renderFrame(ctx, debugConsole, simulator, statsPanel, vehicleInspector, dt);
     }

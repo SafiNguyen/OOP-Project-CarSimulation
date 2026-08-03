@@ -843,11 +843,15 @@ bool Vehicle::canCommitPoiMerge() const {
 
     const Lane& mergeLane =
         currentRoad->getLane(mergeLaneIndex);
-    if (mergeLane.isBlocked() ||
-        mergeLane.getVehicleCount() >=
-            mergeLane.getCapacity()) {
+    if (mergeLane.isBlocked()) {
         return false;
     }
+
+    // Lane capacity is an admission/queueing limit, not a spatial gap.
+    // A long lane can reach that count while every vehicle is far away from
+    // this driveway.  The leader/follower checks below are the authoritative
+    // local safety test and prevent a POI vehicle from starving outside an
+    // otherwise empty merge area.
 
     Intersection* entrance = currentRoad->getStart();
     if (entrance != nullptr &&
@@ -1047,7 +1051,8 @@ void Vehicle::captureSnapshot(VehicleSnapshot& snap,
 }
 
 void Vehicle::restoreSnapshot(const VehicleSnapshot& snap,
-                              Graph& graph) {
+                              Graph& graph,
+                              bool restoreReservations) {
     id = snap.id;
     baseSpeed = snap.baseSpeed;
     spawnPoint = snap.spawnPointId >= 0
@@ -1164,7 +1169,7 @@ void Vehicle::restoreSnapshot(const VehicleSnapshot& snap,
     currentLeader_ = nullptr;
 
     reservedSpawnPoint_ = nullptr;
-    if (snap.reservedSpawnPointId >= 0) {
+    if (restoreReservations && snap.reservedSpawnPointId >= 0) {
         PointOfInterest* poi =
             graph.getPointOfInterest(snap.reservedSpawnPointId);
         const auto* spawn = dynamic_cast<const SpawnPoint*>(poi);

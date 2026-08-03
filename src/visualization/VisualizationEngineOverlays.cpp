@@ -1,6 +1,7 @@
 #include "VisualizationEngine.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
@@ -21,6 +22,77 @@ constexpr unsigned int kMinimumRoadLabelSize = 9u;
 constexpr unsigned int kMaximumRoadLabelSize = 13u;
 constexpr float kRoundaboutCenterCropRadiusFraction = 0.245f;
 constexpr int kRoundaboutCenterSegments = 64;
+
+bool isLowValueRoadName(const std::string& name) {
+    std::string normalized;
+    normalized.reserve(name.size());
+    std::size_t letterCount = 0u;
+    std::size_t digitCount = 0u;
+    for (const unsigned char character : name) {
+        if (std::isspace(character)) {
+            if (!normalized.empty() && normalized.back() != ' ') {
+                normalized.push_back(' ');
+            }
+        } else {
+            normalized.push_back(static_cast<char>(
+                std::tolower(character)));
+        }
+        letterCount += std::isalpha(character) != 0 ? 1u : 0u;
+        digitCount += std::isdigit(character) != 0 ? 1u : 0u;
+    }
+    while (!normalized.empty() && normalized.back() == ' ') {
+        normalized.pop_back();
+    }
+
+    static const std::unordered_set<std::string> genericNames = {
+        "primary", "primary link", "secondary", "secondary link",
+        "residential"
+    };
+    return genericNames.count(normalized) != 0u ||
+           letterCount == 0u ||
+           (letterCount <= 2u && digitCount >= 3u);
+}
+
+float squaredDistance(
+    const sf::Vector2f& first,
+    const sf::Vector2f& second) {
+    const float dx = first.x - second.x;
+    const float dy = first.y - second.y;
+    return dx * dx + dy * dy;
+}
+
+float visibleSegmentLengthPixels(
+    sf::Vector2f start,
+    sf::Vector2f end,
+    sf::Vector2u targetSize) {
+    const float dx = end.x - start.x;
+    const float dy = end.y - start.y;
+    float first = 0.0f;
+    float last = 1.0f;
+    const auto clip = [&first, &last](float direction, float distance) {
+        if (std::abs(direction) < 0.0001f) {
+            return distance >= 0.0f;
+        }
+        const float ratio = distance / direction;
+        if (direction < 0.0f) {
+            if (ratio > last) return false;
+            first = std::max(first, ratio);
+        } else {
+            if (ratio < first) return false;
+            last = std::min(last, ratio);
+        }
+        return true;
+    };
+
+    if (!clip(-dx, start.x) ||
+        !clip(dx, static_cast<float>(targetSize.x) - start.x) ||
+        !clip(-dy, start.y) ||
+        !clip(dy, static_cast<float>(targetSize.y) - start.y) ||
+        last < first) {
+        return 0.0f;
+    }
+    return std::sqrt(dx * dx + dy * dy) * (last - first);
+}
 
 struct RoundaboutCenterAsset {
     sf::Texture texture;
@@ -239,7 +311,7 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
     // map with hundreds of tiny markers.
     const float detailScale = getDetailScale(target.getView());
     const float textRenderScale = getTextRenderScale(target.getView());
-    if (detailScale < (lodLevel_ == LodLevel::Minimal ? 0.12f : 0.20f)) {
+    if (detailScale < 0.20f) {
         return;
     }
     // Cap the detail scale so markers never grow unboundedly when zooming
@@ -253,6 +325,7 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
     const float outlineThickness = std::max(0.5f, 1.0f * cappedScale);
     const unsigned int labelSize = static_cast<unsigned int>(
         std::clamp(5.0f * cappedScale, 2.5f, 6.0f));
+    const ViewportBounds viewportBounds(target.getView(), 20.0f);
 
     for (const Road* road : graph.getAllRoads()) {
         if (road == nullptr || road->getStart() == nullptr || road->getEnd() == nullptr) {
@@ -261,6 +334,10 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
 
         const sf::Vector2f roadStart = getRoadEntryPoint(road, road->getStart());
         const sf::Vector2f roadEnd = getRoadEntryPoint(road, road->getEnd());
+        if (!viewportBounds.intersectsSegment(
+                roadStart, roadEnd, 20.0f)) {
+            continue;
+        }
         const sf::Vector2f normal = roadNormal(roadStart, roadEnd);
         const float laneWidth = getLaneWidthPixels(road);
         const float totalWidth =
@@ -289,22 +366,6 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
             const sf::Vector2f markerPos =
                 roadEdge + normal * (edgeDirection * markerOffset);
 
-            if (lodLevel_ == LodLevel::Minimal) {
-                const float width = 6.0f * cappedScale;
-                const float height = 4.0f * cappedScale;
-                sf::RectangleShape terminal({width, height});
-                terminal.setOrigin(width * 0.5f, height * 0.5f);
-                terminal.setPosition(markerPos);
-                terminal.setFillColor(sf::Color(35, 145, 230));
-                target.draw(terminal);
-                sf::RectangleShape bay({width * 0.42f, height * 0.3f});
-                bay.setOrigin(width * 0.21f, height * 0.15f);
-                bay.setPosition(markerPos);
-                bay.setFillColor(sf::Color::White);
-                target.draw(bay);
-                continue;
-            }
-
             drawRoadStrip(
                 target, roadEdge, markerPos,
                 sf::Color(225, 235, 245), 2.5f * detailScale);
@@ -327,7 +388,8 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
                 stop->getCode().empty()
                     ? std::to_string(stop->getId())
                     : stop->getCode();
-            if (font_) {
+            if (font_ &&
+                (lodLevel_ == LodLevel::Full || !denseMap_)) {
                 sf::Text number;
                 number.setFont(*font_);
                 number.setString(stopCode);
@@ -376,7 +438,7 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
     // past a threshold. With thousands of intersections, drawing every
     // signal at a small zoom is both visually cluttered and expensive.
     const float detailScale = getDetailScale(target.getView());
-    if (detailScale < (lodLevel_ == LodLevel::Minimal ? 0.18f : 0.28f)) {
+    if (detailScale < 0.28f) {
         return;
     }
 
@@ -450,25 +512,6 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                 outwardDirection /= outwardLength;
             } else {
                 outwardDirection = {0.0f, -1.0f};
-            }
-
-            if (lodLevel_ == LodLevel::Minimal) {
-                constexpr float radius = 2.0f;
-                constexpr float spacing = 5.0f;
-                const sf::Vector2f center = signalAnchor + outwardDirection * (spacing * 2.0f);
-                const LightState state = light->getState();
-                const sf::Color off(48, 50, 52);
-                const auto lamp = [&target, radius](const sf::Vector2f& position, const sf::Color& color) {
-                    sf::CircleShape shape(radius, 8);
-                    shape.setOrigin(radius, radius);
-                    shape.setPosition(position);
-                    shape.setFillColor(color);
-                    target.draw(shape);
-                };
-                lamp(center - outwardDirection * spacing, state == LightState::RED ? lightColor(LightState::RED) : off);
-                lamp(center, state == LightState::YELLOW ? lightColor(LightState::YELLOW) : off);
-                lamp(center + outwardDirection * spacing, state == LightState::GREEN ? lightColor(LightState::GREEN) : off);
-                continue;
             }
 
             const float laneWidth =
@@ -600,9 +643,7 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
             // The countdown is a projection of the same simulation clock.
             // Its compact square cell is attached to the outer end of the
             // approach-oriented signal, matching the corner placement.
-            // The compact Minimal signal consists only of three lamps.
-            // Keep the timer box out of that tier even if this function is
-            // later refactored to share more of the full-detail path.
+            // Countdown text is Full-only; Medium retains the signal state.
             if (lodLevel_ == LodLevel::Full && detailScale >= 0.7f) {
                 sf::RectangleShape countdownBox(
                     {countdownSize, countdownSize});
@@ -682,7 +723,9 @@ void VisualizationEngine::drawBusStations(
     const float outlineThickness = std::max(0.25f, 0.75f * cappedScale);
     const unsigned int labelSize = static_cast<unsigned int>(
         std::clamp(4.0f * cappedScale, 2.5f, 5.0f));
-    const bool showLabel = detailScale >= 0.25f;
+    const bool showLabel =
+        lodLevel_ == LodLevel::Full &&
+        (!denseMap_ || detailScale >= 0.85f);
 
     const ViewportBounds viewportBounds(target.getView(), 10.0f);
     for (const BusStation* station :
@@ -1160,9 +1203,13 @@ float VisualizationEngine::getIntersectionBoxHalfExtent(const Intersection* inte
 float VisualizationEngine::getLaneWidthPixels(
     const Road* road) const {
     if (road == nullptr) return 1.0f;
-    return static_cast<float>(
+    const float naturalWidth = static_cast<float>(
         road->getLaneWidthMetres() /
         RoadGeometry::metresPerWorldUnit(*road) * scale_);
+    // Imported maps no longer magnify every coordinate by a hard-coded 10x.
+    // A small per-lane floor keeps their roads visible at overview zoom;
+    // normal maps retain their physical pixel width unchanged.
+    return denseMap_ ? std::max(1.0f, naturalWidth) : naturalWidth;
 }
 
 sf::Color VisualizationEngine::getIntersectionBoxColor(const Intersection* intersection, bool tintByCongestion) const {
@@ -1300,14 +1347,16 @@ void VisualizationEngine::drawPOIDriveways(
 
 void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph) const {
     const float detailScale = getDetailScale(target.getView());
-    if (detailScale < (lodLevel_ == LodLevel::Minimal ? 0.12f : 0.20f)) {
+    if (detailScale < 0.20f) {
         return;
     }
     // Cap the detail scale so POI markers never grow unboundedly when
     // zooming in very far. The base sizes are tuned for detailScale ~1.0.
     const float cappedScale = std::min(detailScale, 1.5f);
     const auto& pois = graph.getAllPOIs();
-    const bool showLabels = true;
+    const bool showLabels =
+        lodLevel_ == LodLevel::Full &&
+        (!denseMap_ || detailScale >= 1.0f);
     const float buildingSize = std::max(3.5f, 5.0f * cappedScale);
     const float halfSize = buildingSize * 0.5f;
     const float outlineThickness = std::max(0.25f, 0.5f * cappedScale);
@@ -1328,43 +1377,6 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
         else if (poi->getType() == POIType::HOSPITAL) poiColor = sf::Color(255, 50, 50);
         else if (poi->getType() == POIType::RESIDENTIAL_AREA) poiColor = sf::Color(90, 190, 220);
         else if (poi->getType() == POIType::SUPERMARKET) poiColor = sf::Color(200, 200, 50);
-
-        if (lodLevel_ == LodLevel::Minimal) {
-            const float markerSize = std::max(3.0f, 3.5f * cappedScale);
-            sf::RectangleShape marker({markerSize, markerSize});
-            marker.setOrigin(markerSize * 0.5f, markerSize * 0.5f);
-            marker.setPosition(pos);
-            marker.setFillColor(poiColor);
-            target.draw(marker);
-
-            if (poi->getType() == POIType::HOSPITAL) {
-                const float crossThickness = std::max(1.0f, markerSize * 0.22f);
-                sf::RectangleShape horizontal({markerSize * 0.72f, crossThickness});
-                horizontal.setOrigin(markerSize * 0.36f, crossThickness * 0.5f);
-                horizontal.setPosition(pos);
-                horizontal.setFillColor(sf::Color::White);
-                target.draw(horizontal);
-                sf::RectangleShape vertical({crossThickness, markerSize * 0.72f});
-                vertical.setOrigin(crossThickness * 0.5f, markerSize * 0.36f);
-                vertical.setPosition(pos);
-                vertical.setFillColor(sf::Color::White);
-                target.draw(vertical);
-            }
-
-            if (font_) {
-                sf::Text name;
-                name.setFont(*font_);
-                name.setString(poi->getName());
-                name.setCharacterSize(5u);
-                name.setScale(getTextRenderScale(target.getView()), getTextRenderScale(target.getView()));
-                name.setFillColor(sf::Color::White);
-                name.setOutlineColor(sf::Color::Black);
-                name.setOutlineThickness(1.0f);
-                name.setPosition(pos.x + markerSize, pos.y - markerSize);
-                target.draw(name);
-            }
-            continue;
-        }
 
         // Draw building, scaled with the zoom level.
         sf::RectangleShape building(sf::Vector2f(buildingSize, buildingSize));
@@ -1454,9 +1466,7 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
 void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vector<Road*>& roads) const {
     if (!font_) return;
 
-    // Road labels stay visible at every zoom level. Their character size
-    // is still clamped below, so distant labels remain compact.
-
+    if (!denseMap_) {
     const ViewportBounds viewportBounds(
         target.getView(),
         2.0f);
@@ -1562,5 +1572,218 @@ void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vec
         target.draw(plate);
 
         target.draw(text);
+    }
+        return;
+    }
+
+    const ViewportBounds viewportBounds(target.getView(), 12.0f);
+    const sf::Vector2u targetSize = target.getSize();
+    const bool fullDetail = lodLevel_ == LodLevel::Full;
+    const float minimumSegmentPixels = fullDetail ? 58.0f : 100.0f;
+
+    roadLabelCandidates_.clear();
+    for (const Road* road : roads) {
+        if (road == nullptr || road->getName().empty() ||
+            road->getStart() == nullptr || road->getEnd() == nullptr) {
+            continue;
+        }
+        const Road* reverse = road->getReverseRoad();
+        if (reverse != nullptr && road->getId() > reverse->getId()) {
+            continue;
+        }
+
+        const bool lowValueName = isLowValueRoadName(road->getName());
+        if (!fullDetail && lowValueName) {
+            continue;
+        }
+
+        const sf::Vector2f start = getRoadCenterlineEntryPoint(
+            road, road->getStart());
+        const sf::Vector2f end = getRoadCenterlineEntryPoint(
+            road, road->getEnd());
+        if (!viewportBounds.intersectsSegment(start, end, 12.0f)) {
+            continue;
+        }
+
+        const sf::Vector2i startPixel = target.mapCoordsToPixel(start);
+        const sf::Vector2i endPixel = target.mapCoordsToPixel(end);
+        const sf::Vector2f screenStart(
+            static_cast<float>(startPixel.x),
+            static_cast<float>(startPixel.y));
+        const sf::Vector2f screenEnd(
+            static_cast<float>(endPixel.x),
+            static_cast<float>(endPixel.y));
+        const float visibleLength = visibleSegmentLengthPixels(
+            screenStart, screenEnd, targetSize);
+        if (visibleLength < minimumSegmentPixels ||
+            (lowValueName && visibleLength < 150.0f)) {
+            continue;
+        }
+
+        RoadLabelCandidate candidate;
+        candidate.road = road;
+        candidate.start = start;
+        candidate.end = end;
+        candidate.midpoint = (start + end) * 0.5f;
+        const sf::Vector2i midpointPixel =
+            target.mapCoordsToPixel(candidate.midpoint);
+        candidate.screenMidpoint = {
+            static_cast<float>(midpointPixel.x),
+            static_cast<float>(midpointPixel.y)
+        };
+        constexpr float kMidpointMarginPixels = 24.0f;
+        if (candidate.screenMidpoint.x < -kMidpointMarginPixels ||
+            candidate.screenMidpoint.y < -kMidpointMarginPixels ||
+            candidate.screenMidpoint.x >
+                static_cast<float>(targetSize.x) + kMidpointMarginPixels ||
+            candidate.screenMidpoint.y >
+                static_cast<float>(targetSize.y) + kMidpointMarginPixels) {
+            continue;
+        }
+        candidate.visibleLengthPixels = visibleLength;
+        candidate.lowValueName = lowValueName;
+        candidate.angle = std::atan2(
+            end.y - start.y,
+            end.x - start.x) * 180.0f / 3.14159265f;
+        if (candidate.angle > 90.0f || candidate.angle < -90.0f) {
+            candidate.angle += 180.0f;
+        }
+        roadLabelCandidates_.push_back(candidate);
+    }
+
+    std::sort(
+        roadLabelCandidates_.begin(),
+        roadLabelCandidates_.end(),
+        [](const RoadLabelCandidate& first,
+           const RoadLabelCandidate& second) {
+            if (first.lowValueName != second.lowValueName) {
+                return !first.lowValueName;
+            }
+            if (first.visibleLengthPixels != second.visibleLengthPixels) {
+                return first.visibleLengthPixels > second.visibleLengthPixels;
+            }
+            return first.road->getId() < second.road->getId();
+        });
+
+    acceptedRoadLabelIndices_.clear();
+    acceptedRoadLabelBounds_.clear();
+    const std::size_t pixelArea =
+        static_cast<std::size_t>(targetSize.x) * targetSize.y;
+    const std::size_t labelBudget = std::clamp<std::size_t>(
+        pixelArea / (fullDetail ? 18000u : 30000u),
+        12u,
+        fullDetail ? 72u : 32u);
+    const float sameNameSpacing = fullDetail ? 170.0f : 240.0f;
+    const float sameNameSpacingSquared =
+        sameNameSpacing * sameNameSpacing;
+    const float textScale = getTextRenderScale(target.getView());
+    const float worldUnitsPerPixel = std::max(
+        std::abs(target.getView().getSize().x) /
+            static_cast<float>(std::max(1u, targetSize.x)),
+        std::abs(target.getView().getSize().y) /
+            static_cast<float>(std::max(1u, targetSize.y)));
+
+    for (std::size_t candidateIndex = 0;
+         candidateIndex < roadLabelCandidates_.size() &&
+         acceptedRoadLabelIndices_.size() < labelBudget;
+         ++candidateIndex) {
+        const RoadLabelCandidate& candidate =
+            roadLabelCandidates_[candidateIndex];
+
+        bool nameTooClose = false;
+        for (const std::size_t acceptedIndex :
+             acceptedRoadLabelIndices_) {
+            const RoadLabelCandidate& accepted =
+                roadLabelCandidates_[acceptedIndex];
+            if (candidate.road->getName() == accepted.road->getName() &&
+                squaredDistance(
+                    candidate.screenMidpoint,
+                    accepted.screenMidpoint) < sameNameSpacingSquared) {
+                nameTooClose = true;
+                break;
+            }
+        }
+        if (nameTooClose) {
+            continue;
+        }
+
+        sf::Text text;
+        text.setFont(*font_);
+        text.setString(candidate.road->getName());
+        unsigned int characterSize =
+            candidate.lowValueName ? 9u : (fullDetail ? 11u : 10u);
+        text.setCharacterSize(characterSize);
+        text.setStyle(sf::Text::Bold);
+        text.setFillColor(sf::Color::White);
+        text.setOutlineColor(sf::Color(12, 18, 22, 225));
+        text.setOutlineThickness(1.0f);
+        text.setScale(textScale, textScale);
+
+        constexpr float kEdgeMarginPixels = 8.0f;
+        sf::FloatRect textBounds = text.getLocalBounds();
+        while (characterSize > kMinimumRoadLabelSize &&
+               textBounds.width + kEdgeMarginPixels * 2.0f >
+                   candidate.visibleLengthPixels) {
+            text.setCharacterSize(--characterSize);
+            textBounds = text.getLocalBounds();
+        }
+        if (textBounds.width + kEdgeMarginPixels * 2.0f >
+            candidate.visibleLengthPixels) {
+            continue;
+        }
+
+        constexpr float kCollisionPaddingPixels = 5.0f;
+        const float radians =
+            candidate.angle * 3.14159265f / 180.0f;
+        const float cosine = std::abs(std::cos(radians));
+        const float sine = std::abs(std::sin(radians));
+        const float boxWidth =
+            cosine * textBounds.width + sine * textBounds.height +
+            kCollisionPaddingPixels * 2.0f;
+        const float boxHeight =
+            sine * textBounds.width + cosine * textBounds.height +
+            kCollisionPaddingPixels * 2.0f;
+        const sf::FloatRect screenBounds(
+            candidate.screenMidpoint.x - boxWidth * 0.5f,
+            candidate.screenMidpoint.y - boxHeight * 0.5f,
+            boxWidth,
+            boxHeight);
+        bool overlaps = false;
+        for (const sf::FloatRect& acceptedBounds :
+             acceptedRoadLabelBounds_) {
+            if (screenBounds.intersects(acceptedBounds)) {
+                overlaps = true;
+                break;
+            }
+        }
+        if (overlaps) {
+            continue;
+        }
+
+        text.setOrigin(
+            textBounds.left + textBounds.width * 0.5f,
+            textBounds.top + textBounds.height * 0.5f);
+        text.setPosition(candidate.midpoint);
+        text.setRotation(candidate.angle);
+
+        constexpr float kPlatePaddingXPixels = 3.0f;
+        constexpr float kPlatePaddingYPixels = 1.0f;
+        sf::RectangleShape plate({
+            textBounds.width * textScale +
+                kPlatePaddingXPixels * 2.0f * worldUnitsPerPixel,
+            textBounds.height * textScale +
+                kPlatePaddingYPixels * 2.0f * worldUnitsPerPixel
+        });
+        plate.setOrigin(
+            plate.getSize().x * 0.5f,
+            plate.getSize().y * 0.5f);
+        plate.setPosition(candidate.midpoint);
+        plate.setRotation(candidate.angle);
+        plate.setFillColor(sf::Color(12, 18, 22, 90));
+        target.draw(plate);
+        target.draw(text);
+
+        acceptedRoadLabelIndices_.push_back(candidateIndex);
+        acceptedRoadLabelBounds_.push_back(screenBounds);
     }
 }

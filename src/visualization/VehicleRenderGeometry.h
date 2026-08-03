@@ -11,6 +11,28 @@ struct VehicleScreenSize {
     float widthPixels = 0.0f;
 };
 
+struct TurnSignalVisualSize {
+    float radius = 0.0f;
+    float haloRadius = 0.0f;
+};
+
+// Turn signals are expressed in the same render-space units as the vehicle
+// body. SFML therefore scales both together as the view zoom changes. The
+// caps keep even the flashing halo comfortably inside the vehicle footprint.
+inline TurnSignalVisualSize getTurnSignalVisualSize(
+    float vehicleHalfLength,
+    float vehicleHalfWidth) {
+    const float safeHalfLength = std::max(0.0f, vehicleHalfLength);
+    const float safeHalfWidth = std::max(0.0f, vehicleHalfWidth);
+    const float radius = std::min(
+        safeHalfLength * 0.16f,
+        safeHalfWidth * 0.40f);
+    return {
+        radius,
+        std::min(radius * 1.35f, safeHalfWidth * 0.58f)
+    };
+}
+
 inline VehicleScreenSize getVehicleScreenSize(
     const Vehicle& vehicle,
     const VisualizationEngine& visualization) {

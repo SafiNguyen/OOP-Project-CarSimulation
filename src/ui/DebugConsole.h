@@ -112,6 +112,10 @@ public:
     // considers "selected", instead of a separate duplicate A* object.
     PathFindingStrategy* getSelectedStrategy();
 
+    // Surfaces a recoverable runtime failure without closing the app.
+    void reportRuntimeError(const std::string& message);
+    void reportRuntimeWarning(const std::string& message);
+
 private:
     enum class PickTarget { NONE, ADD_ROAD_START, ADD_ROAD_END, SPAWN_START, SPAWN_END, TRAFFIC_LIGHT_INTERSECTION };
     enum class DrawerTab { OVERVIEW, PERFORMANCE, MAP, ROAD_TOOLS, SIMULATION, DEBUG };

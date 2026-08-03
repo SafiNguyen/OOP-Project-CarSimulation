@@ -715,8 +715,9 @@
             "x": 225.0,
             "y": 225.0,
             "type": "supermarket",
-            "spawnWeight": 0.0,
+            "spawnWeight": 1.0,
             "destinationWeight": 1.5,
+            "spawnCooldown": 1.3,
             "accessRoadId": 109,
             "accessProgress": 150.0,
             "accessLane": 1
@@ -727,8 +728,9 @@
             "x": 425.0,
             "y": 125.0,
             "type": "cinema",
-            "spawnWeight": 0.0,
+            "spawnWeight": 1.0,
             "destinationWeight": 1.1,
+            "spawnCooldown": 1.3,
             "accessRoadId": -212,
             "accessProgress": 50.0,
             "accessLane": 1
@@ -754,8 +756,9 @@
             "x": 325.0,
             "y": 75.0,
             "type": "tourist_spot",
-            "spawnWeight": 0.0,
+            "spawnWeight": 1.0,
             "destinationWeight": 0.9,
+            "spawnCooldown": 1.3,
             "accessRoadId": -102,
             "accessProgress": 50.0,
             "accessLane": 1
