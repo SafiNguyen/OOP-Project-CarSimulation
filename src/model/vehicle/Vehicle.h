@@ -74,6 +74,7 @@ protected:
     Road* currentRoad;
     double progressOnCurrentRoad;
     double currentSpeed;
+    double distanceTravelledLastUpdateMetres_ = 0.0;
     std::vector<Road*> currentRoute;
     int currentRouteIndex;
     std::vector<Road*> travelHistory;
@@ -165,6 +166,9 @@ public:
     virtual bool allowsUTurn() const { return true; }
 
     double getCurrentSpeed() const { return currentSpeed; }
+    double getDistanceTravelledLastUpdateMetres() const {
+        return distanceTravelledLastUpdateMetres_;
+    }
     Pose2D getPose() const;
     MovementState getMovementState() const { return movementState_; }
     double getJunctionProgress() const { return junctionProgressMetres_; }
@@ -312,6 +316,7 @@ protected:
     LaneMapping getJunctionEntryLaneMapping() const;
 
 private:
+    void recordTravelDistance(double distanceMetres);
     void updateSimulationState(double dt);
     bool handlePoiTransitions(double dt);
     void updateCooldownTimers(double elapsedTime);

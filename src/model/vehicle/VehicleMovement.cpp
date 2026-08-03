@@ -13,6 +13,7 @@ bool Vehicle::advanceToNextRoad() {
     return routeFollower.advanceToNextRoad(*this);
 }
 void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool allowDynamicReroute) {
+    distanceTravelledLastUpdateMetres_ = 0.0;
     if (hasReachedDestination() || currentRoad == nullptr) {
         clearLaneChangeIntent();
         junctionTurnSignal_ = TurnSignal::Off;
@@ -515,12 +516,14 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
             && pausePos >= currentPos
             && pausePos <= currentRoad->getDistance()) {
             progressOnCurrentRoad = pausePos;
+            recordTravelDistance(pausePos - currentPos);
             beginPause(pauseReason);
             break;
         }
 
         if (projectedPos < currentRoad->getDistance()) {
             progressOnCurrentRoad = projectedPos;
+            recordTravelDistance(projectedPos - currentPos);
             remainingTime -= subDt;
         } else {
             Intersection* nextIntersection = currentRoad->getEnd();
@@ -531,6 +534,7 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                 progressOnCurrentRoad = std::min(
                     currentRoad->getDistance(),
                     std::max(currentPos, getIntersectionStopPosition()));
+                recordTravelDistance(progressOnCurrentRoad - currentPos);
                 beginPause(controlReason);
                 break;
             }
@@ -546,6 +550,8 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                     progressOnCurrentRoad = std::min(
                         currentRoad->getDistance(),
                         std::max(currentPos, getIntersectionStopPosition()));
+                    recordTravelDistance(
+                        progressOnCurrentRoad - currentPos);
                     targetSpeed = 0.0;
                     currentSpeed = 0.0;
                     remainingTime -= subDt;
@@ -560,6 +566,8 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
                     progressOnCurrentRoad = std::min(
                         currentRoad->getDistance(),
                         std::max(currentPos, getIntersectionStopPosition()));
+                    recordTravelDistance(
+                        progressOnCurrentRoad - currentPos);
                     targetSpeed = 0.0;
                     currentSpeed = 0.0;
                     remainingTime -= subDt;
@@ -568,6 +576,7 @@ void Vehicle::update(double dt,Graph* graph,PathFindingStrategy* strategy,bool a
             }
             const double distToEnd =
                 currentRoad->getDistance() - currentPos;
+            recordTravelDistance(distToEnd);
             const double timeToEnd =
                 (speed > 0.0) ? distToEnd / speed : subDt;
 
