@@ -157,6 +157,11 @@ target_link_libraries(urban_core PUBLIC
     nlohmann_json::nlohmann_json
 )
 
+if (WIN32)
+    # GetOpenFileNameW (native file picker) lives in comdlg32.
+    target_link_libraries(urban_core PUBLIC comdlg32)
+endif()
+
 add_executable(${PROJECT_NAME}
     src/main.cpp
     src/InputHandling.cpp
