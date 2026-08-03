@@ -114,6 +114,7 @@ protected:
     TurnSignalReason laneChangeReason_ = TurnSignalReason::None;
     double laneChangeSignalElapsedSeconds_ = 0.0;
     double simulationTimeSeconds_ = 0.0;
+    bool hasClearedIncomingRoad_ = false;
     
     double recalculateTimer =
         10.0 + static_cast<double>(std::rand() % 50) / 10.0;
@@ -183,6 +184,9 @@ public:
         return laneChangeState_;
     }
     bool isTurnSignalBlinkOn() const;
+    bool isTransitioningPose() const {
+        return poseTransitionDuration_ > 0.0 && poseTransitionTimer_ < poseTransitionDuration_;
+    }
     double getSimulationTimeSeconds() const {
         return simulationTimeSeconds_;
     }
@@ -222,8 +226,17 @@ public:
     virtual double getMiniGap() const;
     virtual double getMinGap() const;
     virtual double getTimeHeadway() const;
-    double getProgressOnRoad() const { return progressOnCurrentRoad; }
+    double getProgressOnRoad() const { 
+        if (movementState_ == MovementState::TraversingJunction) {
+            return progressOnCurrentRoad + junctionProgressMetres_;
+        }
+        return progressOnCurrentRoad; 
+    }
 
+    // --- Physics Support ---
+    bool hasClearedIncomingRoad() const { return hasClearedIncomingRoad_; }
+    void setClearedIncomingRoad(bool cleared) { hasClearedIncomingRoad_ = cleared; }
+    
     // --- POI support ---
     PointOfInterest* getSpawnPOI() const { return spawnPOI; }
     void setSpawnPOI(PointOfInterest* poi) { spawnPOI = poi; }

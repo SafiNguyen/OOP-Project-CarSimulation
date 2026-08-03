@@ -88,7 +88,7 @@ std::string resolveInitialMapPath(int argc, char** argv) {
     }
     // Map loading searches parent directories, so keep the default stable
     // even when the executable is launched from build-msvc/bin/Debug.
-    return "map4.json";
+    return "";
 }
 
 bool loadSnapshotFont(sf::Font& font) {
@@ -540,7 +540,7 @@ int main(int argc, char** argv) {
 
     AppContext ctx(graph, visualization, window, windowW, windowH);
     ctx.view = window.getDefaultView();
-    ctx.mapPathInput = path.empty() ? "map4.json" : path;
+    ctx.mapPathInput = path.empty() ? "": path;
     visualization.setHeatMapEnabled(ctx.heatMapEnabled);
 
     std::function<std::unique_ptr<TrafficSimulator>(int)>

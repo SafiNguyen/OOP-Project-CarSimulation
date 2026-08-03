@@ -9,6 +9,9 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <queue>
+#include <string>
+#include "Roundabout.h"
 
 namespace {
 constexpr double PI = 3.14159265358979323846;
@@ -482,8 +485,7 @@ void Intersection::resetSignalCycle() {
     signalStage_ = SignalStage::GREEN;
     stageRemainingSeconds_ =
         phaseGroups.empty() ? 0.0 : greenDurationSeconds_;
-    emergencyApproach_ = {};
-    emergencyPriorityRemainingSeconds_ = 0.0;
+    emergencyApproaches_.clear();
     synchronizeSignalHeads();
 }
 
@@ -615,8 +617,7 @@ void Intersection::updateTrafficLights(double dt) {
 }
 
 void Intersection::clearEmergencyPriority() {
-    emergencyApproach_ = {};
-    emergencyPriorityRemainingSeconds_ = 0.0;
+    emergencyApproaches_.clear();
 }
 
 void Intersection::updateEmergencyPriority(double dt) {
@@ -625,26 +626,25 @@ void Intersection::updateEmergencyPriority(double dt) {
         dt <= 0.0) {
         return;
     }
-    emergencyPriorityRemainingSeconds_ =
-        std::max(
-            0.0,
-            emergencyPriorityRemainingSeconds_ - dt);
-    if (emergencyPriorityRemainingSeconds_ <= 1e-9) {
-        clearEmergencyPriority();
+    for (auto it = emergencyApproaches_.begin(); it != emergencyApproaches_.end(); ) {
+        it->second.priorityRemainingSeconds = std::max(0.0, it->second.priorityRemainingSeconds - dt);
+        if (it->second.priorityRemainingSeconds <= 1e-9) {
+            it = emergencyApproaches_.erase(it);
+        } else {
+            ++it;
+        }
     }
 }
 
 bool Intersection::hasActiveEmergencyPriority() const {
-    return emergencyPriorityRemainingSeconds_ > 1e-9 &&
-           emergencyApproach_.isValid();
+    return !emergencyApproaches_.empty();
 }
 
 bool Intersection::isPrioritizedEmergencyVehicle(
     int vehicleId,
     const Road* incomingRoad) const {
     return hasActiveEmergencyPriority() &&
-           emergencyApproach_.vehicleId == vehicleId &&
-           emergencyApproach_.path.incomingRoad == incomingRoad;
+           emergencyApproaches_.count(vehicleId) > 0 && emergencyApproaches_.at(vehicleId).path.incomingRoad == incomingRoad;
 }
 
 bool Intersection::isEmergencyAdmissionBlocked(
@@ -653,8 +653,7 @@ bool Intersection::isEmergencyAdmissionBlocked(
     return hasActiveEmergencyPriority() &&
            !isPrioritizedEmergencyVehicle(
                vehicleId, incomingRoad) &&
-           incomingRoad !=
-               emergencyApproach_.path.incomingRoad;
+           !isPrioritizedEmergencyVehicle(vehicleId, incomingRoad);
 }
 
 void Intersection::requestEmergencyPriority(
@@ -676,17 +675,12 @@ void Intersection::requestEmergencyPriority(
         holdDuration <= 0.0) {
         return;
     }
-    if (hasActiveEmergencyPriority() &&
-        emergencyApproach_.vehicleId != vehicleId) {
-        return;
-    }
-
     const bool validOutgoing =
         outgoingRoad != nullptr &&
         outgoingRoad->getStart() == this &&
         outgoingLane >= 0 &&
         outgoingLane < outgoingRoad->getLaneCount();
-    emergencyApproach_ = {
+    emergencyApproaches_[vehicleId] = {
         vehicleId,
         {
             incomingRoad,
@@ -694,12 +688,9 @@ void Intersection::requestEmergencyPriority(
             validOutgoing ? outgoingRoad : nullptr,
             validOutgoing ? outgoingLane : -1,
             vehicleWidthMetres
-        }
+        },
+        holdDuration
     };
-    emergencyPriorityRemainingSeconds_ =
-        std::max(
-            emergencyPriorityRemainingSeconds_,
-            holdDuration);
     // Emergency priority affects right-of-way and junction reservations, not
     // the fixed signal clock.
 }
@@ -802,9 +793,9 @@ std::shared_ptr<const JunctionConnector> Intersection::createConnector(
     double movementFactor = 0.75;
     switch (movement) {
         case MovementType::Straight: movementFactor = 0.45; break;
-        case MovementType::Right: movementFactor = 0.60; break;
-        case MovementType::Left: movementFactor = 0.85; break;
-        case MovementType::UTurn: movementFactor = 1.15; break;
+        case MovementType::Right: movementFactor = 0.25 + (0.10 * (incoming.getLaneCount() - 1 - incomingLane)); break;
+        case MovementType::Left: movementFactor = 0.85 + (0.35 * incomingLane); break;
+        case MovementType::UTurn: movementFactor = 0.75 + (0.45 * incomingLane); break;
     }
     const double scale =
         RoadGeometry::metresPerWorldUnit(*this);
@@ -974,7 +965,8 @@ bool Intersection::canEnterMovement(
         if (entry.first == vehicleId) continue;
         const Reservation& res = entry.second;
         if (res.connector == nullptr) continue;
-        if (connectorsPreserveLaneOrder(
+        if (connector->getIncomingRoad() == res.connector->getIncomingRoad() ||
+            connectorsPreserveLaneOrder(
                 *connector, *res.connector) ||
             oppositeApproachMovementsAreNonCrossing(
                 *connector, *res.connector)) {
@@ -1185,6 +1177,8 @@ double Intersection::limitTraversalAdvance(
     struct OccupantBounds {
         OrientedVehicleBounds bounds;
         uint64_t entryId = 0;
+        const JunctionConnector* connector = nullptr;
+        int vehicleId = -1;
     };
     std::vector<OccupantBounds> occupantBounds;
     occupantBounds.reserve(occupants_.size() - 1);
@@ -1202,7 +1196,22 @@ double Intersection::limitTraversalAdvance(
                 reservation.vehicleLengthMetres,
                 reservation.vehicleWidthMetres,
                 clearanceMetres),
-            reservation.entryId});
+            reservation.entryId,
+            reservation.connector.get(),
+            entry.first});
+    }
+
+    bool alreadyOverlapsEV = false;
+    for (const OccupantBounds& other : occupantBounds) {
+        if (isPrioritizedEmergencyVehicle(other.vehicleId, nullptr)) {
+            OrientedVehicleBounds myBounds = makeVehicleBounds(
+                connector->sampleByDistance(currentProgressMetres),
+                metricScale, vehicleLengthMetres, vehicleWidthMetres, clearanceMetres);
+            if (boundsOverlap(myBounds, other.bounds)) {
+                alreadyOverlapsEV = true;
+                break;
+            }
+        }
     }
 
     const auto isSafeAt = [&](double progressMetres) {
@@ -1215,6 +1224,28 @@ double Intersection::limitTraversalAdvance(
                 clearanceMetres);
         for (const OccupantBounds& other : occupantBounds) {
             if (boundsOverlap(candidate, other.bounds)) {
+                if (dynamic_cast<const Roundabout*>(this) != nullptr && 
+                    connector->getIncomingRoad() == other.connector->getIncomingRoad()) {
+                    int myLane = connector->getIncomingLane();
+                    int otherLane = other.connector->getIncomingLane();
+                    if (myLane < otherLane) {
+                        return false; // I am on the left, I yield to the right
+                    } else if (myLane > otherLane) {
+                        continue; // I am on the right, I go first
+                    }
+                }
+                
+                if (isPrioritizedEmergencyVehicle(other.vehicleId, nullptr)) {
+                    if (alreadyOverlapsEV) {
+                        continue; // Already overlapping EV, must move to clear the way!
+                    } else {
+                        return false; // Yield to emergency vehicle
+                    }
+                }
+                if (isPrioritizedEmergencyVehicle(vehicleId, nullptr)) {
+                    return false; // Candidate is emergency vehicle, stop to avoid collision
+                }
+
                 if (candidateEntryId < other.entryId) {
                     continue; // Candidate entered first, ignore overlap
                 }
@@ -1328,12 +1359,14 @@ bool Intersection::isOutgoingLaneReserved(
 }
 
 void Intersection::exit(int vehicleId) {
-    if (occupants_.erase(vehicleId) > 0) {
+    auto found = occupants_.find(vehicleId);
+    if (found != occupants_.end()) {
+        occupants_.erase(found);
         markReservationStateChanged();
     }
-    if (hasActiveEmergencyPriority() &&
-        emergencyApproach_.vehicleId == vehicleId) {
-        clearEmergencyPriority();
+    auto it = emergencyApproaches_.find(vehicleId);
+    if (it != emergencyApproaches_.end()) {
+        emergencyApproaches_.erase(it);
     }
 }
 
@@ -1393,23 +1426,35 @@ void Intersection::captureSnapshot(IntersectionSnapshot& snap) const {
     }
     snap.nextEntryId = nextEntryId_;
 
-    snap.emergencyVehicleId = emergencyApproach_.vehicleId;
-    snap.emergencyIncomingRoadId =
-        emergencyApproach_.path.incomingRoad != nullptr
-            ? std::optional<int>(
-                  emergencyApproach_.path.incomingRoad->getId())
-            : std::nullopt;
-    snap.emergencyIncomingLane = emergencyApproach_.path.incomingLane;
-    snap.emergencyOutgoingRoadId =
-        emergencyApproach_.path.outgoingRoad != nullptr
-            ? std::optional<int>(
-                  emergencyApproach_.path.outgoingRoad->getId())
-            : std::nullopt;
-    snap.emergencyOutgoingLane = emergencyApproach_.path.outgoingLane;
-    snap.emergencyVehicleWidthMetres =
-        emergencyApproach_.path.vehicleWidthMetres;
-    snap.emergencyPriorityRemainingSeconds =
-        emergencyPriorityRemainingSeconds_;
+    // Note: This snapshot logic only supports one EV for now due to the legacy interface
+    if (!emergencyApproaches_.empty()) {
+        const auto& firstEV = emergencyApproaches_.begin()->second;
+        snap.emergencyVehicleId = firstEV.vehicleId;
+        snap.emergencyIncomingRoadId =
+            firstEV.path.incomingRoad != nullptr
+                ? std::optional<int>(
+                      firstEV.path.incomingRoad->getId())
+                : std::nullopt;
+        snap.emergencyIncomingLane = firstEV.path.incomingLane;
+        snap.emergencyOutgoingRoadId =
+            firstEV.path.outgoingRoad != nullptr
+                ? std::optional<int>(
+                      firstEV.path.outgoingRoad->getId())
+                : std::nullopt;
+        snap.emergencyOutgoingLane = firstEV.path.outgoingLane;
+        snap.emergencyVehicleWidthMetres =
+            firstEV.path.vehicleWidthMetres;
+        snap.emergencyPriorityRemainingSeconds =
+            firstEV.priorityRemainingSeconds;
+    } else {
+        snap.emergencyVehicleId = -1;
+        snap.emergencyIncomingRoadId = std::nullopt;
+        snap.emergencyIncomingLane = -1;
+        snap.emergencyOutgoingRoadId = std::nullopt;
+        snap.emergencyOutgoingLane = -1;
+        snap.emergencyVehicleWidthMetres = 0.0;
+        snap.emergencyPriorityRemainingSeconds = 0.0;
+    }
 }
 
 void Intersection::restoreSnapshot(const IntersectionSnapshot& snap) {
@@ -1466,29 +1511,32 @@ void Intersection::restoreSnapshot(const IntersectionSnapshot& snap) {
         nextEntryId_ = std::max(nextEntryId_, data.entryId);
     }
 
-    emergencyApproach_ = {};
-    emergencyPriorityRemainingSeconds_ =
-        std::max(0.0, snap.emergencyPriorityRemainingSeconds);
+    emergencyApproaches_.clear();
     Road* emergencyIncoming =
         findRoadById(snap.emergencyIncomingRoadId);
     Road* emergencyOutgoing =
         findRoadById(snap.emergencyOutgoingRoadId);
+
     if (snap.emergencyVehicleId >= 0 &&
         emergencyIncoming != nullptr &&
         snap.emergencyIncomingLane >= 0) {
-        emergencyApproach_.vehicleId = snap.emergencyVehicleId;
-        emergencyApproach_.path.incomingRoad = emergencyIncoming;
-        emergencyApproach_.path.incomingLane =
-            snap.emergencyIncomingLane;
-        emergencyApproach_.path.outgoingRoad = emergencyOutgoing;
-        emergencyApproach_.path.outgoingLane =
-            snap.emergencyOutgoingLane;
-        emergencyApproach_.path.vehicleWidthMetres =
-            std::max(0.1, snap.emergencyVehicleWidthMetres);
-    } else {
-        emergencyPriorityRemainingSeconds_ = 0.0;
+        emergencyApproaches_[snap.emergencyVehicleId] = {
+            snap.emergencyVehicleId,
+            {
+                emergencyIncoming,
+                snap.emergencyIncomingLane,
+                emergencyOutgoing,
+                snap.emergencyOutgoingLane,
+                std::max(0.1, snap.emergencyVehicleWidthMetres)
+            },
+            std::max(0.0, snap.emergencyPriorityRemainingSeconds)
+        };
     }
 
     synchronizeSignalHeads();
     markReservationStateChanged();
 }
+
+
+
+

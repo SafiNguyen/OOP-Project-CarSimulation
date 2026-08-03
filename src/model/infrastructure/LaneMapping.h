@@ -29,12 +29,14 @@ public:
     static LaneMapping map(const Road& incoming,
                            int currentIncomingLane,
                            const Road& outgoing,
-                           bool allowUTurn = true);
+                           bool allowUTurn = true,
+                           bool isDestinationRoad = false);
     static LaneMapping mapFromCurrentLane(
         const Road& incoming,
         int currentIncomingLane,
         const Road& outgoing,
-        bool allowUTurn = true);
+        bool allowUTurn = true,
+        bool isDestinationRoad = false);
 };
 
 #endif

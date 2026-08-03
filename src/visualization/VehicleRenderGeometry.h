@@ -96,3 +96,4 @@ inline VehicleScreenSize getVehicleVisualScreenSize(
 }
 
 #endif
+

@@ -29,7 +29,8 @@ Vehicle::Vehicle(int id, double speed, Intersection* start, Intersection* dest)
       currentSpeed(0.0),
       currentRouteIndex(0),
       paused(false),
-      pauseReason(PauseReason::None) {
+      pauseReason(PauseReason::None),
+      laneChangeCooldownTimer(4.0) {
     patienceThreshold =
         3.0 + static_cast<double>(std::rand() % 50) / 10.0;
     recalculateTimer =
@@ -492,8 +493,12 @@ LaneMapping Vehicle::getUpcomingLaneMapping() const {
     if (currentRoad == nullptr || nextRoad == nullptr) {
         return {};
     }
+    bool isDestinationRoad = false;
+    if (!currentRoute.empty() && currentRouteIndex + 1 == static_cast<int>(currentRoute.size()) - 1) {
+        isDestinationRoad = true;
+    }
     return TurnLanePolicy::map(
-        *currentRoad, currentLaneIndex, *nextRoad, true);
+        *currentRoad, currentLaneIndex, *nextRoad, true, isDestinationRoad);
 }
 
 LaneMapping Vehicle::getJunctionEntryLaneMapping() const {
@@ -508,6 +513,11 @@ LaneMapping Vehicle::getJunctionEntryLaneMapping() const {
         return {};
     }
 
+    bool isDestinationRoad = false;
+    if (!currentRoute.empty() && currentRouteIndex + 1 == static_cast<int>(currentRoute.size()) - 1) {
+        isDestinationRoad = true;
+    }
+
     // Lane preparation remains the preferred behavior. If a red-light queue
     // prevented the merge, use the vehicle's actual lane at the stop line
     // instead of leaving that lane permanently blocked after green.
@@ -515,7 +525,8 @@ LaneMapping Vehicle::getJunctionEntryLaneMapping() const {
         *currentRoad,
         currentLaneIndex,
         *nextRoad,
-        true);
+        true,
+        isDestinationRoad);
 }
 
 JunctionDecision Vehicle::getJunctionDecision(
@@ -614,6 +625,7 @@ bool Vehicle::beginJunctionTraversal(
 void Vehicle::completeJunctionTraversal(
     double outgoingProgressMetres) {
     junctionTraversalState.completeTraversal(*this, outgoingProgressMetres);
+    laneChangeCooldownTimer = 4.0; // Delay lane change immediately after intersection
 }
 
 double Vehicle::advanceJunction(double availableTime) {
@@ -898,7 +910,7 @@ bool Vehicle::canCommitPoiMerge() const {
         (2.0 * std::max(
             follower->getDeceleration(), 1e-6));
     const double requiredRearGap =
-        baseGap + reactionDistance + brakingDistance;
+        baseGap + reactionDistance * 0.5 + brakingDistance * 0.4; // Aggressive merge: require less gap for POI vehicles
     if (rearGap + 1e-6 < requiredRearGap) {
         return false;
     }

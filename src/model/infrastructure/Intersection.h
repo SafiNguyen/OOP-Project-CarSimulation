@@ -30,6 +30,7 @@ struct VehicleMovementPath {
 struct EmergencyApproach {
     int vehicleId = -1;
     VehicleMovementPath path;
+    double priorityRemainingSeconds = 0.0;
 
     bool isValid() const {
         return vehicleId >= 0 && path.isValid();
@@ -96,7 +97,7 @@ private:
     // --- Intersection-box reservation (prevents multiple vehicles from
     // different roads overlapping inside the junction at the same time,
     // independent of the traffic-light phase groups above) ---
-    int capacity_ = 1;
+    int capacity_ = 20;
 
 protected:
     std::unordered_map<int, Reservation> occupants_;
@@ -127,8 +128,7 @@ private:
     mutable std::unordered_map<const Road*, bool> priorityVehicleCache_;
     mutable bool priorityVehicleCacheValid_ = false;
 
-    EmergencyApproach emergencyApproach_;
-    double emergencyPriorityRemainingSeconds_ = 0.0;
+    std::unordered_map<int, EmergencyApproach> emergencyApproaches_;
 
     void clearEmergencyPriority();
     void updateEmergencyPriority(double dt);
@@ -301,6 +301,8 @@ public:
     void exit(int vehicleId);
     // True if every slot is currently occupied.
     virtual bool isFull() const;
+
+
     void setCapacity(int cap);
     int getCapacity() const { return capacity_; }
 

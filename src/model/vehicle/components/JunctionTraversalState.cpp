@@ -53,7 +53,7 @@ bool JunctionTraversalState::beginTraversal(Vehicle& vehicle, const LaneMapping&
     vehicle.junctionOutgoingRoad_ = outgoing;
     vehicle.activeConnector_ = std::move(connector);
     vehicle.junctionProgressMetres_ = 0.0;
-    vehicle.currentRoad->getLane(vehicle.incomingLaneIndex_).removeVehicle(&vehicle);
+    vehicle.setClearedIncomingRoad(false);
     vehicle.progressOnCurrentRoad = vehicle.currentRoad->getDistance();
     vehicle.paused = false;
     vehicle.pauseReason = PauseReason::None;
@@ -105,7 +105,7 @@ double JunctionTraversalState::advance(Vehicle& vehicle, double availableTime) {
     const double clearanceDistance = pathLength > 1e-6 ? vehicle.getLength() * 0.5 : 0.0;
     const double completionDistance = pathLength + clearanceDistance;
     if (completionDistance <= vehicle.junctionProgressMetres_ + 1e-9) {
-        completeTraversal(vehicle, std::max(0.0, vehicle.junctionProgressMetres_ - pathLength));
+        vehicle.completeJunctionTraversal(std::max(0.0, vehicle.junctionProgressMetres_ - pathLength));
         return 0.0;
     }
 
@@ -128,6 +128,27 @@ double JunctionTraversalState::advance(Vehicle& vehicle, double availableTime) {
     const double remainingDistance = completionDistance - vehicle.junctionProgressMetres_;
     const double possibleDistance = vehicle.currentSpeed * subDt;
     double travelled = std::min(remainingDistance, possibleDistance);
+    
+    // Check if we need to yield to a vehicle already on the outgoing road
+    if (vehicle.junctionOutgoingRoad_ != nullptr) {
+        const auto& vehicles = vehicle.junctionOutgoingRoad_->getLane(vehicle.outgoingLaneIndex_).getVehicles();
+        Vehicle* outgoingLeader = vehicles.empty() ? nullptr : vehicles.back();
+        if (outgoingLeader != nullptr && outgoingLeader != &vehicle) {
+            // Our virtual progress on the outgoing road is our junction progress minus the path length
+            const double myVirtualProgress = vehicle.junctionProgressMetres_ - pathLength;
+            const double gapToLeader = outgoingLeader->getProgressOnRoad() - myVirtualProgress - combinedHalfLength(vehicle, *outgoingLeader);
+            const double requiredGap = std::max(vehicle.getMinGap(), outgoingLeader->getMinGap());
+            if (gapToLeader < requiredGap) {
+                // Not enough gap, limit travel!
+                double allowedTravel = std::max(0.0, gapToLeader - requiredGap);
+                if (allowedTravel < travelled) {
+                    travelled = allowedTravel;
+                    vehicle.currentSpeed = travelled > 1e-9 ? travelled / subDt : 0.0;
+                }
+            }
+        }
+    }
+
     bool constrainedByOccupant = false;
     if (vehicle.reservedIntersection_ != nullptr) {
         const double safeTravelled = vehicle.reservedIntersection_->limitTraversalAdvance(vehicle.getId(), vehicle.activeConnector_, vehicle.junctionProgressMetres_, travelled, vehicle.getLength(), vehicle.getWidth(), vehicle.getMinGap());
@@ -144,8 +165,15 @@ double JunctionTraversalState::advance(Vehicle& vehicle, double availableTime) {
         vehicle.reservedIntersection_->updateReservationProgress(vehicle.getId(), vehicle.junctionProgressMetres_);
     }
 
+    if (!vehicle.hasClearedIncomingRoad() && vehicle.junctionProgressMetres_ >= vehicle.getLength()) {
+        if (vehicle.currentRoad != nullptr && vehicle.incomingLaneIndex_ >= 0) {
+            vehicle.currentRoad->getLane(vehicle.incomingLaneIndex_).removeVehicle(&vehicle);
+        }
+        vehicle.setClearedIncomingRoad(true);
+    }
+
     if (vehicle.junctionProgressMetres_ + 1e-9 >= completionDistance) {
-        completeTraversal(vehicle, std::max(0.0, vehicle.junctionProgressMetres_ - pathLength));
+        vehicle.completeJunctionTraversal(std::max(0.0, vehicle.junctionProgressMetres_ - pathLength));
     }
     return consumedTime;
 }

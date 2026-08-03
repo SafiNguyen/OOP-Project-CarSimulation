@@ -12,7 +12,7 @@ constexpr double UTURN_POSE_TRANSITION_SECONDS = 0.7;
 }
 
 bool RouteFollower::recalculateRoute(Vehicle& vehicle, const Graph& graph, PathFindingStrategy* strategy) const {
-    if (!vehicle.allowsDynamicRerouting() || vehicle.currentRoad == nullptr || vehicle.destination == nullptr || vehicle.movementState_ == MovementState::TraversingJunction) {
+    if (!vehicle.allowsDynamicRerouting() || vehicle.currentRoad == nullptr || (vehicle.destination == nullptr && vehicle.targetPOI == nullptr) || vehicle.movementState_ == MovementState::TraversingJunction) {
         return false;
     }
 
@@ -21,7 +21,15 @@ bool RouteFollower::recalculateRoute(Vehicle& vehicle, const Graph& graph, PathF
     }
 
     int startNodeId = vehicle.currentRoad->getEnd()->getId();
-    int destNodeId = vehicle.destination->getId();
+    int destNodeId = (vehicle.destination != nullptr) ? vehicle.destination->getId() : -1;
+    Road* poiRoad = (vehicle.targetPOI != nullptr) ? vehicle.targetPOI->getConnectedRoad() : nullptr;
+
+    if (poiRoad != nullptr) {
+        if (vehicle.currentRoad == poiRoad) {
+            return false;
+        }
+        destNodeId = poiRoad->getStart()->getId();
+    }
 
     PathResult result = strategy->findPath(graph, startNodeId, destNodeId);
     if (!result.found) {
@@ -36,13 +44,17 @@ bool RouteFollower::recalculateRoute(Vehicle& vehicle, const Graph& graph, PathF
     for (Road* r : result.roadPath) {
         newRoute.push_back(r);
     }
+    
+    if (poiRoad != nullptr) {
+        newRoute.push_back(poiRoad);
+    }
 
     vehicle.currentRoute = newRoute;
     return true;
 }
 
 bool RouteFollower::performUTurn(Vehicle& vehicle, const Graph& graph, PathFindingStrategy* strategy) const {
-    if (!vehicle.allowsUTurn() || vehicle.currentRoad == nullptr || vehicle.destination == nullptr || vehicle.movementState_ == MovementState::TraversingJunction) {
+    if (!vehicle.allowsUTurn() || vehicle.currentRoad == nullptr || (vehicle.destination == nullptr && vehicle.targetPOI == nullptr) || vehicle.movementState_ == MovementState::TraversingJunction) {
         return false;
     }
 
@@ -51,7 +63,13 @@ bool RouteFollower::performUTurn(Vehicle& vehicle, const Graph& graph, PathFindi
     if (reverseRoad == nullptr) return false;
 
     const Pose2D fromPose = vehicle.getPose();
-    PathResult result = strategy->findPath(graph, startId, vehicle.destination->getId());
+    int destNodeId = (vehicle.destination != nullptr) ? vehicle.destination->getId() : -1;
+    Road* poiRoad = (vehicle.targetPOI != nullptr) ? vehicle.targetPOI->getConnectedRoad() : nullptr;
+    if (poiRoad != nullptr) {
+        destNodeId = poiRoad->getStart()->getId();
+    }
+
+    PathResult result = strategy->findPath(graph, startId, destNodeId);
     if (!result.found) {
         return false;
     }
@@ -75,6 +93,10 @@ bool RouteFollower::performUTurn(Vehicle& vehicle, const Graph& graph, PathFindi
     newRoute.push_back(vehicle.currentRoad);
     for (Road* r : result.roadPath) {
         newRoute.push_back(r);
+    }
+
+    if (poiRoad != nullptr) {
+        newRoute.push_back(poiRoad);
     }
 
     vehicle.currentRoute = newRoute;
