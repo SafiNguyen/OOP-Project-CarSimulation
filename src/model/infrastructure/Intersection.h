@@ -30,6 +30,7 @@ struct VehicleMovementPath {
 struct EmergencyApproach {
     int vehicleId = -1;
     VehicleMovementPath path;
+    double priorityRemainingSeconds = 0.0;
 
     bool isValid() const {
         return vehicleId >= 0 && path.isValid();
@@ -127,8 +128,7 @@ private:
     mutable std::unordered_map<const Road*, bool> priorityVehicleCache_;
     mutable bool priorityVehicleCacheValid_ = false;
 
-    EmergencyApproach emergencyApproach_;
-    double emergencyPriorityRemainingSeconds_ = 0.0;
+    std::unordered_map<int, EmergencyApproach> emergencyApproaches_;
 
     void clearEmergencyPriority();
     void updateEmergencyPriority(double dt);

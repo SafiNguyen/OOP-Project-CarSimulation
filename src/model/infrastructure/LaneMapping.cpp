@@ -137,8 +137,8 @@ LaneMapping TurnLanePolicy::map(const Road& incoming,
         case MovementType::Right: {
             int rightmost = incomingCount - 1;
             int outRightmost = outgoingCount - 1;
-            if (currentIncomingLane >= rightmost) {
-                result.incomingLane = rightmost;
+            if (currentIncomingLane >= rightmost - 1) {
+                result.incomingLane = currentIncomingLane;
             } else {
                 result.incomingLane = std::max(0, rightmost - 1);
             }
@@ -151,8 +151,8 @@ LaneMapping TurnLanePolicy::map(const Road& incoming,
         }
         case MovementType::Left:
         case MovementType::UTurn: {
-            if (currentIncomingLane <= 0) {
-                result.incomingLane = 0;
+            if (currentIncomingLane <= 1) {
+                result.incomingLane = currentIncomingLane;
             } else {
                 result.incomingLane = std::min(1, incomingCount - 1);
             }
@@ -221,14 +221,13 @@ LaneMapping TurnLanePolicy::mapFromCurrentLane(
         case MovementType::Right: {
             int rightmost = incomingCount - 1;
             int outRightmost = outgoingCount - 1;
-            if (result.incomingLane == rightmost) preferredOutgoingLane = outRightmost;
-            else preferredOutgoingLane = std::max(0, outRightmost - 1);
+            int offsetFromRight = rightmost - result.incomingLane;
+            preferredOutgoingLane = std::max(0, outRightmost - offsetFromRight);
             break;
         }
         case MovementType::Left:
         case MovementType::UTurn: {
-            if (result.incomingLane == 0) preferredOutgoingLane = 0;
-            else preferredOutgoingLane = std::min(1, outgoingCount - 1);
+            preferredOutgoingLane = std::min(result.incomingLane, outgoingCount - 1);
             break;
         }
         case MovementType::Straight: {
@@ -255,3 +254,4 @@ LaneMapping TurnLanePolicy::mapFromCurrentLane(
     result.valid = result.outgoingLane >= 0;
     return result;
 }
+
