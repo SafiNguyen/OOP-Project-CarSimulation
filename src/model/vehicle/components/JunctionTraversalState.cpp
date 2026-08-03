@@ -105,7 +105,7 @@ double JunctionTraversalState::advance(Vehicle& vehicle, double availableTime) {
     const double clearanceDistance = pathLength > 1e-6 ? vehicle.getLength() * 0.5 : 0.0;
     const double completionDistance = pathLength + clearanceDistance;
     if (completionDistance <= vehicle.junctionProgressMetres_ + 1e-9) {
-        completeTraversal(vehicle, std::max(0.0, vehicle.junctionProgressMetres_ - pathLength));
+        vehicle.completeJunctionTraversal(std::max(0.0, vehicle.junctionProgressMetres_ - pathLength));
         return 0.0;
     }
 
@@ -144,7 +144,7 @@ double JunctionTraversalState::advance(Vehicle& vehicle, double availableTime) {
     }
 
     if (vehicle.junctionProgressMetres_ + 1e-9 >= completionDistance) {
-        completeTraversal(vehicle, std::max(0.0, vehicle.junctionProgressMetres_ - pathLength));
+        vehicle.completeJunctionTraversal(std::max(0.0, vehicle.junctionProgressMetres_ - pathLength));
     }
     return consumedTime;
 }
