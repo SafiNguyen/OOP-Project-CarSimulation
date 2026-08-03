@@ -238,6 +238,7 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
     // once the view is zoomed out past a threshold to avoid cluttering the
     // map with hundreds of tiny markers.
     const float detailScale = getDetailScale(target.getView());
+    const float textRenderScale = getTextRenderScale(target.getView());
     if (detailScale < (lodLevel_ == LodLevel::Minimal ? 0.12f : 0.20f)) {
         return;
     }
@@ -332,6 +333,7 @@ void VisualizationEngine::drawBusStops(sf::RenderTarget& target, const Graph& gr
                 number.setString(stopCode);
                 number.setCharacterSize(
                     stopCode.size() <= 2u ? labelSize : labelSize - 2u);
+                number.setScale(textRenderScale, textRenderScale);
                 number.setStyle(sf::Text::Bold);
                 number.setFillColor(sf::Color::White);
                 const sf::FloatRect bounds =
@@ -635,6 +637,7 @@ void VisualizationEngine::drawTrafficLights(sf::RenderTarget& target, const Grap
                         countdownText.setCharacterSize(
                             static_cast<unsigned int>(
                                 std::max(8.0f, countdownSize * 0.7f)));
+                        countdownText.setScale(getTextRenderScale(target.getView()), getTextRenderScale(target.getView()));
                         countdownText.setStyle(sf::Text::Bold);
                         countdownText.setFillColor(lightColor(state));
                         const sf::FloatRect bounds =
@@ -745,6 +748,7 @@ void VisualizationEngine::drawBusStations(
             label.setFont(*font_);
             label.setString(station->getCode());
             label.setCharacterSize(labelSize);
+            label.setScale(getTextRenderScale(target.getView()), getTextRenderScale(target.getView()));
             label.setStyle(sf::Text::Bold);
             label.setFillColor(
                 sf::Color(120, 255, 175));
@@ -1352,6 +1356,7 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
                 name.setFont(*font_);
                 name.setString(poi->getName());
                 name.setCharacterSize(5u);
+                name.setScale(getTextRenderScale(target.getView()), getTextRenderScale(target.getView()));
                 name.setFillColor(sf::Color::White);
                 name.setOutlineColor(sf::Color::Black);
                 name.setOutlineThickness(1.0f);
@@ -1389,6 +1394,7 @@ void VisualizationEngine::drawPOIs(sf::RenderTarget& target, const Graph& graph)
             text.setFont(*font_);
             text.setString(poi->getName());
             text.setCharacterSize(labelSize);
+            text.setScale(getTextRenderScale(target.getView()), getTextRenderScale(target.getView()));
             text.setFillColor(sf::Color::White);
             text.setOutlineColor(sf::Color::Black);
             text.setOutlineThickness(1.0f);
@@ -1520,6 +1526,7 @@ void VisualizationEngine::drawRoadNames(sf::RenderTarget& target, const std::vec
                 static_cast<float>(kMinimumRoadLabelSize),
                 static_cast<float>(kMaximumRoadLabelSize))));
         text.setCharacterSize(characterSize);
+        text.setScale(getTextRenderScale(target.getView()), getTextRenderScale(target.getView()));
         text.setStyle(sf::Text::Bold);
         text.setFillColor(sf::Color::White);
         text.setOutlineColor(sf::Color(12, 18, 22, 220));

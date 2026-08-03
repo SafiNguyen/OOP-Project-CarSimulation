@@ -138,6 +138,9 @@ public:
     // their on-screen size with the road/intersection they belong to and
     // to hide entirely once the view is zoomed out past a threshold.
     float getDetailScale(const sf::View& view) const;
+    // Compensates for view magnification so SFML never upscales a small
+    // rasterized glyph when the user zooms in.
+    float getTextRenderScale(const sf::View& view) const;
 
 private:
     struct RoadDraw {

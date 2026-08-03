@@ -62,6 +62,15 @@ float VisualizationEngine::getDetailScale(
     return scale;
 }
 
+float VisualizationEngine::getTextRenderScale(const sf::View& view) const {
+    const float viewWidth = std::abs(view.getSize().x);
+    const float viewHeight = std::abs(view.getSize().y);
+    const float zoomScale = std::min(
+        static_cast<float>(std::max(1u, windowSize_.x)) / std::max(1.0f, viewWidth),
+        static_cast<float>(std::max(1u, windowSize_.y)) / std::max(1.0f, viewHeight));
+    return 1.0f / std::max(1.0f, zoomScale);
+}
+
 sf::Color VisualizationEngine::mixColor(const sf::Color& a, const sf::Color& b, float t) {
     t = std::clamp(t, 0.0f, 1.0f);
     auto mix = [t](sf::Uint8 x, sf::Uint8 y) -> sf::Uint8 {
@@ -204,6 +213,11 @@ void VisualizationEngine::rasterizeBodyToMask(const sf::Vector2f& a,
                                               unsigned int gridW,
                                               unsigned int gridH,
                                               unsigned int cellSize) const {
+
+    const float maxSpan = std::max(gridW, gridH) * static_cast<float>(cellSize);
+    if (distanceBetween(a, b) > maxSpan * 4.0f || thickness > maxSpan) {
+        return;
+    }
     rasterizeCenterlineToMask(a, b, thickness, bodyMask, gridW, gridH, cellSize);
 }
 
