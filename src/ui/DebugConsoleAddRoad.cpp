@@ -55,7 +55,7 @@ void DebugConsole::drawAddRoadPanel(Graph& graph, VisualizationEngine& visualiza
         ImGui::InputFloat("Distance", &addRoadDistance_);
         addRoadDistance_ = std::max(1.0f, addRoadDistance_);
     }
-    ImGui::InputFloat("Speed limit", &addRoadSpeedLimit_);
+    ImGui::InputFloat("Speed limit (km/h)", &addRoadSpeedLimit_);
     addRoadSpeedLimit_ = std::max(1.0f, addRoadSpeedLimit_);
     ImGui::InputInt("Lanes", &addRoadLanes_);
     addRoadLanes_ = std::max(1, addRoadLanes_);
@@ -102,10 +102,11 @@ void DebugConsole::drawAddRoadPanel(Graph& graph, VisualizationEngine& visualiza
                 }
                 const int newId = nextFreeRoadId(graph);
                 std::string roadName = "Custom Road " + std::to_string(newId);
-                Road* road = new Road(newId, roadName, start, end, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
+                const double speedLimitMS = addRoadSpeedLimit_ / 3.6; // Convert km/h to m/s
+                Road* road = new Road(newId, roadName, start, end, distance, speedLimitMS, 1.0, addRoadLanes_);
                 graph.addRoad(road);
                 if (addRoadTwoWay_) {
-                    Road* revRoad = new Road(-newId, roadName, end, start, distance, addRoadSpeedLimit_, 1.0, addRoadLanes_);
+                    Road* revRoad = new Road(-newId, roadName, end, start, distance, speedLimitMS, 1.0, addRoadLanes_);
                     graph.addRoad(revRoad);
                 }
                 visualization.prepare(graph);
