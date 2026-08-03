@@ -143,6 +143,24 @@ void VisualizationEngine::prepare(const Graph& graph) {
     const double scaleX = (windowSize_.x > 2 * margin_) ? (windowSize_.x - 2 * margin_) / rangeX : 1.0;
     const double scaleY = (windowSize_.y > 2 * margin_) ? (windowSize_.y - 2 * margin_) / rangeY : 1.0;
     scale_ = std::min(scaleX, scaleY);
+
+    // World-coordinate scale is not a reliable measure of map complexity:
+    // map4 spans several hundred world units but contains only a few dozen
+    // roads. Applying the large-map density reduction to it made functional
+    // markers tiny or invisible. Restrict that reduction to genuinely large
+    // graphs such as VNU.
+    constexpr std::size_t kDenseMapIntersectionThreshold = 500u;
+    constexpr std::size_t kDenseMapRoadThreshold = 750u;
+    const bool denseMap =
+        intersections.size() >= kDenseMapIntersectionThreshold ||
+        graph.getAllRoads().size() >= kDenseMapRoadThreshold;
+    mapDetailFactor_ = 1.0f;
+    if (denseMap && scale_ > 0.0 && scale_ < 2.0) {
+        mapDetailFactor_ = std::clamp(
+            static_cast<float>(scale_ / 2.0),
+            0.25f,
+            1.0f);
+    }
     const double availableWidth =
         std::max(
             0.0,
@@ -553,10 +571,14 @@ void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph
               : detailScale >= minimalThreshold ? LodLevel::Minimal
               : LodLevel::Low;
     const bool fullDetail = lodLevel_ == LodLevel::Full;
+    const bool standardMarkers =
+        fullDetail || lodLevel_ == LodLevel::Medium;
 
-    // Keep the existing Full and Medium behavior. Minimal LOD draws only
-    // compact markers, while Low LOD still hides these overlays.
-    if (fullDetail) {
+    // Medium keeps the map's functional landmarks visible, but the overlay
+    // drawing routines omit expensive Full-only decoration such as traffic
+    // light countdown text. Minimal uses compact markers, while Low is the
+    // only tier that hides these overlays entirely.
+    if (standardMarkers) {
         drawBusStops(target, graph);
         drawBusStations(target, graph);
         drawPOIs(target, graph);
@@ -608,8 +630,9 @@ void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph
     //   5. vehicles (drawn in renderFrame)
     drawLaneMarkings(target, buildRoadDrawList(graph));
 
-    // Minimal LOD retains bare signal lamps; Low still hides them.
-    if (fullDetail || lodLevel_ == LodLevel::Minimal) {
+    // Medium and Minimal both retain signals (without Full-only countdown
+    // text); Low is the only tier that hides them.
+    if (lodLevel_ != LodLevel::Low) {
         drawTrafficLights(target, graph);
     }
 

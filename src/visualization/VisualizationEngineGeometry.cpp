@@ -46,20 +46,7 @@ float VisualizationEngine::getDetailScale(
     const float scaleY = windowHeight / std::max(1.0f, viewHeight);
     float scale = std::clamp(std::min(scaleX, scaleY), 0.0f, 50.0f);
 
-    // Map-density awareness: for large maps like VNU HCM (where scale_ is
-    // small because a huge world area is fitted onto screen), lower the base
-    // detail scale so dense labels naturally hide at overview zoom levels,
-    // and reveal themselves when zooming in.
-    constexpr double kReferencePixelScale = 2.0;
-    if (scale_ > 0.0 && scale_ < kReferencePixelScale) {
-        const float densityFactor = std::clamp(
-            static_cast<float>(scale_ / kReferencePixelScale),
-            0.25f,
-            1.0f);
-        scale *= densityFactor;
-    }
-
-    return scale;
+    return scale * mapDetailFactor_;
 }
 
 sf::Color VisualizationEngine::mixColor(const sf::Color& a, const sf::Color& b, float t) {

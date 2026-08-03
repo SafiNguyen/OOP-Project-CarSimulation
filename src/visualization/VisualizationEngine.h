@@ -132,11 +132,10 @@ public:
     double getScale() const { return scale_; }
     std::uint64_t getRevision() const;
 
-    // Zoom-aware detail factor. Returns 1.0 at the default zoom level,
-    // >1.0 when zoomed in, and <1.0 when zoomed out. Overlay elements
-    // (POIs, bus stops, road names, traffic lights) use this to scale
-    // their on-screen size with the road/intersection they belong to and
-    // to hide entirely once the view is zoomed out past a threshold.
+    // Zoom-aware detail factor. Returns 1.0 at the default zoom level for
+    // normal maps, >1.0 when zoomed in, and <1.0 when zoomed out. Genuinely
+    // large graphs receive an additional density factor so their overlays
+    // can be reduced at overview zoom without degrading small maps.
     float getDetailScale(const sf::View& view) const;
 
 private:
@@ -223,6 +222,7 @@ private:
     bool roadNamesVisible_ = true;
     mutable LodLevel lodLevel_ = LodLevel::Full;
     LodMode lodMode_ = LodMode::Full;
+    float mapDetailFactor_ = 1.0f;
     std::uint64_t revision_ = 0;
 };
 

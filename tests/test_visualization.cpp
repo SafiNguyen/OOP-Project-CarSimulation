@@ -324,6 +324,25 @@ int main() {
         map4Image, sf::Color(35, 145, 230), 20);
     assert(map4Components >= 4);
 
+    // Regression: Medium LOD used to hide every functional map marker even
+    // though the lower Minimal tier still rendered compact versions. map4
+    // must retain its bus stops (and, through the same branch, stations,
+    // POIs and traffic lights) when LOD drops from Full to Medium.
+    map4Engine.setLodMode(VisualizationEngine::LodMode::Medium);
+    sf::View mediumView = map4Target.getDefaultView();
+    mediumView.zoom(2.0f);
+    map4Target.setView(mediumView);
+    map4Target.clear(sf::Color(30, 30, 30));
+    map4Engine.drawGraph(map4Target, map4Graph);
+    map4Target.display();
+    assert(map4Engine.getLodLevel() ==
+           VisualizationEngine::LodLevel::Medium);
+    const sf::Image map4MediumImage =
+        map4Target.getTexture().copyToImage();
+    const int map4MediumComponents = countColorComponents(
+        map4MediumImage, sf::Color(35, 145, 230), 1);
+    assert(map4MediumComponents >= 4);
+
     std::cout << "Visualization tests passed" << std::endl;
     return 0;
 }
