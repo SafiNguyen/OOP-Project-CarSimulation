@@ -1356,7 +1356,10 @@ void TrafficSimulator::update(double dt) {
                     step, graph, pathFindingStrategy, allowDynamicReroute);
 
                 if (statisticsManager) {
-                    statisticsManager->recordVehicleTravel(v->getId(), step);
+                    statisticsManager->recordVehicleTravel(
+                        v->getId(),
+                        step,
+                        v->getDistanceTravelledLastUpdateMetres());
                 }
             }
             auto end = std::chrono::high_resolution_clock::now();
@@ -1377,6 +1380,10 @@ void TrafficSimulator::update(double dt) {
     }
 
     leftoverDt = std::min(remaining, MAX_LEFTOVER_DT);
+
+    if (statisticsManager && graph && stepsRun > 0) {
+        statisticsManager->recordNetworkState(*graph, vehicles.size());
+    }
 
     tickCount++;
 

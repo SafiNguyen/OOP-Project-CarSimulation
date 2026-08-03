@@ -594,8 +594,8 @@ int main(int argc, char** argv) {
     std::vector<float> lodFrameTimes;
     lodFrameTimes.reserve(kLodWindowFrames);
     VisualizationEngine::LodLevel currentLod =
-        VisualizationEngine::LodLevel::Low;
-    visualization.setLodLevel(VisualizationEngine::LodLevel::Low);
+        VisualizationEngine::LodLevel::Full;
+    visualization.setLodLevel(VisualizationEngine::LodLevel::Full);
 
     while (window.isOpen()) {
         const float dt = clock.restart().asSeconds();
@@ -625,20 +625,18 @@ int main(int argc, char** argv) {
                 currentLod = visualization.getLodLevel();
 
                 if (averageFps < kLodDropFps &&
-                    currentLod !=
-                        VisualizationEngine::LodLevel::Low) {
-                    // Drop one step: Medium -> Low. (Full is never reached
-                    // in Auto mode, so no Full -> Medium transition here.)
-                    currentLod =
-                        VisualizationEngine::LodLevel::Low;
+                    currentLod != VisualizationEngine::LodLevel::Low) {
+                    // Drop one step: Medium -> Minimal -> Low.
+                    currentLod = currentLod == VisualizationEngine::LodLevel::Medium
+                        ? VisualizationEngine::LodLevel::Minimal
+                        : VisualizationEngine::LodLevel::Low;
                     visualization.setLodLevel(currentLod);
                 } else if (averageFps > kLodRestoreFps &&
-                           currentLod ==
-                               VisualizationEngine::LodLevel::Low) {
-                    // Escalate one step: Low -> Medium. Auto mode never
-                    // goes to Full -- that is reserved for manual selection.
-                    currentLod =
-                        VisualizationEngine::LodLevel::Medium;
+                           currentLod != VisualizationEngine::LodLevel::Medium) {
+                    // Restore one step: Low -> Minimal -> Medium.
+                    currentLod = currentLod == VisualizationEngine::LodLevel::Low
+                        ? VisualizationEngine::LodLevel::Minimal
+                        : VisualizationEngine::LodLevel::Medium;
                     visualization.setLodLevel(currentLod);
                 }
             } else {

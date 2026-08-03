@@ -67,6 +67,12 @@ Vehicle::~Vehicle() {
     }
 }
 
+void Vehicle::recordTravelDistance(double distanceMetres) {
+    if (std::isfinite(distanceMetres) && distanceMetres > 0.0) {
+        distanceTravelledLastUpdateMetres_ += distanceMetres;
+    }
+}
+
 
 
 bool Vehicle::hasReachedDestination() const {

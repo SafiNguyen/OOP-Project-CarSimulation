@@ -143,6 +143,29 @@ void VisualizationEngine::prepare(const Graph& graph) {
     const double scaleX = (windowSize_.x > 2 * margin_) ? (windowSize_.x - 2 * margin_) / rangeX : 1.0;
     const double scaleY = (windowSize_.y > 2 * margin_) ? (windowSize_.y - 2 * margin_) / rangeY : 1.0;
     scale_ = std::min(scaleX, scaleY);
+
+    // World-coordinate span alone is not a reliable measure of complexity:
+    // map4 covers several hundred units but contains only a few dozen roads.
+    // Use graph size to decide whether the imported-map scale and density
+    // adjustments apply, so small maps retain all functional markers.
+    constexpr std::size_t kDenseMapIntersectionThreshold = 500u;
+    constexpr std::size_t kDenseMapRoadThreshold = 750u;
+    const bool denseMap =
+        intersections.size() >= kDenseMapIntersectionThreshold ||
+        graph.getAllRoads().size() >= kDenseMapRoadThreshold;
+
+    // Preserve the denser visual weight introduced for large imported maps.
+    if (denseMap) {
+        scale_ *= 10.0;
+    }
+
+    mapDetailFactor_ = 1.0f;
+    if (denseMap && scale_ > 0.0 && scale_ < 2.0) {
+        mapDetailFactor_ = std::clamp(
+            static_cast<float>(scale_ / 2.0),
+            0.25f,
+            1.0f);
+    }
     const double availableWidth =
         std::max(
             0.0,
@@ -464,8 +487,6 @@ void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph&
     });
 
     drawSidewalks(target, graph);
-    // Driveways sit above the sidewalk but below the carriageway. Drawing
-    // them here lets the road surface cleanly mask their curb connection.
     drawPOIDriveways(target, graph);
 
     constexpr unsigned int kBorderMaskCellSize = 2; // 2x2 px cells
@@ -476,9 +497,20 @@ void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph&
 
     const std::vector<RoadDraw> drawList = buildRoadDrawList(graph);
 
-    // Pass 1: neutral road bodies. (Blocked-lane fills and congestion tint
-    // moved to drawDynamicLayer() - they depend on live simulation state.)
+    // Viewport cull for the static body/mask passes. Without this, roads
+    // far outside the current view (especially on large maps rendered at
+    // the >=500-intersection 10x scale bump) still pay the full cost of
+    // rasterizeBodyToMask's per-cell rectangle test over their entire
+    // screen-space AABB, which can stall the frame badly enough that the
+    // grey body layer effectively never finishes presenting.
+    const ViewportBounds staticViewportBounds(target.getView(), 2.0f);
+
+    // Pass 1: neutral road bodies.
     for (const RoadDraw& rd : drawList) {
+        if (!staticViewportBounds.intersectsSegment(
+                rd.offsetA, rd.offsetB, rd.totalWidth * 0.5f)) {
+            continue;
+        }
         drawRoadStrip(
             target,
             rd.offsetA,
@@ -489,18 +521,13 @@ void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph&
                             bodyMask, gridW, gridH, kBorderMaskCellSize);
     }
 
-    // Lane markings are intentionally NOT drawn here. They are drawn in
-    // drawDynamicLayer() after the heat-map overlay so the render order is:
-    //   1. gray road bodies
-    //   2. heat-map color block
-    //   3. lane markings
-    //   4. everything else
-    // This keeps the lane dividers, carriageway edges, and centreline
-    // visible on top of the congestion tint.
-
     // Pass 3: borders, skipping any chunk that lands on another road's body.
     for (const RoadDraw& rd : drawList) {
         if (!rd.hasBorder || rd.borderWidth <= 0.0f) {
+            continue;
+        }
+        if (!staticViewportBounds.intersectsSegment(
+                rd.offsetA, rd.offsetB, rd.borderWidth * 0.5f)) {
             continue;
         }
         drawRoadBorderMasked(target, rd.offsetA, rd.offsetB, rd.borderColor, rd.borderWidth,
@@ -534,15 +561,38 @@ void VisualizationEngine::drawStaticLayer(sf::RenderTarget& target, const Graph&
 
 
 void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph& graph) const {
+    const float detailScale = getDetailScale(target.getView());
+    float fullThreshold = 0.35f;
+    float mediumThreshold = 0.18f;
+    // Keep Minimal visible through almost the entire Full-mode zoom range.
+    float minimalThreshold = 0.008f;
+    if (lodMode_ == LodMode::Medium) {
+        fullThreshold = 0.70f;
+        mediumThreshold = 0.28f;
+        minimalThreshold = 0.08f;
+    } else if (lodMode_ == LodMode::Low) {
+        fullThreshold = 0.90f;
+        mediumThreshold = 0.55f;
+        minimalThreshold = 0.22f;
+    }
+    lodLevel_ = detailScale >= fullThreshold ? LodLevel::Full
+              : detailScale >= mediumThreshold ? LodLevel::Medium
+              : detailScale >= minimalThreshold ? LodLevel::Minimal
+              : LodLevel::Low;
     const bool fullDetail = lodLevel_ == LodLevel::Full;
+    const bool standardMarkers =
+        fullDetail || lodLevel_ == LodLevel::Medium;
 
-    // Zoom-aware overlays (POIs, bus stops, bus stations) are only drawn at
-    // Full LOD. At Medium/Low LOD they are skipped to keep the frame rate
-    // high on large maps. The zoom-aware getDetailScale() inside each
-    // function still hides them when zoomed out.
-    if (fullDetail) {
+    // Medium keeps the map's functional landmarks visible, but the overlay
+    // drawing routines omit expensive Full-only decoration such as traffic
+    // light countdown text. Minimal uses compact markers, while Low is the
+    // only tier that hides these overlays entirely.
+    if (standardMarkers) {
         drawBusStops(target, graph);
         drawBusStations(target, graph);
+        drawPOIs(target, graph);
+    } else if (lodLevel_ == LodLevel::Minimal) {
+        drawBusStops(target, graph);
         drawPOIs(target, graph);
     }
 
@@ -589,15 +639,14 @@ void VisualizationEngine::drawDynamicLayer(sf::RenderTarget& target, const Graph
     //   5. vehicles (drawn in renderFrame)
     drawLaneMarkings(target, buildRoadDrawList(graph));
 
-    // Traffic lights are only drawn at Full LOD.
-    if (fullDetail) {
+    // Medium and Minimal both retain signals (without Full-only countdown
+    // text); Low is the only tier that hides them.
+    if (lodLevel_ != LodLevel::Low) {
         drawTrafficLights(target, graph);
     }
 
-    // Road names drawn last so they appear on top of the heatmap overlay
-    // and remain readable when heat map mode is active. Always drawn (with
-    // zoom-based hiding inside drawRoadNames).
-    {
+    // Road names are optional from the Overview panel.
+    if (roadNamesVisible_) {
         auto roads = graph.getAllRoads();
         drawRoadNames(target, roads);
     }
@@ -742,6 +791,14 @@ bool VisualizationEngine::isHeatMapEnabled() const {
     return heatMapEnabled_;
 }
 
+void VisualizationEngine::setRoadNamesVisible(bool visible) {
+    roadNamesVisible_ = visible;
+}
+
+bool VisualizationEngine::areRoadNamesVisible() const {
+    return roadNamesVisible_;
+}
+
 void VisualizationEngine::setLodLevel(LodLevel level) {
     if (lodLevel_ == level) {
         return;
@@ -755,13 +812,6 @@ VisualizationEngine::LodLevel VisualizationEngine::getLodLevel() const {
 
 void VisualizationEngine::setLodMode(LodMode mode) {
     lodMode_ = mode;
-    if (mode == LodMode::Full) {
-        setLodLevel(LodLevel::Full);
-    } else if (mode == LodMode::Medium) {
-        setLodLevel(LodLevel::Medium);
-    } else if (mode == LodMode::Low) {
-        setLodLevel(LodLevel::Low);
-    }
 }
 
 VisualizationEngine::LodMode VisualizationEngine::getLodMode() const {

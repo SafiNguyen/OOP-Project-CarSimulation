@@ -178,6 +178,7 @@ struct TrafficEventSnapshot {
 struct StatisticsSnapshot {
     std::unordered_map<std::string, AlgorithmMetric> algorithmMetrics;
     std::unordered_map<int, TravelMetric> travelMetrics;
+    NetworkMetric networkMetric;
     double totalSimulatedTime = 0.0;
     long long totalRecalculations = 0;
     long long tickCounter = 0;
