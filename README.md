@@ -660,24 +660,54 @@ UrbanTrafficSimulator/
 
 > All C++ dependencies (SFML 2.6.1, nlohmann_json 3.11.3, Dear ImGui 1.89.9, imgui-sfml 2.6) are fetched and built automatically by CMake — no manual `vcpkg`/`conan` install is required.
 
-### Step-by-step build
+### Downloading the anonymous submission
 
-```bash
-# 1. Clone the repository
-git clone <repository-url>
-cd OOP-Project-CarSimulation
+Anonymous reviewers do not need a Git clone URL:
 
-# 2. Configure (downloads & configures SFML / imgui / nlohmann_json on first run)
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+1. Open the [anonymous repository page](https://anonymous.4open.science/r/OOP-Project-CarSimulation-4B82/README.md).
+2. Click **Full repo ZIP** near the top of the page.
+3. Extract the downloaded ZIP.
+4. Open a terminal in the extracted folder — the correct folder directly contains `CMakeLists.txt`, `README.md`, `src/`, and `tests/`.
 
-# 3. Build everything (main executable + test binaries)
+Do not run the build from inside `src/` or `tests/`. Keep an internet connection available during the first configure: CMake downloads the four C++ dependencies automatically.
+
+### Build on Windows (Visual Studio)
+
+Install **Visual Studio 2019 or newer** (Visual Studio Build Tools is also sufficient) with the **Desktop development with C++** workload. Then run these commands in PowerShell or Command Prompt from the extracted repository folder:
+
+```powershell
+# Configure and download dependencies
+cmake -S . -B build
+
+# Build the application and all test programs
 cmake --build build --config Release
 
-# 4. Run all 8 registered tests
+# Verify the build: all 8 tests should pass
 ctest --test-dir build -C Release --output-on-failure
+
+# Start the simulator with the included default map
+.\build\bin\Release\UrbanTrafficSimulator.exe map4.json
 ```
 
-`-DCMAKE_BUILD_TYPE=Release` is used by single-configuration generators such as Makefiles and Ninja. Visual Studio uses the `--config Release` / `-C Release` arguments instead.
+### Build on Linux or macOS
+
+After installing the platform prerequisites listed above, run these commands from the extracted repository folder:
+
+```bash
+# Configure and download dependencies
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+# Build the application and all test programs
+cmake --build build --parallel
+
+# Verify the build: all 8 tests should pass
+ctest --test-dir build --output-on-failure
+
+# Start the simulator with the included default map
+./build/bin/UrbanTrafficSimulator map4.json
+```
+
+A successful test run ends with `100% tests passed, 0 tests failed out of 8`. The first build may take several minutes because SFML, Dear ImGui, imgui-sfml, and nlohmann/json are downloaded and compiled. CMake deprecation warnings from these dependencies do not prevent the project from building.
 
 ### Running the simulator
 
@@ -691,7 +721,7 @@ Run these commands from the repository root so relative map paths are unambiguou
 .\build\bin\Release\UrbanTrafficSimulator.exe map4.json
 ```
 
-With no map argument, the application also defaults to `map4.json`. To use the small graph compiled into the program, open **Control Center → Map → Demo Map**. If an external map is missing or invalid, the application reports the error and falls back to this built-in graph.
+Passing `map4.json` explicitly loads the included default submission map. With no map argument, the application starts with the small graph compiled into the program. You can also load that graph from **Control Center → Map → Demo Map**. If an external map is missing or invalid, the application reports the error and falls back to the built-in graph.
 
 For non-interactive visual QA, the same executable can render one PNG and exit:
 

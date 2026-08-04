@@ -1,104 +1,181 @@
-# Experiment Results — Stress Test & Algorithm Comparison
+# Experiment Results: Pathfinding and Simulation Stress Tests
 
-**Người thực hiện:** TV2 – Data Analyst
-**Ngày:** Chủ Nhật (tuần build cuối)
-**File nguồn:** `tests/stress_test.cpp` (chương trình benchmark độc lập, không phụ thuộc SFML)
-**Dữ liệu thô:** `bench_results.csv`, `throughput_results.csv`
+## Overview
 
-## 1. Mục tiêu
+This document evaluates three route-planning strategies used by the Urban Traffic Simulator:
 
-Theo kế hoạch tuần, nhiệm vụ hôm nay là:
+- **BFS**, which minimizes the number of roads in a route.
+- **Dijkstra**, which minimizes the configured travel-time cost and accounts for congestion.
+- **A-star**, which uses the same cost model as Dijkstra together with an admissible heuristic to reduce the search space.
 
-- Sinh 100 → 1000 xe, đo hiệu năng hệ thống.
-- So sánh BFS / Dijkstra / A* trong điều kiện giao thông bình thường **và** kẹt xe nặng.
-- Tổng hợp bảng/biểu đồ làm nguyên liệu cho phần "Experimentation" của báo cáo cuối kỳ.
+The experiments address two questions:
 
-Vì bản đồ legacy 5 intersection / 6 road quá nhỏ để thấy khác biệt rõ giữa các thuật toán ở quy mô 1000 xe, bài đo dùng **hai bản đồ**:
+1. How do BFS, Dijkstra, and A-star compare in computation time, search effort, route cost, and route availability?
+2. How does the simulation core scale from 100 to 1,000 active vehicles when rendering is excluded?
 
-1. **RealMap** — bản đồ legacy 5 intersection / 6 road được nhúng trực tiếp trong `stress_test.cpp`, dùng để xác nhận hành vi trên đồ thị nhỏ.
-2. **Grid20x20** — lưới tổng hợp 20×20 (400 intersection, ~1520 road một chiều) sinh riêng cho stress test, để có đủ "không gian" cho 1000 cặp điểm đi/đến khác nhau và số liệu có ý nghĩa thống kê.
+The committed experiment artifacts are:
 
-Hai kịch bản giao thông:
-- **Normal**: `congestionLevel = 1.0` toàn bộ, không road nào bị chặn.
-- **Heavy**: ~35% road bị gán `congestionLevel` ngẫu nhiên 3.0–6.0, ~5% road bị `blockRoad()` (mô phỏng tai nạn/đóng đường).
+- [Pathfinding measurements](bench_results.csv)
+- [Simulation-throughput measurements](throughput_results.csv)
+- [Benchmark harness](stress_test.cpp)
+- [Chart-generation script](make_charts.py)
 
-Mỗi thuật toán được benchmark bằng đúng cơ chế đo mà TV2 đã viết ở `StatisticsManager::measurePathfinding()` (dùng `std::chrono::steady_clock`), gọi trực tiếp `findPath()` cho từng cặp start/goal — không đi qua `TrafficSimulator`, đúng như thiết kế "benchmark độc lập" của Thứ 5.
+All values reported below come directly from the two committed CSV files.
 
-## 2. Thời gian tính toán trung bình mỗi lần `findPath()`
+## 1. Experimental Setup
 
-![Compute time per pathfinding call](chart_time_grid.png)
+### 1.1 Test graphs
 
-Trên bản đồ lưới 20×20:
+Two directed graphs were used:
 
-| Thuật toán | Normal (n=1000) | Heavy (n=1000) |
-|---|---|---|
+| Graph | Size | Purpose |
+|---|---:|---|
+| Five-node map | 5 intersections, 6 roads | A small sanity-check graph embedded in the benchmark harness |
+| Synthetic 20×20 grid | 400 intersections, approximately 1,520 directed roads | A larger search space suitable for comparing the algorithms at 100, 500, and 1,000 route requests |
+
+The synthetic grid contains a directed road in each direction between adjacent cells. It is an artificial benchmark graph and is not one of the JSON maps used by the interactive application.
+
+### 1.2 Traffic scenarios
+
+Each graph was evaluated under two conditions:
+
+- **Normal:** every road has a congestion multiplier of 1.0 and no additional road is blocked.
+- **Heavy:** approximately 35% of roads receive a congestion multiplier between 3.0 and 6.0, and approximately 5% are blocked.
+
+The benchmark uses the fixed random seed `2026`. This makes a complete run deterministic. However, the origin/destination pairs and heavy-traffic configuration are regenerated for each request count. Comparisons across 100, 500, and 1,000 requests therefore include both workload-size and scenario differences.
+
+### 1.3 Measurements
+
+For each origin/destination pair, the harness calls the selected strategy's `findPath()` method through `StatisticsManager::measurePathfinding()`, which uses `std::chrono::steady_clock`.
+
+The recorded pathfinding metrics are:
+
+- average computation time per call;
+- average number of intersections explored;
+- number of routes found and not found;
+- average path cost.
+
+For Dijkstra and A-star, path cost represents the travel-time cost used by the routing model. BFS minimizes road count, so its path-cost values are hop counts and should not be compared numerically with the time-based costs of Dijkstra or A-star.
+
+The throughput experiment creates 100, 500, or 1,000 vehicles on the 20×20 grid, uses A-star routing, and measures 300 consecutive calls to `TrafficSimulator::update()`. It excludes SFML rendering, UI processing, and draw calls. The reported “logic ticks per second” measure core simulation throughput, not visible application frame rate.
+
+## 2. Pathfinding Computation Time
+
+![Average pathfinding time for the synthetic grid](chart_time_grid.png)
+
+The following table shows the 1,000-request result on the synthetic grid:
+
+| Algorithm | Normal | Heavy |
+|---|---:|---:|
 | BFS | 0.0376 ms | 0.0395 ms |
 | Dijkstra | 0.0840 ms | 0.0996 ms |
-| A* | 0.0606 ms | 0.0738 ms |
+| A-star | 0.0606 ms | 0.0738 ms |
 
-BFS luôn nhanh nhất vì chỉ đếm số hop, bỏ qua chi phí cạnh (ngoại trừ road bị `blocked` — vẫn bị loại). Dijkstra chậm nhất vì duyệt đầy đủ theo chi phí thời gian thật. A* nằm giữa: chậm hơn BFS (phải tính heuristic + duy trì gScore) nhưng nhanh hơn Dijkstra đáng kể nhờ heuristic Euclidean cắt bớt không gian tìm kiếm.
+BFS is the fastest because it minimizes hop count and does not evaluate the weighted travel-time objective. Dijkstra is the slowest because it explores the weighted graph without heuristic guidance. At 1,000 requests, A-star is approximately **27.8% faster than Dijkstra under normal traffic** and **25.9% faster under heavy traffic**.
 
-## 3. Số intersection duyệt qua trung bình (hiệu quả thuật toán)
+The 100-request timings are less stable than the larger samples and include start-up and short-run measurement effects. The 1,000-request rows provide the more useful comparison. Absolute times are machine-dependent; the relative behavior is the main result.
 
-![Nodes explored per call](chart_nodes_grid.png)
+## 3. Search Effort
 
-| Thuật toán | Normal (n=1000) | Heavy (n=1000) |
-|---|---|---|
-| BFS | 182.2 | 182.7 |
-| Dijkstra | 200.5 | 201.2 |
-| A* | 69.7 | 84.4 |
+![Average intersections explored per route request](chart_nodes_grid.png)
 
-Đây là số liệu rõ ràng nhất cho thấy lợi ích của A*: **so với Dijkstra, A* duyệt ít hơn ~65% số intersection** để tìm đường tối ưu như nhau (heuristic admissible nên A* vẫn cho `totalCost` giống hệt Dijkstra — có thể kiểm chứng trong `bench_results.csv`, cột `avgPathCost` bằng nhau giữa hai thuật toán ở mọi dòng). Khi kẹt xe nặng, A* phải duyệt thêm vì heuristic (dựa trên tốc độ tối đa lý thuyết) trở nên kém sát với chi phí thật hơn — nhưng vẫn duyệt ít hơn Dijkstra khoảng 2.4 lần.
+At 1,000 route requests:
 
-## 4. Khả năng tìm được đường khi kẹt xe nặng (trên RealMap thật)
+| Algorithm | Normal | Heavy |
+|---|---:|---:|
+| BFS | 182.2 intersections | 182.7 intersections |
+| Dijkstra | 200.5 intersections | 201.2 intersections |
+| A-star | 69.7 intersections | 84.4 intersections |
 
-![Route availability real map](chart_realmap_found.png)
+A-star explores substantially fewer intersections than Dijkstra while returning the same average weighted path cost. Relative to Dijkstra, A-star explores approximately **65.2% fewer intersections under normal traffic** and **58.0% fewer under heavy traffic**.
 
-Trên bản đồ legacy, road duy nhất nối `5 → 3` (id 106) vốn đã bị đánh dấu `blocked`. Khi mô phỏng "Heavy" (random block thêm ~5% road trên đồ thị chỉ có 6 road), có kịch bản ngẫu nhiên khiến road `2 → 5` (id 105) — con đường duy nhất dẫn tới node 5 — cũng bị chặn, khiến **45% cặp start/goal không còn đường đi** ở cả 3 thuật toán như nhau (found=55/100). Điều này minh họa đúng tính chất: **BFS/Dijkstra/A* đều là thuật toán đúng đắn (correct)** — khi đồ thị thực sự mất kết nối, không thuật toán nào "tìm ra đường" được, khác biệt giữa chúng chỉ nằm ở *tốc độ* và *chất lượng lộ trình* (chi phí), không phải ở việc có tìm ra hay không.
+The reduction is smaller in the heavy scenario because congestion and blocked roads make the geometric heuristic less representative of the final travel-time cost. Even so, A-star retains a clear search-effort advantage.
 
-## 5. Chi phí lộ trình tìm được (đường có bị "xấu đi" khi kẹt xe không?)
+## 4. Route Availability on the Five-Node Graph
 
-Trên RealMap, so `avgPathCost` giữa Normal và Heavy (n=1000):
+![Routes found on the five-node graph under heavy traffic](chart_realmap_found.png)
 
-| Thuật toán | Normal | Heavy | Chênh lệch |
-|---|---|---|---|
-| BFS | 2.22 (đơn vị: số hop) | 2.22 | không đổi — BFS không quan tâm chi phí |
-| Dijkstra | 4.75 s | 11.61 s | **+144%** |
-| A* | 4.75 s | 11.61 s | **+144%** |
+| Route requests | BFS | Dijkstra | A-star |
+|---:|---:|---:|---:|
+| 100 | 55% | 55% | 55% |
+| 500 | 100% | 100% | 100% |
+| 1,000 | 100% | 100% | 100% |
 
-BFS luôn chọn đường ít hop nhất bất kể kẹt xe (nó không nhìn thấy congestion), nên chi phí thời gian thật của lộ trình BFS chọn có thể tệ hơn nhiều so với Dijkstra/A* trong điều kiện kẹt xe — đây là lý do dự án dùng Dijkstra làm "Congestion-aware" router mặc định cho việc routing thật, còn BFS chỉ dùng để tham khảo/so sánh.
+The graph-construction helper initially marks one road as blocked, but the benchmark resets every road before applying each scenario. In the 100-request heavy scenario, the deterministic random configuration blocks a critical connection, leaving only 55 of 100 sampled origin/destination pairs reachable. The heavy configurations generated for the 500- and 1,000-request cases do not disconnect the sampled routes.
 
-## 6. Thông lượng mô phỏng (Simulation Throughput / "logic FPS")
+All three algorithms report the same route availability for a given graph state. This is expected: algorithm choice changes the objective and search efficiency, but it cannot create a route when the directed graph is disconnected.
 
-![Simulation throughput](chart_throughput.png)
+Because a new heavy configuration is generated for each request count, this chart should not be interpreted as evidence that adding requests improves connectivity. It documents three deterministic benchmark cases with different randomized road conditions.
 
-Đo bằng cách chạy `TrafficSimulator::update(dt)` 300 tick liên tiếp (không vẽ, không SFML) với số xe tăng dần trên lưới 20×20, dùng A* làm chiến lược định tuyến mặc định:
+## 5. Weighted Route Cost
 
-| Số xe | Thời gian trung bình / tick | Thông lượng logic (tick/giây) |
-|---|---|---|
-| 100 | 0.0035 ms | ~284,000 |
-| 500 | 0.0092 ms | ~109,000 |
-| 1000 | 0.0183 ms | ~54,500 |
+For 1,000 requests on the five-node graph:
 
-Thông lượng giảm gần tuyến tính theo số xe (đúng như kỳ vọng vì mỗi tick lặp qua toàn bộ danh sách `vehicles`). Ở mức 1000 xe, phần lõi logic vẫn xử lý được **~54,500 tick/giây** — nói cách khác, so với khung hình 60 FPS mà SFML cần, phần `TrafficSimulator::update()` chỉ tốn khoảng **0.018 ms trong ngân sách 16.6 ms mỗi khung hình** (~0.1%). Kết luận: **nếu FPS thực tế của bản build SFML bị tụt ở 1000 xe, nguyên nhân gần như chắc chắn nằm ở phần vẽ (`VisualizationEngine` / `VehicleSprite` / SFML draw calls), không phải ở lõi mô phỏng `StatisticsManager`/`TrafficSimulator`.** Đây là thông tin quan trọng để báo lại cho TV3/TV4 nếu buổi stress test bằng SFML thật (sinh 50 xe ở bản Thứ 7) cho thấy tụt FPS.
+| Algorithm | Normal | Heavy | Change |
+|---|---:|---:|---:|
+| BFS | 2.22 hops | 2.22 hops | No change in hop count |
+| Dijkstra | 4.75 s | 11.61 s | +144% |
+| A-star | 4.75 s | 11.61 s | +144% |
 
-## 7. Tóm tắt khuyến nghị cho báo cáo cuối kỳ
+Dijkstra and A-star produce the same average weighted cost in every corresponding row of the committed results. This supports the intended behavior: A-star reduces search effort without changing the optimum found under the shared cost model.
 
-- **BFS**: nhanh nhất, đúng nếu mục tiêu là "ít giao lộ nhất", nhưng bỏ qua hoàn toàn tốc độ/kẹt xe → không phù hợp làm router mặc định cho xe thường.
-- **Dijkstra**: chính xác về chi phí thời gian thật, có tính đến congestion, nhưng duyệt nhiều node nhất → chậm nhất trong 3 thuật toán.
-- **A***: giữ được độ chính xác như Dijkstra (cùng `avgPathCost`) nhưng duyệt ít hơn 55–65% số node nhờ heuristic Euclidean/maxSpeed → lựa chọn cân bằng tốt nhất, đúng như lý do dự án đang dùng A* làm mặc định trong `main.cpp` và `TrafficSimulator`.
-- Lõi mô phỏng (`StatisticsManager` + `TrafficSimulator`) không phải là nút thắt cổ chai ở quy mô 1000 xe — có thể yên tâm khi TV4 chạy stress test FPS với SFML thật.
+BFS values use a different unit and objective. Its unchanged hop count does not mean that the chosen route has unchanged real travel time; BFS does not optimize for congestion.
 
-## 8. Cách tái tạo kết quả
+## 6. Core Simulation Throughput
+
+![Core simulation throughput without rendering](chart_throughput.png)
+
+| Active vehicles | Average time per logic tick | Logic ticks per second |
+|---:|---:|---:|
+| 100 | 0.0035 ms | 284,425 |
+| 500 | 0.0092 ms | 109,216 |
+| 1,000 | 0.0183 ms | 54,550 |
+
+Core-update cost increases approximately with the number of active vehicles. At 1,000 vehicles, the measured update takes about **0.018 ms**, roughly **0.11% of a 16.67 ms frame budget at 60 FPS**.
+
+This result indicates that the measured simulation-update loop is inexpensive in this benchmark. It does **not** prove that the complete graphical application will maintain 60 FPS at 1,000 vehicles: rendering, sprite management, UI work, GPU/driver overhead, and the graphics environment are excluded from this test.
+
+## 7. Conclusions
+
+- **BFS** has the lowest computation time when the objective is the fewest road segments, but it does not optimize travel time or congestion.
+- **Dijkstra** finds the optimal congestion-aware route under the configured cost model, but explores the most intersections in these experiments.
+- **A-star** matches Dijkstra's weighted route cost while exploring substantially fewer intersections and completing faster on the 20×20 grid.
+- Blocked roads affect route availability equally for all three correct algorithms.
+- The measured core simulation loop scales comfortably to 1,000 vehicles, but graphical frame rate must be evaluated separately.
+
+For this project, A-star offers the strongest balance between weighted-route quality and search efficiency. Dijkstra remains a useful reference for validating optimal cost, while BFS provides a simple unweighted baseline.
+
+## 8. Reproducing and Auditing the Results
+
+### Regenerate the charts
+
+The charts can be recreated from the committed CSV files without rerunning the benchmark:
 
 ```bash
-g++ -std=c++17 -O2 -Isrc tests/stress_test.cpp \
-  src/model/Graph.cpp src/model/Intersection.cpp src/model/Road.cpp src/model/Vehicle.cpp \
-  src/algorithm/BFSStrategy.cpp src/algorithm/DijkstraStrategy.cpp src/algorithm/AStarStrategy.cpp \
-  src/simulation/StatisticsManager.cpp src/simulation/EventManager.cpp src/simulation/TrafficSimulator.cpp \
-  -o stress_test
-./stress_test
-python3 make_charts.py   # cần pandas + matplotlib
+cd docs
+python3 -m pip install pandas matplotlib
+python3 make_charts.py
 ```
 
-File `tests/stress_test.cpp` không phụ thuộc SFML/imgui nên build cực nhanh và có thể chạy trên máy bất kỳ thành viên nào để double-check số liệu trước khi đưa vào báo cáo.
+On Windows, use `python` instead of `python3` if that is the name of the installed Python command.
+
+The script writes:
+
+- `chart_time_grid.png`
+- `chart_nodes_grid.png`
+- `chart_realmap_found.png`
+- `chart_throughput.png`
+
+### Inspect the benchmark
+
+The benchmark implementation is available in [`docs/stress_test.cpp`](stress_test.cpp). It records the deterministic seed, graph construction, traffic randomization, metric collection, and CSV output format.
+
+The benchmark harness is not registered as a target in the project's standard `CMakeLists.txt`. Therefore, the normal application build and its eight CTest tests do not rerun this experiment automatically. Reviewers can audit the method and regenerate every chart from the committed raw data without modifying the project build.
+
+## 9. Limitations
+
+- Timing results depend on compiler settings, hardware, operating system, and background load.
+- The benchmark records one deterministic run rather than confidence intervals from repeated independent runs.
+- Heavy-traffic road conditions are regenerated for each request count, so scaling comparisons are not performed on an identical graph state.
+- The 20×20 graph is synthetic and does not represent every structural property of the included city maps.
+- The throughput result excludes rendering and should not be reported as application FPS.
